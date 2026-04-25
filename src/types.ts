@@ -1,23 +1,109 @@
-export type Role = "system" | "user" | "assistant";
+export type Role = "system" | "user" | "assistant" | "tool";
+
+export interface ToolCallSpec {
+	id: string;
+	type: "function";
+	function: { name: string; arguments: string };
+}
 
 export interface ChatMessage {
 	role: Role;
 	content: string;
+	tool_calls?: ToolCallSpec[];
+	tool_call_id?: string;
+	name?: string;
 }
 
-export interface TextDelta {
-	text: string;
-	degraded?: boolean;
+export interface AssembledToolCall {
+	id: string;
+	name: string;
+	arguments: unknown;
+	rawArguments: string;
 }
+
+export type StreamEvent =
+	| { kind: "text"; text: string; degraded?: boolean }
+	| { kind: "tool_call_assembled"; calls: AssembledToolCall[]; degraded?: boolean }
+	| { kind: "done"; finishReason: "stop" | "tool_calls" | "length" | "content_filter" | "unknown" };
 
 export interface StreamOptions {
 	signal?: AbortSignal;
+	tools?: OpenAiToolSpec[];
+}
+
+export interface OpenAiToolSpec {
+	type: "function";
+	function: {
+		name: string;
+		description: string;
+		parameters: JsonSchema;
+	};
 }
 
 export interface ModelProvider {
-	stream(messages: ChatMessage[], opts?: StreamOptions): AsyncIterable<TextDelta>;
+	stream(messages: ChatMessage[], opts?: StreamOptions): AsyncIterable<StreamEvent>;
 }
 
+// JSON Schema (subset we support)
+export interface JsonSchemaProperty {
+	type: "string" | "number" | "integer" | "boolean" | "object" | "array";
+	description?: string;
+	enum?: readonly unknown[];
+	items?: JsonSchemaProperty;
+	properties?: Record<string, JsonSchemaProperty>;
+	required?: string[];
+	default?: unknown;
+	minimum?: number;
+	maximum?: number;
+	minLength?: number;
+	maxLength?: number;
+}
+
+export interface JsonSchema {
+	type: "object";
+	properties: Record<string, JsonSchemaProperty>;
+	required?: string[];
+	additionalProperties?: boolean;
+}
+
+// Tool definitions
+export type ToolCategory = "vault_read" | "vault_write";
+
+export type ToolResult =
+	| { ok: true; value: unknown }
+	| { ok: false; error: string; details?: unknown };
+
+export interface ToolContext {
+	signal?: AbortSignal;
+}
+
+export interface ToolDef<TArgs = unknown> {
+	name: string;
+	description: string;
+	schema: JsonSchema;
+	category: ToolCategory;
+	mutates: boolean;
+	run(args: TArgs, ctx: ToolContext): Promise<ToolResult>;
+}
+
+// Consent
+export type ConsentMode = "always" | "ask" | "never";
+
+export interface ConsentDecision {
+	approved: boolean;
+	approveAllSession?: boolean;
+}
+
+// Loop events
+export type LoopEvent =
+	| { kind: "text"; text: string; degraded?: boolean }
+	| { kind: "tool_call_started"; id: string; name: string; args: unknown; mutates: boolean }
+	| { kind: "consent_requested"; id: string; name: string }
+	| { kind: "tool_call_finished"; id: string; result: ToolResult }
+	| { kind: "cap_hit" }
+	| { kind: "done" };
+
+// Errors
 export class AuthError extends Error {
 	constructor(message = "Authentication failed") {
 		super(message);
@@ -45,5 +131,14 @@ export class ProviderError extends Error {
 		super(message);
 		this.name = "ProviderError";
 		this.status = status;
+	}
+}
+
+export class ToolCallParseError extends Error {
+	readonly toolCallId: string;
+	constructor(toolCallId: string, message = "Failed to parse tool call arguments") {
+		super(message);
+		this.name = "ToolCallParseError";
+		this.toolCallId = toolCallId;
 	}
 }

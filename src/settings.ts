@@ -1,5 +1,7 @@
 import { App, PluginSettingTab, Setting } from "obsidian";
 import type AiAgentPlugin from "./main";
+import { DEFAULT_CONSENT, type ConsentSettings } from "./consent/manager";
+import type { ConsentMode } from "./types";
 
 export type ProviderId = "openai-compatible";
 
@@ -9,6 +11,7 @@ export interface PluginSettings {
 	apiKey: string;
 	model: string;
 	systemPrompt: string;
+	consent: ConsentSettings;
 }
 
 export const DEFAULT_SETTINGS: PluginSettings = {
@@ -17,6 +20,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
 	apiKey: "",
 	model: "gpt-4o-mini",
 	systemPrompt: "",
+	consent: { ...DEFAULT_CONSENT },
 };
 
 export function isConfigured(s: PluginSettings): boolean {
@@ -35,16 +39,22 @@ export class AiAgentSettingsTab extends PluginSettingTab {
 		const { containerEl } = this;
 		containerEl.empty();
 
-		const notice = containerEl.createEl("div", { cls: "ai-agent-notice" });
-		notice.createEl("strong", { text: "Key storage: " });
-		notice.appendText(
+		const keyNotice = containerEl.createEl("div", { cls: "ai-agent-notice" });
+		keyNotice.createEl("strong", { text: "Key storage: " });
+		keyNotice.appendText(
 			"your API key is stored in this plugin's data file (`.obsidian/plugins/ai-agent/data.json`). " +
 				"If you sync that folder via Obsidian Sync or another sync tool, the key travels with it.",
 		);
 
+		const vaultNotice = containerEl.createEl("div", { cls: "ai-agent-notice" });
+		vaultNotice.createEl("strong", { text: "Data sent to model endpoint: " });
+		vaultNotice.appendText(
+			"with tools enabled, the agent may transmit note bodies, paths, frontmatter, and tags to the model endpoint you've configured. Choose endpoints you trust.",
+		);
+
 		new Setting(containerEl)
 			.setName("Provider")
-			.setDesc("M0 ships with a single OpenAI-compatible provider. More providers arrive in later milestones.")
+			.setDesc("M1 ships a single OpenAI-compatible provider. More providers arrive in later milestones.")
 			.addDropdown((drop) => {
 				drop.addOption("openai-compatible", "OpenAI-compatible");
 				drop.setValue(this.plugin.settings.provider);
@@ -106,5 +116,33 @@ export class AiAgentSettingsTab extends PluginSettingTab {
 						await this.plugin.saveSettings();
 					}),
 			);
+
+		containerEl.createEl("h3", { text: "Tool consent" });
+
+		this.consentDropdown(containerEl, "Read tools", "vault_read");
+		this.consentDropdown(containerEl, "Write tools", "vault_write");
+	}
+
+	private consentDropdown(parent: HTMLElement, label: string, key: keyof ConsentSettings): void {
+		new Setting(parent)
+			.setName(label)
+			.setDesc(this.consentDesc(key))
+			.addDropdown((drop) => {
+				drop.addOption("always", "Always allow");
+				drop.addOption("ask", "Ask each time");
+				drop.addOption("never", "Never allow");
+				drop.setValue(this.plugin.settings.consent[key]);
+				drop.onChange(async (v) => {
+					this.plugin.settings.consent[key] = v as ConsentMode;
+					await this.plugin.saveSettings();
+				});
+			});
+	}
+
+	private consentDesc(key: keyof ConsentSettings): string {
+		if (key === "vault_read") {
+			return "Reads (list, read, search, metadata, links). Default: Always.";
+		}
+		return "Writes (write, append, edit). Default: Ask. Choose 'Never' to disable mutating tools entirely.";
 	}
 }
