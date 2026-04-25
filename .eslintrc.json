@@ -1,0 +1,23 @@
+{
+  "root": true,
+  "parser": "@typescript-eslint/parser",
+  "parserOptions": { "sourceType": "module", "ecmaVersion": 2022 },
+  "plugins": ["@typescript-eslint"],
+  "extends": ["eslint:recommended", "plugin:@typescript-eslint/recommended"],
+  "rules": {
+    "no-restricted-imports": [
+      "error",
+      {
+        "paths": [
+          { "name": "child_process", "message": "Node-only — breaks mobile. Use platform check + lazy import in desktop-only code." },
+          { "name": "fs", "message": "Node-only — breaks mobile. Use Obsidian's `app.vault` API." },
+          { "name": "fs/promises", "message": "Node-only — breaks mobile. Use Obsidian's `app.vault` API." },
+          { "name": "path", "message": "Node-only — breaks mobile. Use Obsidian's `normalizePath` helper." },
+          { "name": "os", "message": "Node-only — breaks mobile." },
+          { "name": "crypto", "message": "Node-only — breaks mobile. Use Web Crypto (`globalThis.crypto`)." }
+        ]
+      }
+    ],
+    "@typescript-eslint/no-unused-vars": ["warn", { "argsIgnorePattern": "^_" }]
+  }
+}

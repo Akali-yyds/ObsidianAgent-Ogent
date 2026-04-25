@@ -1,0 +1,9 @@
+node_modules/
+main.js
+main.js.map
+*.log
+.DS_Store
+.idea/
+.vscode/
+data.json
+.claude/settings.local.json

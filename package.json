@@ -1,0 +1,23 @@
+{
+  "name": "obsidian-ai-agent",
+  "version": "0.0.1",
+  "description": "AI agent inside Obsidian — vault-aware, MCP-capable, BYOK, cross-platform.",
+  "main": "main.js",
+  "scripts": {
+    "dev": "node esbuild.config.mjs",
+    "build": "node esbuild.config.mjs production",
+    "lint": "eslint --ext .ts src"
+  },
+  "keywords": ["obsidian-plugin", "ai", "agent", "mcp"],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@typescript-eslint/eslint-plugin": "^7.0.0",
+    "@typescript-eslint/parser": "^7.0.0",
+    "esbuild": "^0.20.0",
+    "eslint": "^8.57.0",
+    "obsidian": "latest",
+    "typescript": "^5.4.0"
+  }
+}
