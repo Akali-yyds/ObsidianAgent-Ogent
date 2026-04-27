@@ -35,9 +35,11 @@ export default class OpenAgentPlugin extends Plugin {
 			return view;
 		});
 
+		this.addRibbonIcon("bot", "OpenAgent", () => this.activateView());
+
 		this.addCommand({
 			id: "open-agent",
-			name: "OpenAgent: Open panel",
+			name: "Open panel",
 			callback: () => this.activateView(),
 		});
 
