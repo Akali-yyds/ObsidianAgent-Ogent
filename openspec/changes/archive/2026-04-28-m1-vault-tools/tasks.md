@@ -96,6 +96,6 @@
 
 ## 12. Wrap-up
 
-- [ ] 12.1 `openspec validate m1-vault-tools`
-- [ ] 12.2 Tag a `v0.1.0` release commit
-- [ ] 12.3 `openspec archive m1-vault-tools`
+- [x] 12.1 `openspec validate m1-vault-tools`
+- [x] 12.2 Tag a `v0.1.0` release commit
+- [x] 12.3 `openspec archive m1-vault-tools`
