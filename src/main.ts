@@ -1,14 +1,14 @@
 import { Notice, Plugin, TFile, WorkspaceLeaf } from "obsidian";
 import { ConsentManager } from "./consent/manager";
 import { UndoBuffer } from "./consent/undo";
-import { AiAgentSettingsTab, DEFAULT_SETTINGS, type PluginSettings } from "./settings";
+import { OpenAgentSettingsTab, DEFAULT_SETTINGS, type PluginSettings } from "./settings";
 import { ToolRegistry } from "./tools/registry";
 import { vaultTools } from "./tools/vault";
 import { CHAT_VIEW_TYPE, ChatView } from "./view";
 
-const SETTINGS_CHANGED_EVENT = "ai-agent:settings-changed";
+const SETTINGS_CHANGED_EVENT = "open-agent:settings-changed";
 
-export default class AiAgentPlugin extends Plugin {
+export default class OpenAgentPlugin extends Plugin {
 	settings: PluginSettings = DEFAULT_SETTINGS;
 	private toolRegistry!: ToolRegistry;
 	private consent!: ConsentManager;
@@ -36,8 +36,8 @@ export default class AiAgentPlugin extends Plugin {
 		});
 
 		this.addCommand({
-			id: "open-ai-agent",
-			name: "Open AI Agent",
+			id: "open-agent",
+			name: "OpenAgent: Open panel",
 			callback: () => this.activateView(),
 		});
 
@@ -53,7 +53,7 @@ export default class AiAgentPlugin extends Plugin {
 			callback: () => this.undoLastWrite(),
 		});
 
-		this.addSettingTab(new AiAgentSettingsTab(this.app, this));
+		this.addSettingTab(new OpenAgentSettingsTab(this.app, this));
 	}
 
 	onunload(): void {

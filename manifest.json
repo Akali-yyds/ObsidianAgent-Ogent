@@ -1,6 +1,6 @@
 {
-  "id": "ai-agent",
-  "name": "AI Agent",
+  "id": "open-agent",
+  "name": "OpenAgent",
   "version": "0.0.1",
   "minAppVersion": "1.5.0",
   "description": "AI agent inside Obsidian — vault-aware, MCP-capable, BYOK, cross-platform (desktop + mobile).",

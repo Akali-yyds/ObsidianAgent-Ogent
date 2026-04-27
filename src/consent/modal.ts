@@ -46,17 +46,17 @@ export class ConsentModal extends Modal {
 	async onOpen(): Promise<void> {
 		const { contentEl } = this;
 		contentEl.empty();
-		contentEl.addClass("ai-agent-consent-modal");
+		contentEl.addClass("open-agent-consent-modal");
 
 		contentEl.createEl("h3", { text: "Approve tool action?" });
-		const meta = contentEl.createDiv({ cls: "ai-agent-consent-meta" });
+		const meta = contentEl.createDiv({ cls: "open-agent-consent-meta" });
 		meta.createEl("div", { text: `Tool: ${this.tool.name}` });
 		meta.createEl("div", { text: `Category: ${this.tool.category}` });
 
-		const diffEl = contentEl.createDiv({ cls: "ai-agent-consent-diff" });
+		const diffEl = contentEl.createDiv({ cls: "open-agent-consent-diff" });
 		await this.renderDiff(diffEl);
 
-		const buttons = contentEl.createDiv({ cls: "ai-agent-consent-buttons" });
+		const buttons = contentEl.createDiv({ cls: "open-agent-consent-buttons" });
 		const reject = buttons.createEl("button", { text: "Reject" });
 		reject.addEventListener("click", () => this.decide("reject"));
 		const session = buttons.createEl("button", { text: "Approve all this session" });

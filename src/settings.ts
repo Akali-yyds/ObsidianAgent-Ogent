@@ -1,5 +1,5 @@
 import { App, PluginSettingTab, Setting } from "obsidian";
-import type AiAgentPlugin from "./main";
+import type OpenAgentPlugin from "./main";
 import { DEFAULT_CONSENT, type ConsentSettings } from "./consent/manager";
 import type { ConsentMode } from "./types";
 
@@ -27,10 +27,10 @@ export function isConfigured(s: PluginSettings): boolean {
 	return s.baseUrl.trim().length > 0 && s.apiKey.trim().length > 0 && s.model.trim().length > 0;
 }
 
-export class AiAgentSettingsTab extends PluginSettingTab {
-	private readonly plugin: AiAgentPlugin;
+export class OpenAgentSettingsTab extends PluginSettingTab {
+	private readonly plugin: OpenAgentPlugin;
 
-	constructor(app: App, plugin: AiAgentPlugin) {
+	constructor(app: App, plugin: OpenAgentPlugin) {
 		super(app, plugin);
 		this.plugin = plugin;
 	}
@@ -39,14 +39,14 @@ export class AiAgentSettingsTab extends PluginSettingTab {
 		const { containerEl } = this;
 		containerEl.empty();
 
-		const keyNotice = containerEl.createEl("div", { cls: "ai-agent-notice" });
+		const keyNotice = containerEl.createEl("div", { cls: "open-agent-notice" });
 		keyNotice.createEl("strong", { text: "Key storage: " });
 		keyNotice.appendText(
-			"your API key is stored in this plugin's data file (`.obsidian/plugins/ai-agent/data.json`). " +
+			"your API key is stored in this plugin's data file (`.obsidian/plugins/open-agent/data.json`). " +
 				"If you sync that folder via Obsidian Sync or another sync tool, the key travels with it.",
 		);
 
-		const vaultNotice = containerEl.createEl("div", { cls: "ai-agent-notice" });
+		const vaultNotice = containerEl.createEl("div", { cls: "open-agent-notice" });
 		vaultNotice.createEl("strong", { text: "Data sent to model endpoint: " });
 		vaultNotice.appendText(
 			"with tools enabled, the agent may transmit note bodies, paths, frontmatter, and tags to the model endpoint you've configured. Choose endpoints you trust.",

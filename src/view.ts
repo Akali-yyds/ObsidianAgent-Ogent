@@ -7,7 +7,7 @@ import { isConfigured, type PluginSettings } from "./settings";
 import type { ToolRegistry } from "./tools/registry";
 import { AuthError, type ChatMessage, NetworkError, ProviderError, RateLimitError, type ToolResult } from "./types";
 
-export const CHAT_VIEW_TYPE = "ai-agent-chat";
+export const CHAT_VIEW_TYPE = "open-agent-chat";
 
 interface ToolCallRecord {
 	id: string;
@@ -60,7 +60,7 @@ export class ChatView extends ItemView {
 		return CHAT_VIEW_TYPE;
 	}
 	getDisplayText(): string {
-		return "AI Agent";
+		return "OpenAgent";
 	}
 	getIcon(): string {
 		return "bot";
@@ -75,14 +75,14 @@ export class ChatView extends ItemView {
 	async onOpen(): Promise<void> {
 		const root = this.contentEl;
 		root.empty();
-		root.addClass("ai-agent-view");
+		root.addClass("open-agent-view");
 
-		this.hintEl = root.createDiv({ cls: "ai-agent-hint" });
-		this.transcriptEl = root.createDiv({ cls: "ai-agent-transcript" });
+		this.hintEl = root.createDiv({ cls: "open-agent-hint" });
+		this.transcriptEl = root.createDiv({ cls: "open-agent-transcript" });
 
-		const composer = root.createDiv({ cls: "ai-agent-composer" });
+		const composer = root.createDiv({ cls: "open-agent-composer" });
 		this.inputEl = composer.createEl("textarea", {
-			cls: "ai-agent-input",
+			cls: "open-agent-input",
 			attr: { rows: "3", placeholder: "Ask the agent…" },
 		});
 		this.inputEl.addEventListener("keydown", (e) => {
@@ -92,20 +92,20 @@ export class ChatView extends ItemView {
 			}
 		});
 
-		const buttons = composer.createDiv({ cls: "ai-agent-buttons" });
+		const buttons = composer.createDiv({ cls: "open-agent-buttons" });
 		this.sendBtn = buttons.createEl("button", { text: "Send", cls: "mod-cta" });
 		this.sendBtn.addEventListener("click", () => void this.handleSend());
 		this.stopBtn = buttons.createEl("button", { text: "Stop" });
 		this.stopBtn.addEventListener("click", () => this.handleStop());
 		this.stopBtn.disabled = true;
 
-		window.addEventListener("ai-agent:settings-changed", this.boundOnSettingsChanged);
+		window.addEventListener("open-agent:settings-changed", this.boundOnSettingsChanged);
 		this.refreshConfiguredState();
 		this.renderTranscript();
 	}
 
 	async onClose(): Promise<void> {
-		window.removeEventListener("ai-agent:settings-changed", this.boundOnSettingsChanged);
+		window.removeEventListener("open-agent:settings-changed", this.boundOnSettingsChanged);
 		this.cancelInFlight();
 		this.deps.consent.resetSession();
 		this.deps.undo.clear();
@@ -247,30 +247,30 @@ export class ChatView extends ItemView {
 	private renderTranscript(): void {
 		this.transcriptEl.empty();
 		for (const turn of this.turns) {
-			const row = this.transcriptEl.createDiv({ cls: `ai-agent-turn ai-agent-turn-${turn.role}` });
-			row.createEl("div", { cls: "ai-agent-turn-role", text: turn.role === "user" ? "You" : "Assistant" });
+			const row = this.transcriptEl.createDiv({ cls: `open-agent-turn open-agent-turn-${turn.role}` });
+			row.createEl("div", { cls: "open-agent-turn-role", text: turn.role === "user" ? "You" : "Assistant" });
 			if (turn.content.length > 0) {
-				const body = row.createEl("div", { cls: "ai-agent-turn-body" });
+				const body = row.createEl("div", { cls: "open-agent-turn-body" });
 				body.setText(turn.content);
 			}
 			for (const tc of turn.toolCalls ?? []) this.renderToolCard(row, tc);
 			if (turn.degraded) {
 				row.createEl("div", {
-					cls: "ai-agent-turn-meta",
+					cls: "open-agent-turn-meta",
 					text: "non-streaming response — your endpoint blocks browser CORS",
 				});
 			}
 			if (turn.capHit) {
 				row.createEl("div", {
-					cls: "ai-agent-turn-meta",
+					cls: "open-agent-turn-meta",
 					text: "(stopped: hit max-steps cap)",
 				});
 			}
 			if (turn.interrupted) {
-				row.createEl("div", { cls: "ai-agent-turn-meta", text: "(interrupted)" });
+				row.createEl("div", { cls: "open-agent-turn-meta", text: "(interrupted)" });
 			}
 			if (turn.error) {
-				const errEl = row.createEl("div", { cls: "ai-agent-turn-error" });
+				const errEl = row.createEl("div", { cls: "open-agent-turn-error" });
 				errEl.setText(turn.error);
 				if (turn.authError) {
 					errEl.appendText(" ");
@@ -286,23 +286,23 @@ export class ChatView extends ItemView {
 	}
 
 	private renderToolCard(parent: HTMLElement, tc: ToolCallRecord): void {
-		const cls = ["ai-agent-tool-card"];
-		if (tc.mutates) cls.push("ai-agent-tool-mutates");
-		if (tc.status === "ok") cls.push("ai-agent-tool-ok");
-		if (tc.status === "error") cls.push("ai-agent-tool-error");
-		if (tc.status === "denied") cls.push("ai-agent-tool-denied");
+		const cls = ["open-agent-tool-card"];
+		if (tc.mutates) cls.push("open-agent-tool-mutates");
+		if (tc.status === "ok") cls.push("open-agent-tool-ok");
+		if (tc.status === "error") cls.push("open-agent-tool-error");
+		if (tc.status === "denied") cls.push("open-agent-tool-denied");
 
 		const card = parent.createEl("details", { cls: cls.join(" ") });
-		const summary = card.createEl("summary", { cls: "ai-agent-tool-summary" });
-		summary.createEl("span", { cls: "ai-agent-tool-name", text: tc.name });
-		summary.createEl("span", { cls: "ai-agent-tool-args", text: summarizeArgs(tc.args) });
-		summary.createEl("span", { cls: "ai-agent-tool-status", text: statusLabel(tc.status) });
+		const summary = card.createEl("summary", { cls: "open-agent-tool-summary" });
+		summary.createEl("span", { cls: "open-agent-tool-name", text: tc.name });
+		summary.createEl("span", { cls: "open-agent-tool-args", text: summarizeArgs(tc.args) });
+		summary.createEl("span", { cls: "open-agent-tool-status", text: statusLabel(tc.status) });
 
-		const argsEl = card.createEl("pre", { cls: "ai-agent-tool-args-full" });
+		const argsEl = card.createEl("pre", { cls: "open-agent-tool-args-full" });
 		argsEl.setText(safeStringify(tc.args));
 
 		if (tc.result) {
-			const resEl = card.createEl("div", { cls: "ai-agent-tool-result" });
+			const resEl = card.createEl("div", { cls: "open-agent-tool-result" });
 			const value = tc.result.ok ? tc.result.value : { error: tc.result.error, details: tc.result.details };
 			const stringified = safeStringify(value);
 			const preview = stringified.slice(0, 2048);
@@ -310,7 +310,7 @@ export class ChatView extends ItemView {
 			pre.setText(preview);
 			if (stringified.length > preview.length) {
 				const more = resEl.createEl("button", {
-					cls: "ai-agent-tool-more",
+					cls: "open-agent-tool-more",
 					text: `Show ${stringified.length - preview.length} more chars`,
 				});
 				more.addEventListener("click", () => {
@@ -320,7 +320,7 @@ export class ChatView extends ItemView {
 			}
 			const path = extractPath(value);
 			if (path) {
-				const open = resEl.createEl("button", { cls: "ai-agent-tool-open", text: `Open ${path}` });
+				const open = resEl.createEl("button", { cls: "open-agent-tool-open", text: `Open ${path}` });
 				open.addEventListener("click", () => {
 					const file = this.app.vault.getAbstractFileByPath(path);
 					if (file instanceof TFile) {

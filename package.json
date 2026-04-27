@@ -1,5 +1,5 @@
 {
-  "name": "obsidian-ai-agent",
+  "name": "obsidian-open-agent",
   "version": "0.0.1",
   "description": "AI agent inside Obsidian — vault-aware, MCP-capable, BYOK, cross-platform.",
   "main": "main.js",
