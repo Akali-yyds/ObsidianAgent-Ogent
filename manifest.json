@@ -3,9 +3,8 @@
   "name": "OpenAgent",
   "version": "0.0.1",
   "minAppVersion": "1.5.0",
-  "description": "AI agent inside Obsidian — vault-aware, MCP-capable, BYOK, cross-platform (desktop + mobile).",
+  "description": "AI agent for your vault — vault-aware, tool-capable, BYOK, and cross-platform (desktop + mobile).",
   "author": "nikitaclicks",
   "authorUrl": "https://github.com/nikitaclicks",
-  "main": "main.js",
   "isDesktopOnly": false
 }
