@@ -216,6 +216,8 @@ export class ChatView extends ItemView {
 						else if (ev.result.error.startsWith("ConsentDeniedError")) tc.status = "denied";
 						else tc.status = "error";
 					}
+					// Show thinking indicator while the model processes tool results.
+					assistantTurn.thinking = true;
 				} else if (ev.kind === "cap_hit") {
 					assistantTurn.capHit = true;
 				}

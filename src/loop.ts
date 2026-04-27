@@ -65,6 +65,7 @@ export async function* runTurn(
 		messages.push({ role: "assistant", content: assistantText, tool_calls: toolCallSpecs });
 
 		// Dispatch each call sequentially.
+		let consentDenied = false;
 		for (const call of assembled) {
 			if (opts.signal?.aborted) return;
 			const toolDef = opts.tools?.get(call.name);
@@ -110,9 +111,10 @@ export async function* runTurn(
 				yield { kind: "consent_requested", id: call.id, name: call.name };
 				const approved = await opts.consent.requestApproval(toolDef, validated.value);
 				if (!approved) {
-					const result: ToolResult = { ok: false, error: "ConsentDeniedError" };
+					const result: ToolResult = { ok: false, error: "ConsentDeniedError", details: "User rejected this operation." };
 					yield { kind: "tool_call_finished", id: call.id, result };
 					messages.push(toolMessage(call, result));
+					consentDenied = true;
 					continue;
 				}
 			}
@@ -138,6 +140,12 @@ export async function* runTurn(
 
 			yield { kind: "tool_call_finished", id: call.id, result };
 			messages.push(toolMessage(call, result));
+		}
+
+		// Stop the loop if the user denied consent — don't let the model retry.
+		if (consentDenied) {
+			yield { kind: "done" };
+			return;
 		}
 	}
 
