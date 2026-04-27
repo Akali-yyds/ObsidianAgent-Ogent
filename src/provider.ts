@@ -56,21 +56,27 @@ export class OpenAICompatibleProvider implements ModelProvider {
 			});
 
 			if (!response.ok) {
-				throw mapHttpError(response.status, await safeReadText(response));
+				const err = mapHttpError(response.status, await safeReadText(response));
+				// Gateway/timeout errors may succeed on a plain (non-streaming) retry.
+				if (!isRetryableStatus(response.status)) throw err;
+				// fall through to requestUrl fallback
+			} else {
+				if (!response.body) {
+					throw new ProviderError("Provider returned no response body", response.status);
+				}
+				yield* parseSseStream(response.body, opts.signal);
+				return;
 			}
-			if (!response.body) {
-				throw new ProviderError("Provider returned no response body", response.status);
-			}
-
-			yield* parseSseStream(response.body, opts.signal);
-			return;
 		} catch (err) {
 			if (isAbortError(err)) return;
-			if (err instanceof AuthError || err instanceof RateLimitError || err instanceof ProviderError) throw err;
+			if (err instanceof AuthError || err instanceof RateLimitError) throw err;
+			if (err instanceof ProviderError && !isRetryableStatus(err.status)) throw err;
 			if (!isLikelyCorsOrNetwork(err)) throw err;
 		}
 
-		// Fallback path: requestUrl, non-streaming.
+		// Fallback path: requestUrl (bypasses CORS, no streaming).
+		// Also used when streaming returns 502/504.
+		await sleep(300);
 		try {
 			const res = await requestUrl({
 				url,
@@ -135,6 +141,14 @@ async function safeReadText(response: Response): Promise<string> {
 
 function isAbortError(err: unknown): boolean {
 	return err instanceof DOMException && err.name === "AbortError";
+}
+
+function isRetryableStatus(status: number | undefined): boolean {
+	return status === 502 || status === 503 || status === 504;
+}
+
+function sleep(ms: number): Promise<void> {
+	return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function isLikelyCorsOrNetwork(err: unknown): boolean {
