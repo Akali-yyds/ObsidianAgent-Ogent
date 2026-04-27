@@ -18,10 +18,14 @@ interface ToolCallRecord {
 	result?: ToolResult;
 }
 
+type AssistantSegment = { kind: "text"; text: string } | { kind: "tool"; id: string };
+
 interface UiTurn {
 	role: "user" | "assistant";
-	content: string;
-	toolCalls?: ToolCallRecord[];
+	content: string; // user turns only
+	segments: AssistantSegment[]; // assistant turns: text and tool cards in order
+	toolCallMap: Record<string, ToolCallRecord>; // assistant turns: looked up by id
+	thinking: boolean; // true until first content arrives
 	interrupted?: boolean;
 	degraded?: boolean;
 	error?: string;
@@ -139,8 +143,8 @@ export class ChatView extends ItemView {
 			return;
 		}
 
-		this.turns.push({ role: "user", content: text });
-		const assistantTurn: UiTurn = { role: "assistant", content: "", toolCalls: [] };
+		this.turns.push({ role: "user", content: text, segments: [], toolCallMap: {}, thinking: false });
+		const assistantTurn: UiTurn = { role: "assistant", content: "", segments: [], toolCallMap: {}, thinking: true };
 		this.turns.push(assistantTurn);
 		this.inputEl.value = "";
 		this.renderTranscript();
@@ -155,8 +159,15 @@ export class ChatView extends ItemView {
 		const messages: ChatMessage[] = [];
 		for (const t of this.turns) {
 			if (t === assistantTurn) continue;
-			if (t.role === "user") messages.push({ role: "user", content: t.content });
-			else if (t.role === "assistant" && t.content.length > 0) messages.push({ role: "assistant", content: t.content });
+			if (t.role === "user") {
+				messages.push({ role: "user", content: t.content });
+			} else if (t.role === "assistant") {
+				const text = t.segments
+					.filter((s): s is { kind: "text"; text: string } => s.kind === "text")
+					.map((s) => s.text)
+					.join("");
+				if (text.length > 0) messages.push({ role: "assistant", content: text });
+			}
 		}
 
 		const ctrl = new AbortController();
@@ -172,20 +183,33 @@ export class ChatView extends ItemView {
 			})) {
 				if (ev.kind === "text") {
 					if (ev.degraded) assistantTurn.degraded = true;
-					assistantTurn.content += ev.text;
+					assistantTurn.thinking = false;
+					const lastSeg = assistantTurn.segments[assistantTurn.segments.length - 1];
+					if (lastSeg?.kind === "text") {
+						lastSeg.text += ev.text;
+					} else {
+						assistantTurn.segments.push({ kind: "text", text: ev.text });
+					}
+					this.renderTranscript();
+					// Yield to the browser so it can repaint between token chunks.
+					await new Promise<void>((resolve) => setTimeout(resolve, 0));
+					continue;
 				} else if (ev.kind === "tool_call_started") {
-					assistantTurn.toolCalls?.push({
+					assistantTurn.thinking = false;
+					const record: ToolCallRecord = {
 						id: ev.id,
 						name: ev.name,
 						args: ev.args,
 						mutates: ev.mutates,
 						status: "running",
-					});
+					};
+					assistantTurn.toolCallMap[ev.id] = record;
+					assistantTurn.segments.push({ kind: "tool", id: ev.id });
 				} else if (ev.kind === "consent_requested") {
-					const tc = assistantTurn.toolCalls?.find((c) => c.id === ev.id);
+					const tc = assistantTurn.toolCallMap[ev.id];
 					if (tc) tc.status = "awaiting-consent";
 				} else if (ev.kind === "tool_call_finished") {
-					const tc = assistantTurn.toolCalls?.find((c) => c.id === ev.id);
+					const tc = assistantTurn.toolCallMap[ev.id];
 					if (tc) {
 						tc.result = ev.result;
 						if (ev.result.ok) tc.status = "ok";
@@ -249,11 +273,29 @@ export class ChatView extends ItemView {
 		for (const turn of this.turns) {
 			const row = this.transcriptEl.createDiv({ cls: `open-agent-turn open-agent-turn-${turn.role}` });
 			row.createEl("div", { cls: "open-agent-turn-role", text: turn.role === "user" ? "You" : "Assistant" });
-			if (turn.content.length > 0) {
-				const body = row.createEl("div", { cls: "open-agent-turn-body" });
-				body.setText(turn.content);
+
+			if (turn.role === "user") {
+				if (turn.content.length > 0) {
+					const body = row.createEl("div", { cls: "open-agent-turn-body" });
+					body.setText(turn.content);
+				}
+			} else {
+				if (turn.thinking) {
+					row.createEl("div", { cls: "open-agent-turn-thinking" });
+				}
+				for (const seg of turn.segments) {
+					if (seg.kind === "text") {
+						if (seg.text.length > 0) {
+							const body = row.createEl("div", { cls: "open-agent-turn-body" });
+							body.setText(seg.text);
+						}
+					} else {
+						const record = turn.toolCallMap[seg.id];
+						if (record) this.renderToolCard(row, record);
+					}
+				}
 			}
-			for (const tc of turn.toolCalls ?? []) this.renderToolCard(row, tc);
+
 			if (turn.degraded) {
 				row.createEl("div", {
 					cls: "open-agent-turn-meta",

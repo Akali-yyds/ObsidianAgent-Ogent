@@ -47,6 +47,17 @@
 	letter-spacing: 0.05em;
 }
 .open-agent-turn-body { white-space: pre-wrap; word-break: break-word; }
+
+.open-agent-turn-thinking::after {
+	content: "Thinking…";
+	color: var(--text-muted);
+	font-style: italic;
+	animation: open-agent-blink 1.2s step-start infinite;
+}
+@keyframes open-agent-blink {
+	0%, 100% { opacity: 1; }
+	50% { opacity: 0.3; }
+}
 .open-agent-turn-meta {
 	font-size: var(--font-ui-smaller);
 	color: var(--text-muted);
