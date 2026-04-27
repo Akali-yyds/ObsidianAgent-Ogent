@@ -6,5 +6,6 @@
   "description": "AI agent inside Obsidian — vault-aware, MCP-capable, BYOK, cross-platform (desktop + mobile).",
   "author": "",
   "authorUrl": "",
+  "main": "main.js",
   "isDesktopOnly": false
 }
