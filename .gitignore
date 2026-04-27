@@ -7,3 +7,4 @@ main.js.map
 .vscode/
 data.json
 .claude/settings.local.json
+.vault-path
