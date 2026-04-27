@@ -80,19 +80,19 @@
 
 ## 11. Manual verification
 
-- [ ] 11.1 Read flow: ask "what's in [[<note>]]?" — verify `vault_read` is called, answer cites file, no consent prompt
+- [x] 11.1 Read flow: ask "what's in [[<note>]]?" — verify `vault_read` is called, answer cites file, no consent prompt
 - [x] 11.2 Search flow: ask "find notes mentioning 'spec tools'" — verify `vault_search` returns matches
-- [ ] 11.3 Links flow: ask "what links to [[<note>]]?" — verify `vault_links` returns inbound list
+- [x] 11.3 Links flow: ask "what links to [[<note>]]?" — verify `vault_links` returns inbound list
 - [x] 11.4 Write — modal approve: ask agent to add a sentence to a test note via `vault_edit` — verify modal shows correct diff, approve, file updated
 - [x] 11.5 Write — modal reject: same flow, reject — verify file unchanged and model receives `ConsentDeniedError`
-- [ ] 11.6 Write — approve-all-session: write twice, second call shouldn't prompt; reset chat view, third call prompts again
-- [ ] 11.7 Write — never mode: set `vault_write=never`, agent attempts edit — verify auto-rejection without modal
-- [ ] 11.8 Edit ambiguity: have agent attempt an `oldString` matching multiple times — verify `AmbiguousEditError` returned
-- [ ] 11.9 Path safety: prompt agent to write to `../escape.md` — verify `PathError`
-- [ ] 11.10 Undo: perform a write, run "Undo last tool write" — verify revert; run again with empty buffer — verify notice
-- [ ] 11.11 Mid-stream Stop: stop while consent modal open — verify modal dismisses + loop aborts
-- [ ] 11.12 Mobile: full read + write flows on iOS/Android, verify modal renders usable on narrow screens
-- [ ] 11.13 Smaller-model regression: try with a 7B-class model — note any tool-arg hallucinations and whether self-correct loop recovers
+- [x] 11.6 Write — approve-all-session: write twice, second call shouldn't prompt; reset chat view, third call prompts again
+- [~] 11.7 Write — never mode: set `vault_write=never`, agent attempts edit — verify auto-rejection without modal
+- [~] 11.8 Edit ambiguity: have agent attempt an `oldString` matching multiple times — verify `AmbiguousEditError` returned
+- [~] 11.9 Path safety: prompt agent to write to `../escape.md` — verify `PathError`
+- [~] 11.10 Undo: perform a write, run "Undo last tool write" — verify revert; run again with empty buffer — verify notice
+- [~] 11.11 Mid-stream Stop: stop while consent modal open — verify modal dismisses + loop aborts
+- [~] 11.12 Mobile: full read + write flows on iOS/Android, verify modal renders usable on narrow screens
+- [~] 11.13 Smaller-model regression: try with a 7B-class model — note any tool-arg hallucinations and whether self-correct loop recovers
 
 ## 12. Wrap-up
 
