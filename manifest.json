@@ -4,8 +4,8 @@
   "version": "0.0.1",
   "minAppVersion": "1.5.0",
   "description": "AI agent inside Obsidian — vault-aware, MCP-capable, BYOK, cross-platform (desktop + mobile).",
-  "author": "",
-  "authorUrl": "",
+  "author": "nikitaclicks",
+  "authorUrl": "https://github.com/nikitaclicks",
   "main": "main.js",
   "isDesktopOnly": false
 }

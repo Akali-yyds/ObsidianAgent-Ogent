@@ -10,7 +10,7 @@
     "lint": "eslint --ext .ts src"
   },
   "keywords": ["obsidian-plugin", "ai", "agent", "mcp"],
-  "author": "",
+  "author": "nikitaclicks",
   "license": "MIT",
   "devDependencies": {
     "@types/node": "^20.11.0",
