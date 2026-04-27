@@ -1,11 +1,11 @@
 import { stringifyYaml } from "obsidian";
-import { diffLines, type DiffRow } from "./diff";
+import { diffLines, trimDiffContext, type DiffRow } from "./diff";
 
 const MAX_VISIBLE_ROWS = 200;
+const CONTEXT_LINES = 3;
 
 export function renderEditDiff(parent: HTMLElement, before: string, after: string): void {
-	const rows = diffLines(before, after);
-	renderRows(parent, rows);
+	renderRows(parent, diffLines(before, after));
 }
 
 export function renderWriteDiff(
@@ -42,10 +42,15 @@ export function renderAppendDiff(parent: HTMLElement, existing: string, appended
 	addBody.setText(appended);
 }
 
-function renderRows(parent: HTMLElement, rows: DiffRow[]): void {
+export function renderRows(parent: HTMLElement, rows: DiffRow[]): void {
+	const trimmed = trimDiffContext(rows, CONTEXT_LINES);
 	const table = parent.createDiv({ cls: "open-agent-diff-table" });
-	const visible = rows.length > MAX_VISIBLE_ROWS ? rows.slice(0, MAX_VISIBLE_ROWS) : rows;
+	const visible = trimmed.length > MAX_VISIBLE_ROWS ? trimmed.slice(0, MAX_VISIBLE_ROWS) : trimmed;
 	for (const r of visible) {
+		if (r.kind === "separator") {
+			table.createDiv({ cls: "open-agent-diff-separator", text: "⋮" });
+			continue;
+		}
 		const row = table.createDiv({ cls: `open-agent-diff-row open-agent-diff-${r.kind}` });
 		row.createEl("span", {
 			cls: "open-agent-diff-marker",
@@ -53,19 +58,17 @@ function renderRows(parent: HTMLElement, rows: DiffRow[]): void {
 		});
 		row.createEl("span", { cls: "open-agent-diff-text", text: r.text });
 	}
-	if (rows.length > MAX_VISIBLE_ROWS) {
+	if (trimmed.length > MAX_VISIBLE_ROWS) {
 		const more = parent.createEl("button", {
 			cls: "open-agent-diff-more",
-			text: `Show ${rows.length - MAX_VISIBLE_ROWS} more rows`,
+			text: `Show ${trimmed.length - MAX_VISIBLE_ROWS} more rows`,
 		});
 		more.addEventListener("click", () => {
 			more.remove();
-			for (const r of rows.slice(MAX_VISIBLE_ROWS)) {
+			for (const r of trimmed.slice(MAX_VISIBLE_ROWS)) {
+				if (r.kind === "separator") { table.createDiv({ cls: "open-agent-diff-separator", text: "⋮" }); continue; }
 				const row = table.createDiv({ cls: `open-agent-diff-row open-agent-diff-${r.kind}` });
-				row.createEl("span", {
-					cls: "open-agent-diff-marker",
-					text: r.kind === "add" ? "+" : r.kind === "remove" ? "−" : " ",
-				});
+				row.createEl("span", { cls: "open-agent-diff-marker", text: r.kind === "add" ? "+" : r.kind === "remove" ? "−" : " " });
 				row.createEl("span", { cls: "open-agent-diff-text", text: r.text });
 			}
 		});

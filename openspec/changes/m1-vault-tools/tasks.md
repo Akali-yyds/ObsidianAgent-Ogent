@@ -83,8 +83,8 @@
 - [ ] 11.1 Read flow: ask "what's in [[<note>]]?" — verify `vault_read` is called, answer cites file, no consent prompt
 - [x] 11.2 Search flow: ask "find notes mentioning 'spec tools'" — verify `vault_search` returns matches
 - [ ] 11.3 Links flow: ask "what links to [[<note>]]?" — verify `vault_links` returns inbound list
-- [ ] 11.4 Write — modal approve: ask agent to add a sentence to a test note via `vault_edit` — verify modal shows correct diff, approve, file updated
-- [ ] 11.5 Write — modal reject: same flow, reject — verify file unchanged and model receives `ConsentDeniedError`
+- [x] 11.4 Write — modal approve: ask agent to add a sentence to a test note via `vault_edit` — verify modal shows correct diff, approve, file updated
+- [x] 11.5 Write — modal reject: same flow, reject — verify file unchanged and model receives `ConsentDeniedError`
 - [ ] 11.6 Write — approve-all-session: write twice, second call shouldn't prompt; reset chat view, third call prompts again
 - [ ] 11.7 Write — never mode: set `vault_write=never`, agent attempts edit — verify auto-rejection without modal
 - [ ] 11.8 Edit ambiguity: have agent attempt an `oldString` matching multiple times — verify `AmbiguousEditError` returned

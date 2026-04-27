@@ -11,7 +11,6 @@ const SETTINGS_CHANGED_EVENT = "open-agent:settings-changed";
 export default class OpenAgentPlugin extends Plugin {
 	settings: PluginSettings = DEFAULT_SETTINGS;
 	private toolRegistry!: ToolRegistry;
-	private consent!: ConsentManager;
 	private undo!: UndoBuffer;
 	private activeView: ChatView | null = null;
 
@@ -20,15 +19,16 @@ export default class OpenAgentPlugin extends Plugin {
 
 		this.toolRegistry = new ToolRegistry();
 		this.undo = new UndoBuffer(50);
-		this.consent = new ConsentManager(this.app, this.settings.consent);
 		this.toolRegistry.registerAll(vaultTools(this.app, { undo: this.undo }));
 
 		this.registerView(CHAT_VIEW_TYPE, (leaf: WorkspaceLeaf) => {
+			// Per-view ConsentManager so session overrides reset with each new view instance.
+			const consent = new ConsentManager(() => this.settings.consent);
 			const view = new ChatView(leaf, {
 				getSettings: () => this.settings,
 				openSettings: () => this.openSettings(),
 				tools: this.toolRegistry,
-				consent: this.consent,
+				consent,
 				undo: this.undo,
 			});
 			this.activeView = view;
@@ -74,7 +74,6 @@ export default class OpenAgentPlugin extends Plugin {
 
 	async saveSettings(): Promise<void> {
 		await this.saveData(this.settings);
-		this.consent?.updateSettings(this.settings.consent);
 		window.dispatchEvent(new CustomEvent(SETTINGS_CHANGED_EVENT));
 	}
 

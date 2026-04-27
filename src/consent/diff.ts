@@ -1,7 +1,8 @@
 export type DiffRow =
 	| { kind: "context"; text: string; before: number; after: number }
 	| { kind: "add"; text: string; after: number }
-	| { kind: "remove"; text: string; before: number };
+	| { kind: "remove"; text: string; before: number }
+	| { kind: "separator" };
 
 export function diffLines(beforeText: string, afterText: string): DiffRow[] {
 	const before = beforeText.split("\n");
@@ -44,4 +45,28 @@ export function diffLines(beforeText: string, afterText: string): DiffRow[] {
 	}
 
 	return rows;
+}
+
+export function trimDiffContext(rows: DiffRow[], context: number): DiffRow[] {
+	const changed = new Set<number>();
+	rows.forEach((r, i) => { if (r.kind !== "context") changed.add(i); });
+	if (changed.size === 0) return [];
+
+	const keep = new Set<number>();
+	changed.forEach((ci) => {
+		for (let d = -context; d <= context; d++) {
+			const idx = ci + d;
+			if (idx >= 0 && idx < rows.length) keep.add(idx);
+		}
+	});
+
+	const result: DiffRow[] = [];
+	let lastKept = -1;
+	for (let i = 0; i < rows.length; i++) {
+		if (!keep.has(i)) continue;
+		if (lastKept !== -1 && i > lastKept + 1) result.push({ kind: "separator" });
+		result.push(rows[i]);
+		lastKept = i;
+	}
+	return result;
 }

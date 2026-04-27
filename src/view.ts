@@ -1,9 +1,12 @@
 import { ItemView, Notice, TFile, WorkspaceLeaf } from "obsidian";
-import type { ConsentManager } from "./consent/manager";
+import type { ConsentChoice, ConsentManager } from "./consent/manager";
 import type { UndoBuffer } from "./consent/undo";
+import { diffLines, type DiffRow } from "./consent/diff";
+import { renderRows } from "./consent/render-diff";
 import { runTurn } from "./loop";
 import { OpenAICompatibleProvider } from "./provider";
 import { isConfigured, type PluginSettings } from "./settings";
+import { splitFrontmatter, mergeFrontmatter, stitchFrontmatter } from "./tools/vault/frontmatter";
 import type { ToolRegistry } from "./tools/registry";
 import { AuthError, type ChatMessage, NetworkError, ProviderError, RateLimitError, type ToolResult } from "./types";
 
@@ -16,6 +19,7 @@ interface ToolCallRecord {
 	mutates: boolean;
 	status: "running" | "awaiting-consent" | "ok" | "error" | "denied";
 	result?: ToolResult;
+	diffRows?: DiffRow[]; // undefined = not yet computed; [] = computed, nothing to show
 }
 
 type AssistantSegment = { kind: "text"; text: string } | { kind: "tool"; id: string };
@@ -53,6 +57,7 @@ export class ChatView extends ItemView {
 	private turns: UiTurn[] = [];
 	private inFlight: AbortController | null = null;
 	private boundOnSettingsChanged: () => void;
+	private readonly diffComputedIds = new Set<string>();
 
 	constructor(leaf: WorkspaceLeaf, deps: ChatViewDeps) {
 		super(leaf);
@@ -228,7 +233,7 @@ export class ChatView extends ItemView {
 		} finally {
 			if (ctrl.signal.aborted) {
 				assistantTurn.interrupted = true;
-				this.deps.consent.dismissActiveModal();
+				this.deps.consent.cancelPendingConsent();
 			}
 			this.inFlight = null;
 			this.setBusy(false);
@@ -239,7 +244,7 @@ export class ChatView extends ItemView {
 	private handleStop(): void {
 		if (!this.inFlight) return;
 		this.inFlight.abort();
-		this.deps.consent.dismissActiveModal();
+		this.deps.consent.cancelPendingConsent();
 		new Notice("Stopped");
 	}
 
@@ -335,12 +340,35 @@ export class ChatView extends ItemView {
 		if (tc.status === "ok") cls.push("open-agent-tool-ok");
 		if (tc.status === "error") cls.push("open-agent-tool-error");
 		if (tc.status === "denied") cls.push("open-agent-tool-denied");
+		if (tc.status === "awaiting-consent") cls.push("open-agent-tool-consent");
 
 		const card = parent.createEl("details", { cls: cls.join(" ") });
+		if (tc.status === "awaiting-consent") card.setAttribute("open", "");
+
 		const summary = card.createEl("summary", { cls: "open-agent-tool-summary" });
 		summary.createEl("span", { cls: "open-agent-tool-name", text: tc.name });
 		summary.createEl("span", { cls: "open-agent-tool-args", text: summarizeArgs(tc.args) });
 		summary.createEl("span", { cls: "open-agent-tool-status", text: statusLabel(tc.status) });
+
+		if (tc.status === "awaiting-consent") {
+			const diffArea = card.createDiv({ cls: "open-agent-consent-diff-area" });
+			if (tc.diffRows === undefined) {
+				diffArea.createEl("div", { cls: "open-agent-consent-computing", text: "Computing diff…" });
+				this.scheduleDiffComputation(tc);
+			} else if (tc.diffRows.length > 0) {
+				renderRows(diffArea, tc.diffRows);
+			} else {
+				diffArea.createEl("div", { cls: "open-agent-consent-computing", text: "(no preview)" });
+			}
+			const btns = card.createDiv({ cls: "open-agent-consent-inline-buttons" });
+			btns.createEl("button", { text: "Reject" })
+				.addEventListener("click", () => this.deps.consent.resolveConsent("reject" as ConsentChoice));
+			btns.createEl("button", { text: "Approve all this session" })
+				.addEventListener("click", () => this.deps.consent.resolveConsent("approve-session" as ConsentChoice));
+			btns.createEl("button", { text: "Approve", cls: "mod-cta" })
+				.addEventListener("click", () => this.deps.consent.resolveConsent("approve" as ConsentChoice));
+			return;
+		}
 
 		const argsEl = card.createEl("pre", { cls: "open-agent-tool-args-full" });
 		argsEl.setText(safeStringify(tc.args));
@@ -376,6 +404,48 @@ export class ChatView extends ItemView {
 				});
 			}
 		}
+	}
+
+	private scheduleDiffComputation(tc: ToolCallRecord): void {
+		if (this.diffComputedIds.has(tc.id)) return;
+		this.diffComputedIds.add(tc.id);
+		void this.computeAndStoreDiff(tc);
+	}
+
+	private async computeAndStoreDiff(tc: ToolCallRecord): Promise<void> {
+		tc.diffRows = await this.buildDiffRows(tc);
+		this.renderTranscript();
+	}
+
+	private async buildDiffRows(tc: ToolCallRecord): Promise<DiffRow[]> {
+		try {
+			const args = tc.args as Record<string, unknown>;
+			const path = typeof args.path === "string" ? args.path : null;
+			const file = path ? this.app.vault.getAbstractFileByPath(path) : null;
+			const existing = file instanceof TFile ? await this.app.vault.read(file) : "";
+
+			if (tc.name === "vault_edit") {
+				const oldString = typeof args.oldString === "string" ? args.oldString : "";
+				const newString = typeof args.newString === "string" ? args.newString : "";
+				return diffLines(existing, existing.split(oldString).join(newString));
+			}
+			if (tc.name === "vault_append") {
+				const content = typeof args.content === "string" ? args.content : "";
+				const ensureNewline = args.ensureNewline !== false;
+				const sep = ensureNewline && existing.length > 0 && !existing.endsWith("\n") ? "\n" : "";
+				return diffLines(existing, existing + sep + content);
+			}
+			if (tc.name === "vault_write") {
+				const body = typeof args.body === "string" ? args.body : "";
+				const fm = args.frontmatter && typeof args.frontmatter === "object" ? args.frontmatter as Record<string, unknown> : undefined;
+				const split = splitFrontmatter(existing);
+				const afterFm = fm ? mergeFrontmatter(split.frontmatter ?? {}, fm) : split.frontmatter;
+				return diffLines(existing, stitchFrontmatter(afterFm, body));
+			}
+		} catch {
+			// fall through
+		}
+		return [];
 	}
 }
 
