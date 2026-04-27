@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "node esbuild.config.mjs",
     "build": "node esbuild.config.mjs production",
+    "deploy": "node esbuild.config.mjs production && cp main.js styles.css manifest.json /Users/nikita/dev/obsidian/.obsidian/plugins/open-agent/",
     "lint": "eslint --ext .ts src"
   },
   "keywords": ["obsidian-plugin", "ai", "agent", "mcp"],

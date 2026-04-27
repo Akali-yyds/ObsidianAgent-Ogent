@@ -1,0 +1,1 @@
+Run `npm run deploy` to build the plugin and copy main.js, styles.css, and manifest.json to /Users/nikita/dev/obsidian/.obsidian/plugins/open-agent/. Report the file sizes and timestamps of the deployed files when done.
