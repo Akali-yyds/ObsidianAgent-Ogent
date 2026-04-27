@@ -13,7 +13,6 @@ interface Match {
 }
 
 const BYTE_BUDGET = 5 * 1024 * 1024;
-const FILE_LIMIT = 50;
 
 export function searchTool(app: App) {
 	return defineTool<Args>({
@@ -42,16 +41,17 @@ export function searchTool(app: App) {
 			const limit = args.scope?.limit ?? 20;
 			const matches: Match[] = [];
 
-			// 1. Linkpath / exact-name resolution
+			// 1. Linkpath / exact-name resolution — only for explicit [[wikilink]] syntax.
 			const wikilinkMatch = /^\[\[([^\]]+)\]\]$/.exec(args.query.trim());
-			const linkText = wikilinkMatch ? wikilinkMatch[1] : args.query.trim();
-			const resolved = app.metadataCache.getFirstLinkpathDest(linkText, "");
-			if (resolved instanceof TFile) {
-				return ok({
-					matches: [{ path: resolved.path, line: 0, excerpt: "(exact match)" }],
-					strategy: "linkpath",
-					truncated: false,
-				});
+			if (wikilinkMatch) {
+				const resolved = app.metadataCache.getFirstLinkpathDest(wikilinkMatch[1], "");
+				if (resolved instanceof TFile) {
+					return ok({
+						matches: [{ path: resolved.path, line: 0, excerpt: "(exact match)" }],
+						strategy: "linkpath",
+						truncated: false,
+					});
+				}
 			}
 
 			// 2. Tag-scoped iteration
@@ -65,15 +65,13 @@ export function searchTool(app: App) {
 				return ok({ matches, strategy: "tag", truncated: matches.length >= limit });
 			}
 
-			// 3. Bounded full-text
+			// 3. Bounded full-text — byte budget is the only cap.
 			const all = app.vault.getMarkdownFiles().filter((f) => inFolder(f, args.scope?.folder));
-			const candidates = all.slice(0, FILE_LIMIT);
-			const truncatedFiles = all.length > FILE_LIMIT;
-			const scanned = await scanFiles(app, candidates, args.query, matches, limit, BYTE_BUDGET);
+			const scanned = await scanFiles(app, all, args.query, matches, limit, BYTE_BUDGET);
 			return ok({
 				matches,
 				strategy: "fulltext",
-				truncated: truncatedFiles || scanned.bytesHit || matches.length >= limit,
+				truncated: scanned.bytesHit || matches.length >= limit,
 				bytesScanned: scanned.bytesScanned,
 			});
 		},
