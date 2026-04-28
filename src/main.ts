@@ -12,7 +12,6 @@ export default class OpenAgentPlugin extends Plugin {
 	settings: PluginSettings = DEFAULT_SETTINGS;
 	private toolRegistry!: ToolRegistry;
 	private undo!: UndoBuffer;
-	private activeView: ChatView | null = null;
 
 	async onload(): Promise<void> {
 		await this.loadSettings();
@@ -24,15 +23,13 @@ export default class OpenAgentPlugin extends Plugin {
 		this.registerView(CHAT_VIEW_TYPE, (leaf: WorkspaceLeaf) => {
 			// Per-view ConsentManager so session overrides reset with each new view instance.
 			const consent = new ConsentManager(() => this.settings.consent);
-			const view = new ChatView(leaf, {
+			return new ChatView(leaf, {
 				getSettings: () => this.settings,
 				openSettings: () => this.openSettings(),
 				tools: this.toolRegistry,
 				consent,
 				undo: this.undo,
 			});
-			this.activeView = view;
-			return view;
 		});
 
 		this.addRibbonIcon("bot", "OpenAgent", () => this.activateView());
@@ -59,8 +56,9 @@ export default class OpenAgentPlugin extends Plugin {
 	}
 
 	onunload(): void {
-		this.activeView?.cancelInFlight();
-		this.activeView = null;
+		for (const leaf of this.app.workspace.getLeavesOfType(CHAT_VIEW_TYPE)) {
+			if (leaf.view instanceof ChatView) leaf.view.cancelInFlight();
+		}
 	}
 
 	async loadSettings(): Promise<void> {

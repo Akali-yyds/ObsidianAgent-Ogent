@@ -117,7 +117,7 @@ export class OpenAgentSettingsTab extends PluginSettingTab {
 					}),
 			);
 
-		containerEl.createEl("h3", { text: "Tool consent" });
+		new Setting(containerEl).setName("Tool consent").setHeading();
 
 		this.consentDropdown(containerEl, "Read tools", "vault_read");
 		this.consentDropdown(containerEl, "Write tools", "vault_write");

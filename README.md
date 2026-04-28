@@ -37,7 +37,13 @@ Open Settings → OpenAgent and fill in:
 | Model | Model name to use | `gpt-4o-mini` |
 | System prompt | Optional system-level instruction | — |
 
-> **Privacy note:** your API key is stored in `.obsidian/plugins/open-agent/data.json`. If you sync that folder, the key travels with it. With tools enabled, the agent may transmit note bodies, paths, frontmatter, and tags to the model endpoint you've configured — use endpoints you trust.
+## Privacy & network use
+
+This plugin makes network requests **only** to the LLM endpoint you configure (e.g. OpenAI, OpenRouter, Ollama, LM Studio). No data is sent to any other server.
+
+With vault tools enabled, the agent may transmit note bodies, paths, frontmatter, and tags to that endpoint — only use endpoints you trust.
+
+Your API key is stored in `.obsidian/plugins/open-agent/data.json`. If you sync your `.obsidian/` folder (e.g. via Obsidian Sync), the key travels with it.
 
 ## Development
 
