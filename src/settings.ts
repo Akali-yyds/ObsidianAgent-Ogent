@@ -54,7 +54,7 @@ export class OpenAgentSettingsTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName("Provider")
-			.setDesc("OpenAI-compatible endpoint (more providers coming soon).")
+			.setDesc("any compatible API endpoint (more providers coming soon).")
 			.addDropdown((drop) => {
 				drop.addOption("openai-compatible", "OpenAI compatible");
 				drop.setValue(this.plugin.settings.provider);
@@ -79,7 +79,7 @@ export class OpenAgentSettingsTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName("API key")
-			.setDesc("Bearer token stored in plugin data, never in localStorage or the vault.")
+			.setDesc("bearer token stored in plugin data, never in local storage or the vault.")
 			.addText((txt) => {
 				txt.setPlaceholder("")
 					.setValue(this.plugin.settings.apiKey)
