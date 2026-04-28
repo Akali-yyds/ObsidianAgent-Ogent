@@ -69,7 +69,7 @@ export class ChatView extends ItemView {
 		return CHAT_VIEW_TYPE;
 	}
 	getDisplayText(): string {
-		return "OpenAgent";
+		return "Open agent";
 	}
 	getIcon(): string {
 		return "bot";
@@ -81,7 +81,7 @@ export class ChatView extends ItemView {
 		this.inputEl.setSelectionRange(text.length, text.length);
 	}
 
-	async onOpen(): Promise<void> {
+	onOpen(): Promise<void> {
 		const root = this.contentEl;
 		root.empty();
 		root.addClass("open-agent-view");
@@ -111,13 +111,15 @@ export class ChatView extends ItemView {
 		window.addEventListener("open-agent:settings-changed", this.boundOnSettingsChanged);
 		this.refreshConfiguredState();
 		this.renderTranscript();
+		return Promise.resolve();
 	}
 
-	async onClose(): Promise<void> {
+	onClose(): Promise<void> {
 		window.removeEventListener("open-agent:settings-changed", this.boundOnSettingsChanged);
 		this.cancelInFlight();
 		this.deps.consent.resetSession();
 		this.deps.undo.clear();
+		return Promise.resolve();
 	}
 
 	cancelInFlight(): void {
@@ -306,7 +308,7 @@ export class ChatView extends ItemView {
 			if (turn.degraded) {
 				row.createEl("div", {
 					cls: "open-agent-turn-meta",
-					text: "non-streaming response — your endpoint blocks browser CORS",
+					text: "Non-streaming response — your endpoint does not support streaming.",
 				});
 			}
 			if (turn.capHit) {

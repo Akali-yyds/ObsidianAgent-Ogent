@@ -19,16 +19,16 @@ export function linksTool(app: App) {
 			},
 			required: ["path"],
 		},
-		async run(args) {
+		run(args) {
 			let p: string;
 			try {
 				p = safeVaultPath(args.path);
 			} catch (e) {
-				if (e instanceof PathError) return fail(`PathError: ${e.message}`);
+				if (e instanceof PathError) return Promise.resolve(fail(`PathError: ${e.message}`));
 				throw e;
 			}
 			const file = app.vault.getAbstractFileByPath(p);
-			if (!(file instanceof TFile)) return fail(`NotFound: ${p}`);
+			if (!(file instanceof TFile)) return Promise.resolve(fail(`NotFound: ${p}`));
 
 			// Outbound: from resolvedLinks[source][target]
 			const resolved = app.metadataCache.resolvedLinks ?? {};
@@ -37,10 +37,10 @@ export function linksTool(app: App) {
 			// Inbound: scan resolvedLinks for any source linking to p.
 			const inbound: string[] = [];
 			for (const [source, targets] of Object.entries(resolved)) {
-				if (p in (targets as Record<string, number>)) inbound.push(source);
+				if (p in targets) inbound.push(source);
 			}
 
-			return ok({ path: p, inbound, outbound });
+			return Promise.resolve(ok({ path: p, inbound, outbound }));
 		},
 	});
 }

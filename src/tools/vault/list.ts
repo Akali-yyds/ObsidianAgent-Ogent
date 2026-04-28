@@ -20,7 +20,7 @@ export function listTool(app: App) {
 			},
 			required: ["glob"],
 		},
-		async run(args) {
+		run(args) {
 			const limit = args.limit ?? 200;
 			const re = globToRegex(args.glob);
 			const files = app.vault.getFiles();
@@ -31,7 +31,7 @@ export function listTool(app: App) {
 					if (matches.length >= limit) break;
 				}
 			}
-			return ok({ entries: matches, count: matches.length, truncated: matches.length >= limit });
+			return Promise.resolve(ok({ entries: matches, count: matches.length, truncated: matches.length >= limit }));
 		},
 	});
 }

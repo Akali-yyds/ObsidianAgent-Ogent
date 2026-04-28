@@ -42,7 +42,7 @@ export class OpenAgentSettingsTab extends PluginSettingTab {
 		const keyNotice = containerEl.createEl("div", { cls: "open-agent-notice" });
 		keyNotice.createEl("strong", { text: "Key storage: " });
 		keyNotice.appendText(
-			"your API key is stored in this plugin's data file (`.obsidian/plugins/open-agent/data.json`). " +
+			`Your API key is stored in this plugin's data file (${this.app.vault.configDir}/plugins/open-agent/data.json). ` +
 				"If you sync that folder via Obsidian Sync or another sync tool, the key travels with it.",
 		);
 
@@ -54,9 +54,9 @@ export class OpenAgentSettingsTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName("Provider")
-			.setDesc("M1 ships a single OpenAI-compatible provider. More providers arrive in later milestones.")
+			.setDesc("OpenAI-compatible endpoint (more providers coming soon).")
 			.addDropdown((drop) => {
-				drop.addOption("openai-compatible", "OpenAI-compatible");
+				drop.addOption("openai-compatible", "OpenAI compatible");
 				drop.setValue(this.plugin.settings.provider);
 				drop.onChange(async (v) => {
 					this.plugin.settings.provider = v as ProviderId;
@@ -79,9 +79,9 @@ export class OpenAgentSettingsTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName("API key")
-			.setDesc("Bearer token. Stored in plugin data; never in localStorage or the vault.")
+			.setDesc("Bearer token stored in plugin data, never in localStorage or the vault.")
 			.addText((txt) => {
-				txt.setPlaceholder("sk-…")
+				txt.setPlaceholder("")
 					.setValue(this.plugin.settings.apiKey)
 					.onChange(async (v) => {
 						this.plugin.settings.apiKey = v;
@@ -96,7 +96,7 @@ export class OpenAgentSettingsTab extends PluginSettingTab {
 			.setDesc("Model name as accepted by your endpoint.")
 			.addText((txt) =>
 				txt
-					.setPlaceholder("gpt-4o-mini")
+					.setPlaceholder("")
 					.setValue(this.plugin.settings.model)
 					.onChange(async (v) => {
 						this.plugin.settings.model = v.trim();

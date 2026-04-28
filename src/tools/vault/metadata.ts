@@ -19,26 +19,26 @@ export function metadataTool(app: App) {
 			},
 			required: ["path"],
 		},
-		async run(args) {
+		run(args) {
 			let p: string;
 			try {
 				p = safeVaultPath(args.path);
 			} catch (e) {
-				if (e instanceof PathError) return fail(`PathError: ${e.message}`);
+				if (e instanceof PathError) return Promise.resolve(fail(`PathError: ${e.message}`));
 				throw e;
 			}
 			const file = app.vault.getAbstractFileByPath(p);
-			if (!(file instanceof TFile)) return fail(`NotFound: ${p}`);
+			if (!(file instanceof TFile)) return Promise.resolve(fail(`NotFound: ${p}`));
 
 			const cache = app.metadataCache.getFileCache(file);
-			return ok({
+			return Promise.resolve(ok({
 				path: p,
 				frontmatter: cache?.frontmatter ?? null,
 				tags: cache?.tags?.map((t) => t.tag) ?? [],
 				headings: cache?.headings?.map((h) => ({ level: h.level, text: h.heading, line: h.position.start.line })) ?? [],
 				outboundLinks: cache?.links?.map((l) => l.link) ?? [],
 				embeds: cache?.embeds?.map((e) => e.link) ?? [],
-			});
+			}));
 		},
 	});
 }

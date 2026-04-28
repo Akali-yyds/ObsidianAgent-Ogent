@@ -32,10 +32,10 @@ export default class OpenAgentPlugin extends Plugin {
 			});
 		});
 
-		this.addRibbonIcon("bot", "OpenAgent", () => this.activateView());
+		this.addRibbonIcon("bot", "Open agent", () => this.activateView());
 
 		this.addCommand({
-			id: "open-agent",
+			id: "open-panel",
 			name: "Open panel",
 			callback: () => this.activateView(),
 		});
@@ -79,14 +79,14 @@ export default class OpenAgentPlugin extends Plugin {
 		const { workspace } = this.app;
 		const existing = workspace.getLeavesOfType(CHAT_VIEW_TYPE);
 		if (existing.length > 0) {
-			workspace.revealLeaf(existing[0]);
-			return existing[0].view instanceof ChatView ? (existing[0].view as ChatView) : null;
+			await workspace.revealLeaf(existing[0]);
+			return existing[0].view instanceof ChatView ? existing[0].view : null;
 		}
 		const leaf = workspace.getRightLeaf(false);
 		if (!leaf) return null;
 		await leaf.setViewState({ type: CHAT_VIEW_TYPE, active: true });
-		workspace.revealLeaf(leaf);
-		return leaf.view instanceof ChatView ? (leaf.view as ChatView) : null;
+		await workspace.revealLeaf(leaf);
+		return leaf.view instanceof ChatView ? leaf.view : null;
 	}
 
 	private async askAboutCurrentNote(): Promise<void> {
@@ -109,7 +109,7 @@ export default class OpenAgentPlugin extends Plugin {
 		try {
 			const file = this.app.vault.getAbstractFileByPath(op.path);
 			if (op.before === null) {
-				if (file instanceof TFile) await this.app.vault.delete(file);
+				if (file instanceof TFile) await this.app.fileManager.trashFile(file);
 			} else if (file instanceof TFile) {
 				await this.app.vault.modify(file, op.before);
 			} else {
