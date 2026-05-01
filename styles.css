@@ -24,6 +24,7 @@
 
 .open-agent-transcript {
 	flex: 1;
+	min-height: 0;
 	overflow-y: auto;
 	display: flex;
 	flex-direction: column;
@@ -75,7 +76,7 @@
 .open-agent-turn-error { font-size: var(--font-ui-small); color: var(--text-error); }
 .open-agent-turn-error a { color: var(--interactive-accent); cursor: pointer; }
 
-.open-agent-composer { display: flex; flex-direction: column; gap: 0.5rem; }
+.open-agent-composer { display: flex; flex-direction: column; gap: 0.5rem; flex-shrink: 0; }
 .open-agent-input {
 	width: 100%;
 	resize: vertical;

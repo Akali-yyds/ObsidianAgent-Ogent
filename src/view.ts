@@ -457,17 +457,25 @@ export class ChatView extends ItemView {
 		// even if this.turns is replaced by a session switch mid-flight.
 		const turnSnapshot = this.turns;
 		this.inputEl.value = "";
-		this.renderTranscript();
 
-		if (isFirstMessage) {
-			await this.deps.sessionStore.rename(sessionId, text.slice(0, 60));
-			this.refreshHeader();
-		}
+		// Mark session busy immediately — before any awaits — so the input is disabled and
+		// a second Send press cannot race with the in-progress request.
+		const ctrl = new AbortController();
+		this.inFlights.set(sessionId, ctrl);
+		this.liveTurns.set(sessionId, turnSnapshot);
+		this.refreshBusyState();
+		this.renderTranscript();
 
 		// Read model directly from input element to catch values not yet flushed via change event.
 		const inputModel = this.modelInputEl.value.trim();
 		const sessionModel = session.model.trim();
 		const model = (inputModel.length > 0 ? inputModel : sessionModel) || settings.model;
+
+		// Fire-and-forget housekeeping that runs before the loop but doesn't block the busy state.
+		if (isFirstMessage) {
+			await this.deps.sessionStore.rename(sessionId, text.slice(0, 60));
+			this.refreshHeader();
+		}
 		if (inputModel.length > 0 && inputModel !== sessionModel) {
 			await this.deps.sessionStore.updateModel(sessionId, inputModel);
 		}
@@ -480,7 +488,7 @@ export class ChatView extends ItemView {
 
 		// Build the message history from prior user/assistant exchanges (skip the placeholder assistantTurn).
 		const messages: ChatMessage[] = [];
-		for (const t of this.turns) {
+		for (const t of turnSnapshot) {
 			if (t === assistantTurn) continue;
 			if (t.role === "user") {
 				messages.push({ role: "user", content: t.content });
@@ -499,11 +507,6 @@ export class ChatView extends ItemView {
 			sessionId,
 			this.uiToStoredTurns(turnSnapshot.filter((t) => t !== assistantTurn)),
 		);
-
-		const ctrl = new AbortController();
-		this.inFlights.set(sessionId, ctrl);
-		this.liveTurns.set(sessionId, turnSnapshot);
-		this.refreshBusyState();
 
 		try {
 			for await (const ev of runTurn(messages, provider, {

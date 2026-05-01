@@ -67,7 +67,7 @@ export class SessionStore {
 	}
 
 	getActive(): StoredSession {
-		const m = this.meta.find((s) => s.id === this.activeId) ?? this.meta[0];
+		const m = this.meta.find((s) => s.id === this.activeId) ?? this.meta[0] ?? this.makeMeta();
 		return { ...m, turns: this.activeTurns };
 	}
 
