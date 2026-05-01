@@ -42,6 +42,7 @@ export interface OpenAiToolSpec {
 
 export interface ModelProvider {
 	stream(messages: ChatMessage[], opts?: StreamOptions): AsyncIterable<StreamEvent>;
+	listModels?(): Promise<string[]>;
 }
 
 // JSON Schema (subset we support)

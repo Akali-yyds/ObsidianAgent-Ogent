@@ -1,7 +1,8 @@
-import { Notice, Plugin, TFile, WorkspaceLeaf } from "obsidian";
+import { Notice, Platform, Plugin, TFile, WorkspaceLeaf } from "obsidian";
 import { ConsentManager } from "./consent/manager";
 import { UndoBuffer } from "./consent/undo";
 import { OpenAgentSettingsTab, DEFAULT_SETTINGS, type PluginSettings } from "./settings";
+import { SessionStore, type SessionMeta, type StoredTurn } from "./sessions";
 import { ToolRegistry } from "./tools/registry";
 import { vaultTools } from "./tools/vault";
 import { CHAT_VIEW_TYPE, ChatView } from "./view";
@@ -10,10 +11,49 @@ const SETTINGS_CHANGED_EVENT = "open-agent:settings-changed";
 
 export default class OpenAgentPlugin extends Plugin {
 	settings: PluginSettings = DEFAULT_SETTINGS;
+	sessionStore!: SessionStore;
 	private toolRegistry!: ToolRegistry;
 	private undo!: UndoBuffer;
 
 	async onload(): Promise<void> {
+		const sessionsDir = `${this.manifest.dir}/sessions`;
+		let sessionsDirEnsured = false;
+		const ensureSessionsDir = async () => {
+			if (sessionsDirEnsured) return;
+			if (!(await this.app.vault.adapter.exists(sessionsDir))) {
+				await this.app.vault.adapter.mkdir(sessionsDir);
+			}
+			sessionsDirEnsured = true;
+		};
+
+		this.sessionStore = new SessionStore({
+			persistIndex: async (meta, activeId) => {
+				await this.saveData({ ...this.settings, sessions: meta, activeSessionId: activeId });
+			},
+			readTurns: async (id) => {
+				try {
+					const text = await this.app.vault.adapter.read(`${sessionsDir}/${id}.json`);
+					const parsed = JSON.parse(text) as { turns?: unknown };
+					return Array.isArray(parsed.turns) ? (parsed.turns as StoredTurn[]) : [];
+				} catch {
+					return [];
+				}
+			},
+			writeTurns: async (id, turns) => {
+				await ensureSessionsDir();
+				await this.app.vault.adapter.write(
+					`${sessionsDir}/${id}.json`,
+					JSON.stringify({ turns }),
+				);
+			},
+			deleteTurns: async (id) => {
+				const path = `${sessionsDir}/${id}.json`;
+				if (await this.app.vault.adapter.exists(path)) {
+					await this.app.vault.adapter.remove(path);
+				}
+			},
+		});
+
 		await this.loadSettings();
 
 		this.toolRegistry = new ToolRegistry();
@@ -21,7 +61,6 @@ export default class OpenAgentPlugin extends Plugin {
 		this.toolRegistry.registerAll(vaultTools(this.app, { undo: this.undo }));
 
 		this.registerView(CHAT_VIEW_TYPE, (leaf: WorkspaceLeaf) => {
-			// Per-view ConsentManager so session overrides reset with each new view instance.
 			const consent = new ConsentManager(() => this.settings.consent);
 			return new ChatView(leaf, {
 				getSettings: () => this.settings,
@@ -29,6 +68,7 @@ export default class OpenAgentPlugin extends Plugin {
 				tools: this.toolRegistry,
 				consent,
 				undo: this.undo,
+				sessionStore: this.sessionStore,
 			});
 		});
 
@@ -62,16 +102,24 @@ export default class OpenAgentPlugin extends Plugin {
 	}
 
 	async loadSettings(): Promise<void> {
-		const data = (await this.loadData()) as Partial<PluginSettings> | null;
+		const data = (await this.loadData()) as (Partial<PluginSettings> & {
+			sessions?: unknown;
+			activeSessionId?: unknown;
+		}) | null;
 		this.settings = {
 			...DEFAULT_SETTINGS,
 			...(data ?? {}),
 			consent: { ...DEFAULT_SETTINGS.consent, ...(data?.consent ?? {}) },
 		};
+		const rawSessions = Array.isArray(data?.sessions)
+			? (data.sessions as (SessionMeta & { turns?: StoredTurn[] })[])
+			: [];
+		const activeId = typeof data?.activeSessionId === "string" ? data.activeSessionId : "";
+		await this.sessionStore.init(rawSessions, activeId);
 	}
 
 	async saveSettings(): Promise<void> {
-		await this.saveData(this.settings);
+		await this.saveData({ ...this.settings, ...this.sessionStore.toJSON() });
 		window.dispatchEvent(new CustomEvent(SETTINGS_CHANGED_EVENT));
 	}
 
@@ -82,7 +130,7 @@ export default class OpenAgentPlugin extends Plugin {
 			await workspace.revealLeaf(existing[0]);
 			return existing[0].view instanceof ChatView ? existing[0].view : null;
 		}
-		const leaf = workspace.getRightLeaf(false);
+		const leaf = Platform.isMobile ? workspace.getLeaf("tab") : workspace.getRightLeaf(false);
 		if (!leaf) return null;
 		await leaf.setViewState({ type: CHAT_VIEW_TYPE, active: true });
 		await workspace.revealLeaf(leaf);

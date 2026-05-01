@@ -37,53 +37,125 @@ export class OpenAICompatibleProvider implements ModelProvider {
 
 		const url = this.endpoint();
 		const tools = opts.tools && opts.tools.length > 0 ? opts.tools : undefined;
-		const body = {
+		const body = JSON.stringify({
 			model: this.config.model,
 			messages,
-			stream: false,
+			stream: true,
 			...(tools ? { tools, tool_choice: "auto" } : {}),
-		};
+		});
 		const headers: Record<string, string> = {
 			"Content-Type": "application/json",
 			Authorization: `Bearer ${this.config.apiKey}`,
 		};
 
+		let response: Response;
 		try {
-			const res = await requestUrl({
-				url,
-				method: "POST",
-				headers,
-				body: JSON.stringify(body),
-				throw: false,
-			});
+			response = await fetch(url, { method: "POST", headers, body, signal: opts.signal });
+		} catch (err) {
+			if ((err as Error)?.name === "AbortError") return;
+			throw new NetworkError(redactNetworkError(err));
+		}
 
-			if (opts.signal?.aborted) return;
+		if (opts.signal?.aborted) return;
 
-			if (res.status >= 400) throw mapHttpError(res.status, res.text);
+		if (response.status >= 400) {
+			const text = await response.text().catch(() => "");
+			throw mapHttpError(response.status, text);
+		}
 
-			const json = res.json as {
-				choices?: Array<{
-					message?: { content?: string; tool_calls?: Array<{ id: string; function: { name: string; arguments: string } }> };
-					finish_reason?: string;
-				}>;
-			};
-			const choice = json?.choices?.[0];
-			const text = choice?.message?.content ?? "";
-			const toolCalls = choice?.message?.tool_calls ?? [];
+		const reader = response.body?.getReader();
+		if (!reader) throw new NetworkError("No response body for streaming");
 
-			if (text.length > 0) yield { kind: "text", text };
-			if (toolCalls.length > 0) {
-				const assembled = toolCalls.map((tc) =>
-					parseAssembled({ id: tc.id, index: 0, name: tc.function.name, args: tc.function.arguments }),
-				);
-				yield { kind: "tool_call_assembled", calls: assembled };
-				yield { kind: "done", finishReason: "tool_calls" };
-			} else {
-				yield { kind: "done", finishReason: mapFinishReason(choice?.finish_reason) };
+		const decoder = new TextDecoder();
+		let sseBuffer = "";
+		const toolBuffers = new Map<number, ToolCallBuffer>();
+		let finalFinishReason: string | undefined;
+		let done = false;
+
+		try {
+			while (!done) {
+				if (opts.signal?.aborted) return;
+				const chunk = await reader.read();
+				if (chunk.done) break;
+
+				sseBuffer += decoder.decode(chunk.value, { stream: true });
+				const lines = sseBuffer.split("\n");
+				sseBuffer = lines.pop() ?? "";
+
+				for (const line of lines) {
+					if (!line.startsWith("data: ")) continue;
+					const data = line.slice(6).trim();
+					if (data === "[DONE]") { done = true; break; }
+
+					let parsed: unknown;
+					try { parsed = JSON.parse(data); } catch { continue; }
+
+					const choice = (parsed as {
+						choices?: Array<{
+							delta?: {
+								content?: string | null;
+								tool_calls?: Array<{ index: number; id?: string; function?: { name?: string; arguments?: string } }>;
+							};
+							finish_reason?: string | null;
+						}>;
+					})?.choices?.[0];
+					if (!choice) continue;
+
+					const delta = choice.delta;
+					if (delta?.content) {
+						yield { kind: "text", text: delta.content };
+					}
+
+					if (delta?.tool_calls) {
+						for (const tc of delta.tool_calls) {
+							let buf = toolBuffers.get(tc.index);
+							if (!buf) {
+								buf = { id: "", index: tc.index, name: "", args: "" };
+								toolBuffers.set(tc.index, buf);
+							}
+							if (tc.id) buf.id = tc.id;
+							if (tc.function?.name) buf.name += tc.function.name;
+							if (tc.function?.arguments) buf.args += tc.function.arguments;
+						}
+					}
+
+					if (choice.finish_reason && choice.finish_reason !== "null") {
+						finalFinishReason = choice.finish_reason;
+					}
+				}
 			}
 		} catch (err) {
+			if ((err as Error)?.name === "AbortError") return;
 			if (err instanceof AuthError || err instanceof RateLimitError || err instanceof ProviderError) throw err;
 			throw new NetworkError(redactNetworkError(err));
+		} finally {
+			reader.cancel().catch(() => {});
+		}
+
+		if (toolBuffers.size > 0) {
+			const calls = [...toolBuffers.values()].map(parseAssembled);
+			yield { kind: "tool_call_assembled", calls };
+			yield { kind: "done", finishReason: "tool_calls" };
+		} else {
+			yield { kind: "done", finishReason: mapFinishReason(finalFinishReason) };
+		}
+	}
+
+	async listModels(): Promise<string[]> {
+		try {
+			const base = this.config.baseUrl.replace(/\/$/, "");
+			const res = await requestUrl({
+				url: `${base}/models`,
+				method: "GET",
+				headers: { Authorization: `Bearer ${this.config.apiKey}` },
+				throw: false,
+			});
+			if (res.status >= 400) return [];
+			const json = res.json as { data?: Array<{ id: string }> } | null;
+			const ids = (json?.data ?? []).map((m) => m.id).filter(Boolean);
+			return ids.sort();
+		} catch {
+			return [];
 		}
 	}
 

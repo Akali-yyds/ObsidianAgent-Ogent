@@ -1,15 +1,18 @@
-## MODIFIED Requirements
+## Purpose
+Defines the `ModelProvider` abstraction and the OpenAI-compatible implementation that streams chat completions and tool calls to any compatible endpoint.
+
+## Requirements
 
 ### Requirement: ModelProvider interface
-The plugin SHALL define a `ModelProvider` interface with a `stream` method that accepts chat messages, an `AbortSignal`, and an optional `tools` array (JSON Schema). The method SHALL return an async iterable of events: text deltas, tool-call deltas (incremental), and a final tool-call assembly event when the model finishes a tool-calling turn. The interface SHALL be the only seam used by the agent loop.
+The plugin SHALL define a `ModelProvider` interface with a `stream` method that accepts chat messages, an `AbortSignal`, and an optional `tools` array (JSON Schema), and an optional `listModels` method returning a sorted list of available model IDs. The `stream` method SHALL return an async iterable of events: text deltas, tool-call deltas (incremental), and a final tool-call assembly event when the model finishes a tool-calling turn. The interface SHALL be the only seam used by the agent loop.
 
 #### Scenario: Interface shape
 - **WHEN** a developer reads the source
-- **THEN** they find `ModelProvider.stream(messages, opts)` where `opts` accepts `signal` and `tools`, and the iterable yields events typed as text deltas, tool-call deltas, or tool-call completion
+- **THEN** they find `ModelProvider.stream(messages, opts)` where `opts` accepts `signal` and `tools`, and the iterable yields events typed as text deltas, tool-call deltas, or tool-call completion; and optionally `ModelProvider.listModels()` returning `Promise<string[]>`
 
 #### Scenario: Tools field omitted when empty
 - **WHEN** the loop calls `stream` with an empty or missing `tools` array
-- **THEN** the request body sent to the endpoint contains no `tools` field, preserving M0 behaviour
+- **THEN** the request body sent to the endpoint contains no `tools` field
 
 ### Requirement: OpenAI-compatible provider implementation
 The plugin SHALL ship one implementation of `ModelProvider` targeting any OpenAI-compatible chat-completions HTTP endpoint, configured by base URL, API key, and model name. The implementation SHALL forward the optional `tools` parameter and parse `tool_calls` deltas in the streaming response.
@@ -51,3 +54,14 @@ The provider SHALL accumulate streamed `tool_calls[i].function.arguments` fragme
 #### Scenario: Args malformed
 - **WHEN** the assembled argument string is not valid JSON
 - **THEN** the provider yields a `ToolCallParseError` event referencing the offending tool call id, allowing the loop to surface a structured error to the model
+
+### Requirement: Model listing
+The `OpenAICompatibleProvider` SHALL implement `listModels()` by calling `GET <baseUrl>/models`, returning a sorted array of model ID strings. All errors SHALL be caught and return an empty array so callers never need to handle exceptions.
+
+#### Scenario: Models fetched successfully
+- **WHEN** `listModels()` is called with a reachable endpoint
+- **THEN** it returns the sorted list of model IDs from the `data[].id` field of the response
+
+#### Scenario: Endpoint unreachable
+- **WHEN** `listModels()` is called and the network request fails
+- **THEN** it returns `[]` without throwing
