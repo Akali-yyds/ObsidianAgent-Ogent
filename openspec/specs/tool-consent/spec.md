@@ -1,4 +1,9 @@
-## ADDED Requirements
+# tool-consent Specification
+
+## Purpose
+Manages per-category tool consent modes and the consent modal for mutating operations, including per-tool diff rendering, never-mode short-circuits, and session-scoped undo.
+
+## Requirements
 
 ### Requirement: Consent mode per tool category
 The plugin SHALL track a consent mode for each tool category. Modes are `always` (auto-approve), `ask` (prompt the user via modal), and `never` (auto-reject with a structured error to the model). The default mode SHALL be `always` for `vault_read` and `ask` for `vault_write`.

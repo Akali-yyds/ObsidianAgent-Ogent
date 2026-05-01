@@ -1,4 +1,9 @@
-## MODIFIED Requirements
+# agent-loop Specification
+
+## Purpose
+Manages the multi-turn tool-dispatching conversation loop between the chat view and the model provider, streaming typed events to the caller.
+
+## Requirements
 
 ### Requirement: Single-turn streaming chat
 The agent loop SHALL accept a list of chat messages, a `ModelProvider`, and an optional `ToolRegistry`, and return an async iterable of events representing the assistant's reply (text deltas, tool-call announcements, tool-result echoes, and completion). When no tool registry is supplied, the loop's behaviour matches M0 (text-only deltas).
@@ -14,14 +19,6 @@ The agent loop SHALL accept a list of chat messages, a `ModelProvider`, and an o
 #### Scenario: Successful turn with tool dispatch
 - **WHEN** the chat view calls the loop with a tool registry and the model emits one or more tool calls in its first turn
 - **THEN** the loop yields text deltas (if any), runs each tool sequentially, yields tool-call and tool-result events, appends `tool` role messages with the results, and resumes the conversation until the model returns a final assistant message
-
-## REMOVED Requirements
-
-### Requirement: No tools registered in M0
-**Reason**: M1 introduces tool dispatch. Tool emission is now expected behaviour when a registry is supplied.
-**Migration**: Callers that want M0-equivalent behaviour pass no registry (or an empty one); the loop omits the `tools` field on the provider request.
-
-## ADDED Requirements
 
 ### Requirement: Multi-step tool dispatch with cap
 The loop SHALL run up to `maxSteps` (default 8) iterations of model-call → tool-dispatch → resume. When the cap is reached without a final assistant message, the loop SHALL yield a synthetic assistant message indicating the cap was hit.

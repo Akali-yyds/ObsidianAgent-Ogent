@@ -1,4 +1,9 @@
-## ADDED Requirements
+# vault-tools Specification
+
+## Purpose
+Provides vault read and write tools accessible to the agent loop, including tool registry abstraction, argument validation, execution timeout, and path safety for write operations.
+
+## Requirements
 
 ### Requirement: Tool registry abstraction
 The plugin SHALL define a `ToolDef` type and a `ToolRegistry` that the agent loop consumes to discover, validate, and dispatch tool calls. Tool sources (vault, web, MCP) SHALL register through this single seam.

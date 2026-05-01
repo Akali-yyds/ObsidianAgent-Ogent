@@ -1,4 +1,9 @@
-## MODIFIED Requirements
+# settings Specification
+
+## Purpose
+Exposes plugin configuration via an Obsidian settings tab, including provider connection details, system prompt, and per-category tool consent modes.
+
+## Requirements
 
 ### Requirement: Settings tab UI
 The plugin SHALL register a settings tab exposing fields for: provider preset (`openai-compatible` in M0–M1), base URL, API key, model name, an optional system prompt, and consent-mode dropdowns per tool category (`vault_read`, `vault_write`).
@@ -21,8 +26,6 @@ The settings tab SHALL display two notices: one stating that the API key is stor
 #### Scenario: Notices displayed
 - **WHEN** the settings tab renders
 - **THEN** both the key-storage notice and the vault-content notice are visible
-
-## ADDED Requirements
 
 ### Requirement: Default consent modes
 The plugin SHALL default `vault_read` consent mode to `always` and `vault_write` consent mode to `ask` on first install. Defaults SHALL NOT overwrite an existing user choice.
