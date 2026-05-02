@@ -18,7 +18,7 @@
 
 - [x] 3.1 Implement undo ring buffer in `vault-consent.ts`: module-level array (cap 50) storing `{ id, path, before, after, timestamp }`; write tools push entry after successful write
 - [x] 3.2 Register "Undo last tool write" command in plugin `onload`: pops most recent buffer entry, restores `before` via `app.vault.modify`, shows notice; shows "Nothing to undo" when buffer is empty
-- [ ] 3.3 Clear undo buffer when chat session is reset (hook into existing session-clear logic)
+- [x] 3.3 Clear undo buffer when chat session is reset (hook into existing session-clear logic)
 
 ## 4. Styling
 

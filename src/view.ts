@@ -199,6 +199,7 @@ export class ChatView extends ItemView {
 		newBtn.addEventListener("click", async () => {
 			await this.deps.sessionStore.create();
 			this.turns = [];
+			this.deps.undo.clear();
 			this.refreshHeader();
 			this.renderTranscript();
 		});
@@ -211,6 +212,7 @@ export class ChatView extends ItemView {
 			await this.deps.sessionStore.delete(id);
 			const session = this.deps.sessionStore.getActive();
 			this.turns = this.storedToUiTurns(session.turns);
+			this.deps.undo.clear();
 			this.refreshHeader();
 			this.renderTranscript();
 		});
@@ -296,6 +298,7 @@ export class ChatView extends ItemView {
 				const session = this.deps.sessionStore.getActive();
 				// Prefer live in-memory turns (stream still running) over stale stored state
 				this.turns = this.liveTurns.get(s.id) ?? this.storedToUiTurns(session.turns);
+				this.deps.undo.clear();
 				this.refreshHeader();
 				this.refreshBusyState();
 				this.renderTranscript();
