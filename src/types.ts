@@ -53,6 +53,7 @@ export interface JsonSchemaProperty {
 	items?: JsonSchemaProperty;
 	properties?: Record<string, JsonSchemaProperty>;
 	required?: string[];
+	additionalProperties?: boolean;
 	default?: unknown;
 	minimum?: number;
 	maximum?: number;

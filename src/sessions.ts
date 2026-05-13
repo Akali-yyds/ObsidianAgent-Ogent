@@ -2,13 +2,51 @@ export interface SessionMeta {
 	id: string;
 	title: string;
 	model: string;
+	selectedPackId?: string | null;
+	lastClassicModel?: string;
 	createdAt: number;
 	updatedAt: number;
+}
+
+export type StoredClaimStatus = "verified" | "unsupported" | "quote-missing";
+
+export interface StoredPackProgressStep {
+	id: string;
+	label: string;
+	state: "pending" | "running" | "complete" | "failed";
+	message?: string;
+}
+
+export interface StoredPackClaim {
+	id: string;
+	text: string;
+	sourceNote: string;
+	sourceQuote: string;
+	quotePresent: boolean;
+	supportsClaim: boolean | null;
+	supportExplanation: string;
+	status: StoredClaimStatus;
+}
+
+export interface StoredPackTurnData {
+	packId: string;
+	packName: string;
+	progressSteps?: StoredPackProgressStep[];
+	retryingStepId?: string | null;
+	error?: string;
+	verifiedSummary?: string;
+	claims?: StoredPackClaim[];
+	modelsUsed?: {
+		retriever: string;
+		synthesizer: string;
+		verifier: string;
+	};
 }
 
 export interface StoredTurn {
 	role: "user" | "assistant";
 	content: string;
+	packTurn?: StoredPackTurnData;
 }
 
 export interface StoredSession extends SessionMeta {
@@ -43,8 +81,14 @@ export class SessionStore {
 				await this.cb.writeTurns(s.id, s.turns).catch(() => {});
 			}
 		}
-		const meta: SessionMeta[] = rawSessions.map(({ id, title, model, createdAt, updatedAt }) => ({
-			id, title, model, createdAt, updatedAt,
+		const meta: SessionMeta[] = rawSessions.map(({ id, title, model, selectedPackId, lastClassicModel, createdAt, updatedAt }) => ({
+			id,
+			title,
+			model,
+			selectedPackId: selectedPackId ?? null,
+			lastClassicModel: lastClassicModel ?? model,
+			createdAt,
+			updatedAt,
 		}));
 		if (meta.length === 0) {
 			const m = this.makeMeta();
@@ -100,6 +144,8 @@ export class SessionStore {
 			const m = this.meta[0];
 			m.title = "New chat";
 			m.model = "";
+			m.selectedPackId = null;
+			m.lastClassicModel = "";
 			m.updatedAt = Date.now();
 			this.activeId = m.id;
 			this.activeTurns = [];
@@ -136,6 +182,19 @@ export class SessionStore {
 		const m = this.meta.find((s) => s.id === id);
 		if (!m) return;
 		m.model = model;
+		m.lastClassicModel = model;
+		m.updatedAt = Date.now();
+		await this.cb.persistIndex(this.meta, this.activeId);
+	}
+
+	async updateSelectedPack(id: string, selectedPackId: string | null, lastClassicModel?: string): Promise<void> {
+		const m = this.meta.find((s) => s.id === id);
+		if (!m) return;
+		m.selectedPackId = selectedPackId;
+		if (typeof lastClassicModel === "string") {
+			m.lastClassicModel = lastClassicModel;
+			if (lastClassicModel.trim().length > 0) m.model = lastClassicModel;
+		}
 		m.updatedAt = Date.now();
 		await this.cb.persistIndex(this.meta, this.activeId);
 	}
@@ -146,6 +205,14 @@ export class SessionStore {
 
 	private makeMeta(): SessionMeta {
 		const now = Date.now();
-		return { id: makeId(), title: "New chat", model: "", createdAt: now, updatedAt: now };
+		return {
+			id: makeId(),
+			title: "New chat",
+			model: "",
+			selectedPackId: null,
+			lastClassicModel: "",
+			createdAt: now,
+			updatedAt: now,
+		};
 	}
 }

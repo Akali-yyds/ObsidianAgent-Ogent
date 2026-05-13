@@ -1,4 +1,7 @@
 import { Notice, Platform, Plugin, TFile, WorkspaceLeaf } from "obsidian";
+import { ensureDefaultPacks, loadPacks } from "./packs/loader";
+import { runPack, type PackRuntimeEvent, type PackRunResult } from "./packs/runtime";
+import type { AgentPack } from "./packs/types";
 import { ConsentManager } from "./consent/manager";
 import { UndoBuffer } from "./consent/undo";
 import { OpenAgentSettingsTab, DEFAULT_SETTINGS, type PluginSettings } from "./settings";
@@ -55,6 +58,7 @@ export default class OpenAgentPlugin extends Plugin {
 		});
 
 		await this.loadSettings();
+		await ensureDefaultPacks(this.app, this.manifest.dir);
 
 		this.toolRegistry = new ToolRegistry();
 		this.undo = new UndoBuffer(50);
@@ -69,6 +73,8 @@ export default class OpenAgentPlugin extends Plugin {
 				consent,
 				undo: this.undo,
 				sessionStore: this.sessionStore,
+				getPacks: () => this.getPacks(),
+				runPack: (pack, query, signal, onEvent) => this.runPack(pack, query, signal, onEvent),
 			});
 		});
 
@@ -173,5 +179,25 @@ export default class OpenAgentPlugin extends Plugin {
 		const setting = (this.app as unknown as { setting: { open(): void; openTabById(id: string): void } }).setting;
 		setting.open();
 		setting.openTabById(this.manifest.id);
+	}
+
+	private async getPacks(): Promise<AgentPack[]> {
+		return loadPacks(this.app, this.manifest.dir);
+	}
+
+	private async runPack(
+		pack: AgentPack,
+		query: string,
+		signal?: AbortSignal,
+		onEvent?: (event: PackRuntimeEvent) => void | Promise<void>,
+	): Promise<PackRunResult> {
+		return runPack({
+			app: this.app,
+			pack,
+			query,
+			activeFilePath: this.app.workspace.getActiveFile()?.path,
+			signal,
+			onEvent,
+		});
 	}
 }

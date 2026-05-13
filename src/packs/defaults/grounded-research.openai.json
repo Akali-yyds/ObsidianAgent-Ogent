@@ -1,0 +1,63 @@
+{
+	"id": "grounded-research.openai",
+	"name": "Grounded Research (OpenAI)",
+	"description": "Desktop-only grounded research using OpenAI-compatible hosted endpoints.",
+	"support": {
+		"mobile": false
+	},
+	"providers": {
+		"retriever": {
+			"baseUrl": "https://api.openai.com/v1",
+			"apiKey": "replace-me",
+			"model": "gpt-4o-mini"
+		},
+		"synthesizer": {
+			"baseUrl": "https://api.openai.com/v1",
+			"apiKey": "replace-me",
+			"model": "gpt-4o"
+		},
+		"verifier": {
+			"baseUrl": "https://api.openai.com/v1",
+			"apiKey": "replace-me",
+			"model": "gpt-4o-mini"
+		}
+	},
+	"agents": {
+		"retriever": {
+			"name": "Retriever",
+			"provider": "retriever",
+			"systemPrompt": "You are a privacy-first research retriever. Summarize the strongest evidence from the provided notes. Do not invent sources."
+		},
+		"synthesizer": {
+			"name": "Synthesizer",
+			"provider": "synthesizer",
+			"systemPrompt": "You produce JSON only. Build grounded claims using only the provided note evidence."
+		},
+		"verifier": {
+			"name": "Verifier",
+			"provider": "verifier",
+			"systemPrompt": "You verify whether quoted note text supports a claim. Return JSON only."
+		}
+	},
+	"steps": [
+		{
+			"id": "retriever",
+			"label": "Retrieving notes",
+			"agent": "retriever",
+			"kind": "retrieval"
+		},
+		{
+			"id": "synthesizer",
+			"label": "Drafting claims",
+			"agent": "synthesizer",
+			"kind": "structured",
+			"schema": "claims-v1"
+		},
+		{
+			"id": "verifier",
+			"label": "Verifying claims",
+			"agent": "verifier",
+			"kind": "verification"
+		}
+	]
+}

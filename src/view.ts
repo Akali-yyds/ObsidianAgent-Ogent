@@ -4,9 +4,18 @@ import type { UndoBuffer } from "./consent/undo";
 import { diffLines, type DiffRow } from "./consent/diff";
 import { renderRows } from "./consent/render-diff";
 import { runTurn } from "./loop";
+import { isMobile } from "./platform";
 import { OpenAICompatibleProvider } from "./provider";
+import { PackConfigError, type PackRuntimeEvent, type PackRunResult } from "./packs/runtime";
+import type { AgentPack } from "./packs/types";
 import { isConfigured, type PluginSettings } from "./settings";
-import type { SessionStore, StoredTurn } from "./sessions";
+import type {
+	SessionStore,
+	StoredPackClaim,
+	StoredPackProgressStep,
+	StoredPackTurnData,
+	StoredTurn,
+} from "./sessions";
 import { splitFrontmatter, mergeFrontmatter, stitchFrontmatter } from "./tools/vault/frontmatter";
 import type { ToolRegistry } from "./tools/registry";
 import { AuthError, type ChatMessage, NetworkError, ProviderError, RateLimitError, type ToolResult } from "./types";
@@ -36,6 +45,7 @@ interface UiTurn {
 	error?: string;
 	authError?: boolean;
 	capHit?: boolean;
+	packTurn?: StoredPackTurnData;
 }
 
 export interface ChatViewDeps {
@@ -45,6 +55,13 @@ export interface ChatViewDeps {
 	consent: ConsentManager;
 	undo: UndoBuffer;
 	sessionStore: SessionStore;
+	getPacks: () => Promise<AgentPack[]>;
+	runPack: (
+		pack: AgentPack,
+		query: string,
+		signal?: AbortSignal,
+		onEvent?: (event: PackRuntimeEvent) => void | Promise<void>,
+	) => Promise<PackRunResult>;
 }
 
 export class ChatView extends ItemView {
@@ -64,6 +81,11 @@ export class ChatView extends ItemView {
 	private sessionsSearchEl!: HTMLInputElement;
 	private modelInputEl!: HTMLInputElement;
 	private modelDatalistEl!: HTMLElement;
+	private modeSelectEl!: HTMLSelectElement;
+	private packSummaryEl!: HTMLElement;
+	private packHintEl!: HTMLElement;
+	private packRecoveryEl!: HTMLElement;
+	private packMobileBannerEl!: HTMLElement;
 
 	private turns: UiTurn[] = [];
 	private readonly inFlights = new Map<string, AbortController>();
@@ -78,6 +100,8 @@ export class ChatView extends ItemView {
 
 	// Panel state
 	private sessionsPanelVisible = false;
+	private availablePacks: AgentPack[] = [];
+	private activePackError: string | null = null;
 
 	// Rename state
 	private isRenaming = false;
@@ -148,6 +172,7 @@ export class ChatView extends ItemView {
 
 		this.refreshConfiguredState();
 		void this.populateModelDatalist();
+		void this.refreshPacks();
 		this.renderTranscript();
 		return Promise.resolve();
 	}
@@ -231,6 +256,19 @@ export class ChatView extends ItemView {
 
 		this.sessionsListEl = this.sessionsPanelEl.createDiv({ cls: "open-agent-sessions-list" });
 
+		const modeBar = header.createDiv({ cls: "open-agent-mode-bar" });
+		modeBar.createEl("span", { text: "Mode:", cls: "open-agent-model-label" });
+		this.modeSelectEl = modeBar.createEl("select", { cls: "open-agent-mode-select" });
+		this.modeSelectEl.addEventListener("change", async () => {
+			const session = this.deps.sessionStore.getActive();
+			const nextPackId = this.modeSelectEl.value || null;
+			const currentClassicModel = this.modelInputEl.value.trim() || session.lastClassicModel || session.model;
+			this.activePackError = null;
+			await this.deps.sessionStore.updateSelectedPack(session.id, nextPackId, currentClassicModel);
+			this.refreshHeader();
+			this.refreshConfiguredState();
+		});
+
 		// Model bar
 		const modelBar = header.createDiv({ cls: "open-agent-model-bar" });
 		modelBar.createEl("span", { text: "Model:", cls: "open-agent-model-label" });
@@ -250,6 +288,10 @@ export class ChatView extends ItemView {
 		});
 
 		this.modelDatalistEl = modelBar.createEl("datalist", { attr: { id: datalistId } });
+		this.packSummaryEl = header.createDiv({ cls: "open-agent-pack-summary" });
+		this.packHintEl = header.createDiv({ cls: "open-agent-pack-hint", text: "Applies to future turns in this chat." });
+		this.packRecoveryEl = header.createDiv({ cls: "open-agent-pack-recovery" });
+		this.packMobileBannerEl = header.createDiv({ cls: "open-agent-pack-mobile-banner" });
 
 		this.refreshHeader();
 	}
@@ -258,7 +300,101 @@ export class ChatView extends ItemView {
 		const active = this.deps.sessionStore.getActive();
 		const settings = this.deps.getSettings();
 		this.sessionTitleEl.setText(active.title);
-		this.modelInputEl.value = active.model.trim().length > 0 ? active.model : settings.model;
+		this.modelInputEl.value = active.lastClassicModel?.trim().length ? active.lastClassicModel : (active.model.trim().length > 0 ? active.model : settings.model);
+
+		this.modeSelectEl.empty();
+		this.modeSelectEl.createEl("option", { value: "", text: "Classic" });
+		for (const pack of this.getSelectablePacks()) {
+			this.modeSelectEl.createEl("option", { value: pack.id, text: pack.name });
+		}
+		this.modeSelectEl.value = active.selectedPackId ?? "";
+
+		const activePack = this.getActivePack();
+		const packMode = Boolean(active.selectedPackId);
+		const mobileBlocked = packMode && this.isMobileBlockedPack();
+		this.packSummaryEl.empty();
+		this.packRecoveryEl.empty();
+		this.packMobileBannerEl.empty();
+
+		if (this.modelInputEl.parentElement) {
+			this.modelInputEl.parentElement.classList.toggle("is-hidden", packMode);
+		}
+		this.packSummaryEl.classList.toggle("is-hidden", !packMode);
+		this.packHintEl.classList.toggle("is-hidden", !packMode);
+
+		if (activePack) {
+			this.packSummaryEl.createEl("div", { cls: "open-agent-pack-name", text: activePack.name });
+			this.packSummaryEl.createEl("div", {
+				cls: "open-agent-pack-models",
+				text:
+					`Retriever — ${activePack.providers.retriever?.model ?? "n/a"}; ` +
+					`Synthesizer — ${activePack.providers.synthesizer?.model ?? "n/a"}; ` +
+					`Verifier — ${activePack.providers.verifier?.model ?? "n/a"}`,
+			});
+		}
+
+		if (mobileBlocked) {
+			this.packMobileBannerEl.createEl("div", {
+				cls: "open-agent-pack-banner",
+				text: "Grounded Research is available on desktop only for now.",
+			});
+			const classicBtn = this.packMobileBannerEl.createEl("button", { text: "Use Classic mode" });
+			classicBtn.addEventListener("click", () => {
+				void this.switchToClassicMode();
+			});
+		}
+
+		if (this.activePackError) {
+			this.packRecoveryEl.createEl("div", { cls: "open-agent-pack-banner open-agent-pack-banner-error", text: this.activePackError });
+			const classicBtn = this.packRecoveryEl.createEl("button", { text: "Use Classic mode" });
+			classicBtn.addEventListener("click", () => {
+				void this.switchToClassicMode();
+			});
+			if (this.getSelectablePacks().length > 0) {
+				const chooseBtn = this.packRecoveryEl.createEl("button", { text: "Choose another pack" });
+				chooseBtn.addEventListener("click", () => {
+					this.modeSelectEl.focus();
+				});
+			}
+		}
+	}
+
+	private async refreshPacks(): Promise<void> {
+		try {
+			this.availablePacks = await this.deps.getPacks();
+		} catch (error) {
+			this.availablePacks = [];
+			this.activePackError = error instanceof Error ? error.message : String(error);
+		}
+		this.refreshHeader();
+		this.refreshConfiguredState();
+	}
+
+	private getSelectablePacks(): AgentPack[] {
+		return this.availablePacks.filter((pack) => !isMobile() || pack.support.mobile);
+	}
+
+	private getActivePack(): AgentPack | null {
+		const selectedPackId = this.deps.sessionStore.getActive().selectedPackId;
+		if (!selectedPackId) return null;
+		return this.availablePacks.find((pack) => pack.id === selectedPackId) ?? null;
+	}
+
+	private isMobileBlockedPack(): boolean {
+		const activePack = this.getActivePack();
+		return Boolean(activePack && isMobile() && !activePack.support.mobile);
+	}
+
+	private async switchToClassicMode(): Promise<void> {
+		const session = this.deps.sessionStore.getActive();
+		await this.deps.sessionStore.updateSelectedPack(
+			session.id,
+			null,
+			this.modelInputEl.value.trim() || session.lastClassicModel || session.model,
+		);
+		this.activePackError = null;
+		this.refreshHeader();
+		this.refreshConfiguredState();
 	}
 
 	private toggleSessionsPanel(): void {
@@ -383,6 +519,17 @@ export class ChatView extends ItemView {
 			if (st.role === "user") {
 				return { role: "user", content: st.content, segments: [], toolCallMap: {}, thinking: false } as UiTurn;
 			}
+			if (st.packTurn) {
+				return {
+					role: "assistant",
+					content: "",
+					segments: [],
+					toolCallMap: {},
+					thinking: false,
+					packTurn: st.packTurn,
+					error: st.packTurn.error,
+				} as UiTurn;
+			}
 			return {
 				role: "assistant",
 				content: "",
@@ -399,6 +546,10 @@ export class ChatView extends ItemView {
 			if (t.role === "user" && t.content.length > 0) {
 				result.push({ role: "user", content: t.content });
 			} else if (t.role === "assistant") {
+				if (t.packTurn) {
+					result.push({ role: "assistant", content: "", packTurn: t.packTurn });
+					continue;
+				}
 				const text = t.segments
 					.filter((s): s is { kind: "text"; text: string } => s.kind === "text")
 					.map((s) => s.text)
@@ -412,9 +563,10 @@ export class ChatView extends ItemView {
 	// ─── Configured / busy state ──────────────────────────────────────────────
 
 	private refreshConfiguredState(): void {
-		const ok = isConfigured(this.deps.getSettings());
 		this.hintEl.empty();
-		if (!ok) {
+		const classicConfigured = isConfigured(this.deps.getSettings());
+		const packMode = Boolean(this.deps.sessionStore.getActive().selectedPackId);
+		if (!packMode && !classicConfigured) {
 			this.hintEl.appendText("Provider not configured. ");
 			const link = this.hintEl.createEl("a", { text: "Open settings", href: "#" });
 			link.addEventListener("click", (e) => {
@@ -429,10 +581,14 @@ export class ChatView extends ItemView {
 	private refreshBusyState(): void {
 		const activeId = this.deps.sessionStore.getActive().id;
 		const busy = this.inFlights.has(activeId);
-		const ok = isConfigured(this.deps.getSettings());
-		this.sendBtn.disabled = !ok || busy;
+		const packMode = Boolean(this.deps.sessionStore.getActive().selectedPackId);
+		const activePack = this.getActivePack();
+		const classicOk = isConfigured(this.deps.getSettings());
+		const packOk = packMode ? Boolean(activePack) && !this.isMobileBlockedPack() : false;
+		this.sendBtn.disabled = !(packMode ? packOk : classicOk) || busy;
 		this.stopBtn.disabled = !busy;
 		this.inputEl.disabled = busy;
+		this.sendBtn.textContent = packMode ? "Run research" : "Send";
 		if (this.sessionsPanelVisible) {
 			this.refreshSessionsList(this.sessionsSearchEl.value);
 		}
@@ -441,6 +597,14 @@ export class ChatView extends ItemView {
 	// ─── Send / stop ──────────────────────────────────────────────────────────
 
 	private async handleSend(): Promise<void> {
+		if (this.deps.sessionStore.getActive().selectedPackId) {
+			await this.handlePackSend();
+			return;
+		}
+		await this.handleClassicSend();
+	}
+
+	private async handleClassicSend(): Promise<void> {
 		const text = this.inputEl.value.trim();
 		if (!text) return;
 		const settings = this.deps.getSettings();
@@ -583,6 +747,111 @@ export class ChatView extends ItemView {
 		}
 	}
 
+	private async handlePackSend(): Promise<void> {
+		const text = this.inputEl.value.trim();
+		if (!text) return;
+		const pack = this.getActivePack();
+		if (!pack) {
+			this.activePackError = "Selected pack could not be loaded. Choose another pack or use Classic mode.";
+			this.refreshHeader();
+			this.refreshBusyState();
+			return;
+		}
+		if (this.isMobileBlockedPack()) {
+			this.refreshHeader();
+			this.refreshBusyState();
+			return;
+		}
+
+		const session = this.deps.sessionStore.getActive();
+		const sessionId = session.id;
+		const isFirstMessage = session.turns.length === 0 && session.title === "New chat";
+		this.activePackError = null;
+
+		this.turns.push({ role: "user", content: text, segments: [], toolCallMap: {}, thinking: false });
+		const assistantTurn: UiTurn = {
+			role: "assistant",
+			content: "",
+			segments: [],
+			toolCallMap: {},
+			thinking: false,
+			packTurn: {
+				packId: pack.id,
+				packName: pack.name,
+				progressSteps: pack.steps.map((step) => ({
+					id: step.id,
+					label: step.label,
+					state: "pending",
+				})),
+				retryingStepId: null,
+			},
+		};
+		this.turns.push(assistantTurn);
+		const turnSnapshot = this.turns;
+		this.inputEl.value = "";
+
+		const ctrl = new AbortController();
+		this.inFlights.set(sessionId, ctrl);
+		this.liveTurns.set(sessionId, turnSnapshot);
+		this.refreshBusyState();
+		this.renderTranscript();
+
+		if (isFirstMessage) {
+			await this.deps.sessionStore.rename(sessionId, text.slice(0, 60));
+			this.refreshHeader();
+		}
+
+		await this.deps.sessionStore.updateTurns(
+			sessionId,
+			this.uiToStoredTurns(turnSnapshot.filter((turn) => turn !== assistantTurn)),
+		);
+
+		try {
+			const result = await this.deps.runPack(pack, text, ctrl.signal, async (event) => {
+				if (!assistantTurn.packTurn) return;
+				this.applyPackEvent(assistantTurn.packTurn, event);
+				if (this.turns.includes(assistantTurn)) this.scheduleRender();
+			});
+			if (assistantTurn.packTurn) {
+				assistantTurn.packTurn.verifiedSummary = result.verifiedSummary;
+				assistantTurn.packTurn.claims = result.claims.map((claim) => ({
+					id: claim.id,
+					text: claim.text,
+					sourceNote: claim.sourceNote,
+					sourceQuote: claim.sourceQuote,
+					quotePresent: claim.quotePresent,
+					supportsClaim: claim.supportsClaim,
+					supportExplanation: claim.supportExplanation,
+					status: claim.status,
+				}));
+				assistantTurn.packTurn.modelsUsed = result.modelsUsed;
+				assistantTurn.error = undefined;
+			}
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			if (assistantTurn.packTurn) {
+				assistantTurn.packTurn.error = message;
+				markPackFailed(assistantTurn.packTurn.progressSteps ?? []);
+			}
+			assistantTurn.error = message;
+			this.activePackError = this.formatPackRecoveryMessage(pack.name, error);
+			this.refreshHeader();
+		} finally {
+			if (this.renderDebounceTimer !== null) {
+				window.clearTimeout(this.renderDebounceTimer);
+				this.renderDebounceTimer = null;
+			}
+			if (ctrl.signal.aborted) {
+				assistantTurn.interrupted = true;
+			}
+			this.inFlights.delete(sessionId);
+			this.liveTurns.delete(sessionId);
+			this.refreshBusyState();
+			if (this.turns.includes(assistantTurn)) this.renderTranscript();
+			await this.deps.sessionStore.updateTurns(sessionId, this.uiToStoredTurns(turnSnapshot));
+		}
+	}
+
 	private handleStop(): void {
 		const activeId = this.deps.sessionStore.getActive().id;
 		const ctrl = this.inFlights.get(activeId);
@@ -612,6 +881,38 @@ export class ChatView extends ItemView {
 			return;
 		}
 		turn.error = err instanceof Error ? err.message : "Unknown error.";
+	}
+
+	private applyPackEvent(packTurn: StoredPackTurnData, event: PackRuntimeEvent): void {
+		if (event.kind === "step") {
+			packTurn.progressSteps = updatePackProgress(packTurn.progressSteps ?? [], event.step);
+			if (event.step.state !== "running") packTurn.retryingStepId = null;
+			if (event.step.state === "failed" && event.step.message) {
+				packTurn.error = event.step.message;
+			}
+			return;
+		}
+		packTurn.retryingStepId = event.stepId;
+	}
+
+	private formatPackRecoveryMessage(packName: string, error: unknown): string {
+		if (error instanceof PackConfigError) {
+			return `${packName} couldn’t start. Check the pack’s provider and model settings, then retry or switch to Classic mode. (${error.message})`;
+		}
+		if (error instanceof AuthError) {
+			return `${packName} couldn’t authenticate. Check the pack’s API key, then retry or switch to Classic mode.`;
+		}
+		if (error instanceof RateLimitError) {
+			return `${packName} hit the provider rate limit. Wait a moment, then retry or switch to Classic mode.`;
+		}
+		if (error instanceof NetworkError) {
+			return `${packName} couldn’t reach its provider. Check the endpoint or local model server, then retry or switch to Classic mode.`;
+		}
+		if (error instanceof ProviderError) {
+			return `${packName} failed in the provider. Check the pack’s endpoint or model settings, then retry or switch to Classic mode. (${error.message})`;
+		}
+		const message = error instanceof Error ? error.message : String(error);
+		return `${packName} couldn’t finish. Retry, choose another pack, or switch to Classic mode. (${message})`;
 	}
 
 	// ─── Transcript ───────────────────────────────────────────────────────────
@@ -695,23 +996,27 @@ export class ChatView extends ItemView {
 					});
 				}
 
-				if (turn.thinking) {
+				if (turn.packTurn) {
+					this.renderPackTurn(row, turn.packTurn);
+				} else if (turn.thinking) {
 					row.createEl("div", { cls: "open-agent-turn-thinking" });
 				}
-				for (const seg of turn.segments) {
-					if (seg.kind === "text") {
-						if (seg.text.length > 0) {
-							const body = row.createEl("div", { cls: "open-agent-turn-body" });
-							if (busy) {
-								// Plain text during streaming to avoid flicker from async MarkdownRenderer
-								body.setText(seg.text);
-							} else {
-								void MarkdownRenderer.render(this.app, seg.text, body, "", this);
+				if (!turn.packTurn) {
+					for (const seg of turn.segments) {
+						if (seg.kind === "text") {
+							if (seg.text.length > 0) {
+								const body = row.createEl("div", { cls: "open-agent-turn-body" });
+								if (busy) {
+									// Plain text during streaming to avoid flicker from async MarkdownRenderer
+									body.setText(seg.text);
+								} else {
+									void MarkdownRenderer.render(this.app, seg.text, body, "", this);
+								}
 							}
+						} else {
+							const record = turn.toolCallMap[seg.id];
+							if (record) this.renderToolCard(row, record);
 						}
-					} else {
-						const record = turn.toolCallMap[seg.id];
-						if (record) this.renderToolCard(row, record);
 					}
 				}
 			}
@@ -822,7 +1127,99 @@ export class ChatView extends ItemView {
 		}
 	}
 
-	private scheduleDiffComputation(tc: ToolCallRecord): void {
+	private renderPackTurn(parent: HTMLElement, packTurn: StoredPackTurnData): void {
+			const progress = parent.createDiv({ cls: "open-agent-pack-progress" });
+			for (const step of packTurn.progressSteps ?? []) {
+				const stepEl = progress.createDiv({ cls: `open-agent-pack-step open-agent-pack-step-${step.state}` });
+				stepEl.createEl("div", { cls: "open-agent-pack-step-label", text: step.label });
+				if (packTurn.retryingStepId === step.id) {
+					stepEl.createEl("div", {
+						cls: "open-agent-pack-retry",
+						text: "Retrying structured output (1/1)…",
+					});
+				}
+				if (step.state === "failed" && step.message) {
+					stepEl.createEl("div", { cls: "open-agent-pack-step-message", text: step.message });
+				}
+			}
+
+			if (packTurn.verifiedSummary && packTurn.verifiedSummary.trim().length > 0) {
+				parent.createEl("div", { cls: "open-agent-pack-section-title", text: "Verified summary" });
+				const summaryBody = parent.createDiv({ cls: "open-agent-turn-body" });
+				void MarkdownRenderer.render(this.app, packTurn.verifiedSummary, summaryBody, "", this);
+			} else if (packTurn.claims && packTurn.claims.length > 0 && packTurn.claims.every((claim) => claim.status !== "verified")) {
+				parent.createEl("div", { cls: "open-agent-pack-section-title", text: "Verification failed" });
+				parent.createEl("div", {
+					cls: "open-agent-pack-step-message",
+					text: "No claims could be verified against your notes.",
+				});
+			}
+
+			const verifiedClaims = (packTurn.claims ?? []).filter((claim) => claim.status === "verified");
+			for (const claim of verifiedClaims) {
+				this.renderPackClaim(parent, claim);
+			}
+
+			const flaggedClaims = (packTurn.claims ?? []).filter((claim) => claim.status !== "verified");
+			if (flaggedClaims.length > 0) {
+				parent.createEl("div", { cls: "open-agent-pack-section-title", text: "Flagged claims" });
+			}
+			for (const claim of flaggedClaims) {
+				this.renderPackClaim(parent, claim);
+			}
+
+			if (packTurn.modelsUsed) {
+				parent.createEl("div", {
+					cls: "open-agent-pack-model-footer",
+					text:
+						`Models used: Retriever — ${packTurn.modelsUsed.retriever}; ` +
+						`Synthesizer — ${packTurn.modelsUsed.synthesizer}; ` +
+						`Verifier — ${packTurn.modelsUsed.verifier}`,
+				});
+			}
+		}
+
+		private renderPackClaim(parent: HTMLElement, claim: StoredPackClaim): void {
+			const card = parent.createDiv({ cls: `open-agent-claim open-agent-claim-${claim.status}` });
+			const header = card.createDiv({ cls: "open-agent-claim-header" });
+			header.createEl("span", { cls: "open-agent-claim-badge", text: claimStatusLabel(claim.status) });
+			header.createEl("div", { cls: "open-agent-claim-text", text: claim.text });
+
+			const meta = card.createDiv({ cls: "open-agent-claim-meta" });
+			const sourceBtn = meta.createEl("button", { text: "Open source note", cls: "open-agent-claim-open" });
+			sourceBtn.addEventListener("click", () => {
+				const file = this.app.vault.getAbstractFileByPath(claim.sourceNote);
+				if (file instanceof TFile) {
+					void this.app.workspace.getLeaf(false).openFile(file);
+				} else {
+					new Notice(`Not found: ${claim.sourceNote}`);
+				}
+			});
+			meta.createEl("span", { cls: "open-agent-claim-source", text: sourceNoteLabel(claim.sourceNote) });
+
+			const details = card.createDiv({ cls: "open-agent-claim-details" });
+			const shouldExpand = claim.status !== "verified";
+			const toggle = card.createEl("button", {
+				text: shouldExpand ? "Hide details" : "Show details",
+				cls: "open-agent-claim-toggle",
+			});
+			if (!shouldExpand) details.style.display = "none";
+			toggle.addEventListener("click", () => {
+				const open = details.style.display === "none";
+				details.style.display = open ? "" : "none";
+				toggle.textContent = open ? "Hide details" : "Show details";
+			});
+
+			details.createEl("div", {
+				cls: "open-agent-claim-quote",
+				text: claim.quotePresent ? claim.sourceQuote : "Quoted text not found in the live note.",
+			});
+			if (claim.status !== "verified") {
+				details.createEl("div", { cls: "open-agent-claim-explanation", text: claim.supportExplanation });
+			}
+		}
+
+		private scheduleDiffComputation(tc: ToolCallRecord): void {
 		if (this.diffComputedIds.has(tc.id)) return;
 		this.diffComputedIds.add(tc.id);
 		void this.computeAndStoreDiff(tc);
@@ -907,4 +1304,34 @@ function extractPath(value: unknown): string | null {
 	if (!value || typeof value !== "object" || Array.isArray(value)) return null;
 	const p = (value as Record<string, unknown>).path;
 	return typeof p === "string" ? p : null;
+}
+
+function updatePackProgress(
+	steps: StoredPackProgressStep[],
+	nextStep: StoredPackProgressStep,
+): StoredPackProgressStep[] {
+	const updated = steps.map((step) => (step.id === nextStep.id ? nextStep : step));
+	if (updated.some((step) => step.id === nextStep.id)) return updated;
+	return [...updated, nextStep];
+}
+
+function markPackFailed(steps: StoredPackProgressStep[]): void {
+	const running = steps.find((step) => step.state === "running");
+	if (running) running.state = "failed";
+}
+
+function claimStatusLabel(status: StoredPackClaim["status"]): string {
+	switch (status) {
+		case "verified":
+			return "Verified";
+		case "unsupported":
+			return "Unsupported";
+		case "quote-missing":
+			return "Quote missing";
+	}
+}
+
+function sourceNoteLabel(path: string): string {
+	const parts = path.split("/");
+	return parts[parts.length - 1] || path;
 }

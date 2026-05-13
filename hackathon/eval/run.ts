@@ -1,0 +1,700 @@
+import Ajv from "ajv";
+import { promises as fs } from "node:fs";
+import path from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { normalizeWhitespace, quotePresent } from "../../src/agents/quote-match";
+import type { ClaimVerificationStatus } from "../../src/agents/verifier";
+import type { ClaimsV1 } from "../../src/agents/schemas/claims-v1";
+import groundedResearchDefault from "../../src/packs/defaults/grounded-research.json";
+import { runPackForEval, type PackRunResult } from "../../src/packs/runtime";
+import type { AgentPack } from "../../src/packs/types";
+import type { VaultAdapter } from "../../src/packs/vault-adapter";
+import type { ChatMessage, ModelProvider, StreamEvent } from "../../src/types";
+import { createFixtureVaultAdapter } from "./fixture-vault";
+
+type FixtureCategory = "single-fact" | "multi-note" | "conflict" | "no-support" | "adversarial";
+type FixtureOutcome = "supported" | "mixed" | "unsupported";
+
+interface EvalQueryExpectation {
+	text: string;
+	status: ClaimVerificationStatus;
+}
+
+interface EvalMockClaim {
+	id: string;
+	text: string;
+	source_note: string;
+	source_quote: string;
+	confidence: number;
+}
+
+interface EvalQueryFixture {
+	id: string;
+	category: FixtureCategory;
+	query: string;
+	summary: string;
+	retrieverBrief: string;
+	notesExpected: string[];
+	expectedSupport: EvalQueryExpectation[];
+	expectedCitations: string[];
+	expectedOutcome: FixtureOutcome;
+	mustNotClaim?: string[];
+	mockClaims: EvalMockClaim[];
+}
+
+interface EvalFixtures {
+	packId: string;
+	queries: EvalQueryFixture[];
+}
+
+interface ClaimBuckets {
+	verified: number;
+	unsupported: number;
+	quoteMissing: number;
+}
+
+interface ScoredBaselineClaim {
+	id: string;
+	text: string;
+	sourceNote: string;
+	sourceQuote: string;
+	status: ClaimVerificationStatus;
+}
+
+interface PerQueryReport {
+	id: string;
+	category: FixtureCategory;
+	query: string;
+	expectedOutcome: FixtureOutcome;
+	retrievedPaths: string[];
+	notesExpected: string[];
+	notesExpectedSatisfied: boolean;
+	expectedCitations: string[];
+	actualCitations: string[];
+	expectedCitationsSatisfied: boolean;
+	baselineSummary: string;
+	verifiedSummary: string;
+	baselineClaimCount: number;
+	baselineFlaggedClaims: number;
+	baselineHallucinationRate: number;
+	baselineClaimBuckets: ClaimBuckets;
+	verifiedClaimCount: number;
+	verifiedSurfacedClaimCount: number;
+	verifiedFlaggedClaims: number;
+	verifiedHallucinationRate: number;
+	verifiedClaimBuckets: ClaimBuckets;
+	hallucinationRateDelta: number;
+	baselineClaims: ScoredBaselineClaim[];
+	verifiedClaims: PackRunResult["claims"];
+	expectedStatuses: EvalQueryExpectation[];
+}
+
+export interface EvalReport {
+	runId: string;
+	timestamp: string;
+	packId: string;
+	fixture: {
+		rootDir: string;
+		queryCount: number;
+		categories: Record<FixtureCategory, number>;
+	};
+	baselineHallucinationRate: number;
+	verifiedHallucinationRate: number;
+	hallucinationRateDelta: number;
+	totalClaims: number;
+	totalFlaggedClaims: number;
+	claimBuckets: ClaimBuckets;
+	baselineTotalClaims: number;
+	baselineFlaggedClaims: number;
+	baselineClaimBuckets: ClaimBuckets;
+	verifiedSurfacedClaims: number;
+	perQuery: PerQueryReport[];
+}
+
+export interface EvalRunResult {
+	report: EvalReport;
+	jsonPath: string;
+	markdownPath: string;
+}
+
+const ajv = new Ajv({ allErrors: true, strict: false });
+const fixtureValidator = ajv.compile<EvalFixtures>({
+	type: "object",
+	properties: {
+		packId: { type: "string", minLength: 1 },
+		queries: {
+			type: "array",
+			minItems: 1,
+			items: {
+				type: "object",
+				properties: {
+					id: { type: "string", minLength: 1 },
+					category: {
+						type: "string",
+						enum: ["single-fact", "multi-note", "conflict", "no-support", "adversarial"],
+					},
+					query: { type: "string", minLength: 1 },
+					summary: { type: "string", minLength: 1 },
+					retrieverBrief: { type: "string", minLength: 1 },
+					notesExpected: {
+						type: "array",
+						items: { type: "string", minLength: 1 },
+					},
+					expectedSupport: {
+						type: "array",
+						minItems: 1,
+						items: {
+							type: "object",
+							properties: {
+								text: { type: "string", minLength: 1 },
+								status: { type: "string", enum: ["verified", "unsupported", "quote-missing"] },
+							},
+							required: ["text", "status"],
+							additionalProperties: false,
+						},
+					},
+					expectedCitations: {
+						type: "array",
+						items: { type: "string", minLength: 1 },
+					},
+					expectedOutcome: { type: "string", enum: ["supported", "mixed", "unsupported"] },
+					mustNotClaim: {
+						type: "array",
+						items: { type: "string", minLength: 1 },
+					},
+					mockClaims: {
+						type: "array",
+						minItems: 1,
+						items: {
+							type: "object",
+							properties: {
+								id: { type: "string", minLength: 1 },
+								text: { type: "string", minLength: 1 },
+								source_note: { type: "string", minLength: 1 },
+								source_quote: { type: "string", minLength: 1 },
+								confidence: { type: "number", minimum: 0, maximum: 1 },
+							},
+							required: ["id", "text", "source_note", "source_quote", "confidence"],
+							additionalProperties: false,
+						},
+					},
+				},
+				required: [
+					"id",
+					"category",
+					"query",
+					"summary",
+					"retrieverBrief",
+					"notesExpected",
+					"expectedSupport",
+					"expectedCitations",
+					"expectedOutcome",
+					"mockClaims",
+				],
+				additionalProperties: false,
+			},
+		},
+	},
+	required: ["packId", "queries"],
+	additionalProperties: false,
+});
+
+const reportValidator = ajv.compile<EvalReport>({
+	type: "object",
+	properties: {
+		runId: { type: "string", minLength: 1 },
+		timestamp: { type: "string", minLength: 1 },
+		packId: { type: "string", minLength: 1 },
+		fixture: {
+			type: "object",
+			properties: {
+				rootDir: { type: "string", minLength: 1 },
+				queryCount: { type: "integer", minimum: 1 },
+				categories: { type: "object" },
+			},
+			required: ["rootDir", "queryCount", "categories"],
+			additionalProperties: true,
+		},
+		baselineHallucinationRate: { type: "number", minimum: 0 },
+		verifiedHallucinationRate: { type: "number", minimum: 0 },
+		hallucinationRateDelta: { type: "number" },
+		totalClaims: { type: "integer", minimum: 0 },
+		totalFlaggedClaims: { type: "integer", minimum: 0 },
+		claimBuckets: {
+			type: "object",
+			properties: {
+				verified: { type: "integer", minimum: 0 },
+				unsupported: { type: "integer", minimum: 0 },
+				quoteMissing: { type: "integer", minimum: 0 },
+			},
+			required: ["verified", "unsupported", "quoteMissing"],
+			additionalProperties: false,
+		},
+		baselineTotalClaims: { type: "integer", minimum: 0 },
+		baselineFlaggedClaims: { type: "integer", minimum: 0 },
+		baselineClaimBuckets: {
+			type: "object",
+			properties: {
+				verified: { type: "integer", minimum: 0 },
+				unsupported: { type: "integer", minimum: 0 },
+				quoteMissing: { type: "integer", minimum: 0 },
+			},
+			required: ["verified", "unsupported", "quoteMissing"],
+			additionalProperties: false,
+		},
+		verifiedSurfacedClaims: { type: "integer", minimum: 0 },
+		perQuery: {
+			type: "array",
+			minItems: 1,
+			items: {
+				type: "object",
+				properties: {
+					id: { type: "string", minLength: 1 },
+					category: { type: "string", minLength: 1 },
+					query: { type: "string", minLength: 1 },
+					expectedOutcome: { type: "string", minLength: 1 },
+					baselineHallucinationRate: { type: "number", minimum: 0 },
+					verifiedHallucinationRate: { type: "number", minimum: 0 },
+					hallucinationRateDelta: { type: "number" },
+					baselineClaimCount: { type: "integer", minimum: 0 },
+					baselineFlaggedClaims: { type: "integer", minimum: 0 },
+					verifiedClaimCount: { type: "integer", minimum: 0 },
+					verifiedSurfacedClaimCount: { type: "integer", minimum: 0 },
+					verifiedFlaggedClaims: { type: "integer", minimum: 0 },
+					retrievedPaths: { type: "array" },
+					notesExpectedSatisfied: { type: "boolean" },
+					expectedCitationsSatisfied: { type: "boolean" },
+					baselineClaimBuckets: { type: "object" },
+					verifiedClaimBuckets: { type: "object" },
+				},
+				required: [
+					"id",
+					"category",
+					"query",
+					"expectedOutcome",
+					"baselineHallucinationRate",
+					"verifiedHallucinationRate",
+					"hallucinationRateDelta",
+					"baselineClaimCount",
+					"baselineFlaggedClaims",
+					"verifiedClaimCount",
+					"verifiedSurfacedClaimCount",
+					"verifiedFlaggedClaims",
+					"retrievedPaths",
+					"notesExpectedSatisfied",
+					"expectedCitationsSatisfied",
+					"baselineClaimBuckets",
+					"verifiedClaimBuckets",
+				],
+				additionalProperties: true,
+			},
+		},
+	},
+	required: [
+		"runId",
+		"timestamp",
+		"packId",
+		"fixture",
+		"baselineHallucinationRate",
+		"verifiedHallucinationRate",
+		"hallucinationRateDelta",
+		"totalClaims",
+		"totalFlaggedClaims",
+		"claimBuckets",
+		"baselineTotalClaims",
+		"baselineFlaggedClaims",
+		"baselineClaimBuckets",
+		"verifiedSurfacedClaims",
+		"perQuery",
+	],
+	additionalProperties: true,
+});
+
+export async function runEvalHarness(options: {
+	pack?: AgentPack;
+	fixturesDir?: string;
+	resultsDir?: string;
+} = {}): Promise<EvalRunResult> {
+	const scriptDir = path.dirname(fileURLToPath(import.meta.url));
+	const pack = options.pack ?? (groundedResearchDefault as AgentPack);
+	const fixturesDir = options.fixturesDir ?? path.join(scriptDir, "fixtures");
+	const resultsDir = options.resultsDir ?? path.join(scriptDir, "results");
+	const queryPath = path.join(fixturesDir, "queries.json");
+	const vaultDir = path.join(fixturesDir, "vault");
+
+	await ensureDirectory(vaultDir, "fixture vault");
+	await ensureDirectory(resultsDir, "eval results");
+
+	const fixtures = await loadFixtures(queryPath);
+	if (fixtures.packId !== pack.id) {
+		throw new Error(`Fixture packId ${fixtures.packId} does not match pack ${pack.id}`);
+	}
+
+	const vault = await createFixtureVaultAdapter(vaultDir);
+	const timestamp = new Date().toISOString();
+	const runId = timestamp.replace(/[:.]/g, "-");
+
+	const claimBuckets = emptyBuckets();
+	const baselineClaimBuckets = emptyBuckets();
+	const perQuery: PerQueryReport[] = [];
+	let totalClaims = 0;
+	let totalFlaggedClaims = 0;
+	let baselineTotalClaims = 0;
+	let baselineFlaggedClaims = 0;
+	let verifiedSurfacedClaims = 0;
+	let verifiedEscapedHallucinations = 0;
+
+	for (const queryFixture of fixtures.queries) {
+		const providerFactory = createFixtureProviderFactory(queryFixture);
+		const baseline = await runPackForEval({
+			pack,
+			query: queryFixture.query,
+			vault,
+			verifierEnabled: false,
+			providerFactory,
+		});
+		const verified = await runPackForEval({
+			pack,
+			query: queryFixture.query,
+			vault,
+			verifierEnabled: true,
+			providerFactory,
+		});
+
+		const queryReport = await buildPerQueryReport(queryFixture, vault, baseline, verified);
+		perQuery.push(queryReport);
+
+		totalClaims += queryReport.verifiedClaimCount;
+		totalFlaggedClaims += queryReport.verifiedFlaggedClaims;
+		baselineTotalClaims += queryReport.baselineClaimCount;
+		baselineFlaggedClaims += queryReport.baselineFlaggedClaims;
+		verifiedSurfacedClaims += queryReport.verifiedSurfacedClaimCount;
+		verifiedEscapedHallucinations += countEscapedHallucinations(queryFixture, verified.claims);
+		mergeBuckets(claimBuckets, queryReport.verifiedClaimBuckets);
+		mergeBuckets(baselineClaimBuckets, queryReport.baselineClaimBuckets);
+	}
+
+	const baselineHallucinationRate = toRate(baselineFlaggedClaims, baselineTotalClaims);
+	const verifiedHallucinationRate = toRate(verifiedEscapedHallucinations, verifiedSurfacedClaims);
+	const report: EvalReport = {
+		runId,
+		timestamp,
+		packId: pack.id,
+		fixture: {
+			rootDir: fixturesDir,
+			queryCount: fixtures.queries.length,
+			categories: countCategories(fixtures.queries),
+		},
+		baselineHallucinationRate,
+		verifiedHallucinationRate,
+		hallucinationRateDelta: toDelta(baselineHallucinationRate, verifiedHallucinationRate),
+		totalClaims,
+		totalFlaggedClaims,
+		claimBuckets,
+		baselineTotalClaims,
+		baselineFlaggedClaims,
+		baselineClaimBuckets,
+		verifiedSurfacedClaims,
+		perQuery,
+	};
+
+	if (!reportValidator(report)) {
+		throw new Error(`Eval report failed validation: ${formatAjvErrors(reportValidator.errors)}`);
+	}
+
+	const jsonPath = path.join(resultsDir, `${runId}.json`);
+	const markdownPath = path.join(resultsDir, `${runId}.md`);
+	await Promise.all([
+		fs.writeFile(jsonPath, `${JSON.stringify(report, null, 2)}\n`, "utf8"),
+		fs.writeFile(markdownPath, `${renderMarkdownReport(report)}\n`, "utf8"),
+	]);
+
+	return { report, jsonPath, markdownPath };
+}
+
+async function loadFixtures(queryPath: string): Promise<EvalFixtures> {
+	const raw = await fs.readFile(queryPath, "utf8").catch((error: NodeJS.ErrnoException) => {
+		if (error.code === "ENOENT") {
+			throw new Error(`Missing eval fixtures at ${queryPath}`);
+		}
+		throw error;
+	});
+	const parsed = JSON.parse(raw) as unknown;
+	if (!fixtureValidator(parsed)) {
+		throw new Error(`Eval fixtures failed validation: ${formatAjvErrors(fixtureValidator.errors)}`);
+	}
+	return parsed;
+}
+
+async function buildPerQueryReport(
+	queryFixture: EvalQueryFixture,
+	vault: VaultAdapter,
+	baseline: PackRunResult,
+	verified: PackRunResult,
+): Promise<PerQueryReport> {
+	const baselineDraft = baseline.artifacts.draftClaims?.claims ?? [];
+	const baselineClaims = await Promise.all(
+		baselineDraft.map(async (claim) => ({
+			id: claim.id,
+			text: claim.text,
+			sourceNote: claim.source_note,
+			sourceQuote: claim.source_quote,
+			status: await classifyDraftClaim(queryFixture, vault, claim),
+		})),
+	);
+	const baselineClaimBuckets = countBuckets(baselineClaims.map((claim) => claim.status));
+	const baselineFlaggedClaims = baselineClaims.filter((claim) => claim.status !== "verified").length;
+	const retrievedPaths = uniqueSorted((verified.artifacts.retrieval?.notes ?? []).map((note) => note.path));
+	const actualCitations = uniqueSorted(verified.claims.map((claim) => claim.sourceNote));
+	const verifiedClaimBuckets = countBuckets(verified.claims.map((claim) => claim.status));
+	const verifiedSurfacedClaims = verified.claims.filter((claim) => claim.status === "verified");
+	const verifiedEscapedHallucinations = countEscapedHallucinations(queryFixture, verified.claims);
+
+	return {
+		id: queryFixture.id,
+		category: queryFixture.category,
+		query: queryFixture.query,
+		expectedOutcome: queryFixture.expectedOutcome,
+		retrievedPaths,
+		notesExpected: [...queryFixture.notesExpected],
+		notesExpectedSatisfied: queryFixture.notesExpected.every((note) => retrievedPaths.includes(note)),
+		expectedCitations: [...queryFixture.expectedCitations],
+		actualCitations,
+		expectedCitationsSatisfied: queryFixture.expectedCitations.every((citation) => actualCitations.includes(citation)),
+		baselineSummary: baseline.verifiedSummary,
+		verifiedSummary: verified.verifiedSummary,
+		baselineClaimCount: baselineClaims.length,
+		baselineFlaggedClaims,
+		baselineHallucinationRate: toRate(baselineFlaggedClaims, baselineClaims.length),
+		baselineClaimBuckets,
+		verifiedClaimCount: verified.claims.length,
+		verifiedSurfacedClaimCount: verifiedSurfacedClaims.length,
+		verifiedFlaggedClaims: verified.claims.filter((claim) => claim.status !== "verified").length,
+		verifiedHallucinationRate: toRate(verifiedEscapedHallucinations, verifiedSurfacedClaims.length),
+		verifiedClaimBuckets,
+		hallucinationRateDelta: toDelta(
+			toRate(baselineFlaggedClaims, baselineClaims.length),
+			toRate(verifiedEscapedHallucinations, verifiedSurfacedClaims.length),
+		),
+		baselineClaims,
+		verifiedClaims: verified.claims,
+		expectedStatuses: queryFixture.expectedSupport,
+	};
+}
+
+function createFixtureProviderFactory(queryFixture: EvalQueryFixture) {
+	const expectedByText = new Map(
+		queryFixture.expectedSupport.map((expectation) => [normalizeWhitespace(expectation.text), expectation.status] as const),
+	);
+	return (_config: unknown, agentId: string): ModelProvider => ({
+		async *stream(messages: ChatMessage[], opts?: { signal?: AbortSignal }): AsyncIterable<StreamEvent> {
+			if (opts?.signal?.aborted) return;
+			yield { kind: "text", text: renderFixtureResponse(queryFixture, agentId, messages, expectedByText) };
+			yield { kind: "done", finishReason: "stop" };
+		},
+	});
+}
+
+function renderFixtureResponse(
+	queryFixture: EvalQueryFixture,
+	agentId: string,
+	messages: ChatMessage[],
+	expectedByText: Map<string, ClaimVerificationStatus>,
+): string {
+	if (agentId === "retriever") {
+		return queryFixture.retrieverBrief;
+	}
+	if (agentId === "synthesizer") {
+		const payload: ClaimsV1 = {
+			summary: queryFixture.summary,
+			claims: queryFixture.mockClaims,
+		};
+		return JSON.stringify(payload);
+	}
+	if (agentId === "verifier") {
+		const prompt = [...messages].reverse().find((message) => message.role === "user")?.content ?? "";
+		const claimText = extractClaimText(prompt);
+		const status = expectedByText.get(normalizeWhitespace(claimText)) ?? "unsupported";
+		return JSON.stringify({
+			supports_claim: status === "verified",
+			explanation:
+				status === "verified"
+					? "Fixture ground truth marks this claim as supported by the cited note."
+					: "Fixture ground truth marks this claim as not supported by the cited note.",
+		});
+	}
+	throw new Error(`Unsupported eval agent ${agentId}`);
+}
+
+function extractClaimText(prompt: string): string {
+	const match = prompt.match(/Claim:\s*([\s\S]*?)\n\nQuoted text:/);
+	return match?.[1]?.trim() ?? "";
+}
+
+async function classifyDraftClaim(
+	queryFixture: EvalQueryFixture,
+	vault: VaultAdapter,
+	claim: ClaimsV1["claims"][number],
+): Promise<ClaimVerificationStatus> {
+	const expected = findExpectedStatus(queryFixture, claim.text);
+	if (expected) return expected;
+
+	const sourceFile = vault.getFile(claim.source_note);
+	if (!sourceFile) return "quote-missing";
+
+	const body = await vault.read(sourceFile);
+	return quotePresent(body, claim.source_quote) ? "unsupported" : "quote-missing";
+}
+
+function countEscapedHallucinations(
+	queryFixture: EvalQueryFixture,
+	claims: Array<{ text: string; status: ClaimVerificationStatus }>,
+): number {
+	return claims
+		.filter((claim) => claim.status === "verified")
+		.filter((claim) => findExpectedStatus(queryFixture, claim.text) !== "verified")
+		.length;
+}
+
+function findExpectedStatus(queryFixture: EvalQueryFixture, text: string): ClaimVerificationStatus | null {
+	const normalized = normalizeWhitespace(text);
+	const expected = queryFixture.expectedSupport.find((item) => normalizeWhitespace(item.text) === normalized);
+	if (expected) return expected.status;
+	if (queryFixture.mustNotClaim?.some((item) => normalizeWhitespace(item) === normalized)) {
+		return "unsupported";
+	}
+	return null;
+}
+
+function countCategories(queries: EvalQueryFixture[]): Record<FixtureCategory, number> {
+	const categories: Record<FixtureCategory, number> = {
+		"single-fact": 0,
+		"multi-note": 0,
+		conflict: 0,
+		"no-support": 0,
+		adversarial: 0,
+	};
+	for (const query of queries) {
+		categories[query.category] += 1;
+	}
+	return categories;
+}
+
+function emptyBuckets(): ClaimBuckets {
+	return { verified: 0, unsupported: 0, quoteMissing: 0 };
+}
+
+function countBuckets(statuses: Iterable<ClaimVerificationStatus>): ClaimBuckets {
+	const buckets = emptyBuckets();
+	for (const status of statuses) {
+		if (status === "verified") buckets.verified += 1;
+		else if (status === "unsupported") buckets.unsupported += 1;
+		else buckets.quoteMissing += 1;
+	}
+	return buckets;
+}
+
+function mergeBuckets(target: ClaimBuckets, source: ClaimBuckets): void {
+	target.verified += source.verified;
+	target.unsupported += source.unsupported;
+	target.quoteMissing += source.quoteMissing;
+}
+
+function toRate(flagged: number, total: number): number {
+	if (total === 0) return 0;
+	return Number((flagged / total).toFixed(4));
+}
+
+function toDelta(baselineRate: number, verifiedRate: number): number {
+	return Number((baselineRate - verifiedRate).toFixed(4));
+}
+
+function uniqueSorted(values: string[]): string[] {
+	return [...new Set(values)].sort((left, right) => left.localeCompare(right));
+}
+
+async function ensureDirectory(targetPath: string, label: string): Promise<void> {
+	const stat = await fs.stat(targetPath).catch((error: NodeJS.ErrnoException) => {
+		if (error.code === "ENOENT") return null;
+		throw error;
+	});
+	if (stat === null) {
+		await fs.mkdir(targetPath, { recursive: true });
+		return;
+	}
+	if (!stat.isDirectory()) {
+		throw new Error(`${label} path is not a directory: ${targetPath}`);
+	}
+}
+
+function formatAjvErrors(errors: typeof fixtureValidator.errors): string {
+	return (errors ?? []).map((error) => `${error.instancePath || "/"} ${error.message ?? "invalid"}`).join("; ");
+}
+
+function renderMarkdownReport(report: EvalReport): string {
+	const lines = [
+		`# Eval report ${report.runId}`,
+		"",
+		`- **Pack:** ${report.packId}`,
+		`- **Queries:** ${report.fixture.queryCount}`,
+		`- **Baseline hallucination rate:** ${formatRate(report.baselineHallucinationRate)}`,
+		`- **Verified hallucination rate:** ${formatRate(report.verifiedHallucinationRate)}`,
+		`- **Delta (baseline - verified):** ${formatRate(report.hallucinationRateDelta)}`,
+		`- **Total claims:** ${report.totalClaims}`,
+		`- **Total flagged claims:** ${report.totalFlaggedClaims}`,
+		"",
+		"## Claim buckets",
+		"",
+		"| Bucket | Count |",
+		"| --- | ---: |",
+		`| verified | ${report.claimBuckets.verified} |`,
+		`| unsupported | ${report.claimBuckets.unsupported} |`,
+		`| quote-missing | ${report.claimBuckets.quoteMissing} |`,
+		"",
+		"## Per-query breakdown",
+		"",
+		"| ID | Category | Baseline rate | Verified rate | Flagged | Expected notes | Expected citations |",
+		"| --- | --- | ---: | ---: | ---: | --- | --- |",
+	];
+
+	for (const query of report.perQuery) {
+		lines.push(
+			`| ${query.id} | ${query.category} | ${formatRate(query.baselineHallucinationRate)} | ${formatRate(query.verifiedHallucinationRate)} | ${query.verifiedFlaggedClaims} | ${query.notesExpectedSatisfied ? "yes" : "no"} | ${query.expectedCitationsSatisfied ? "yes" : "no"} |`,
+		);
+	}
+
+	lines.push(
+		"",
+		"_Positive delta means verification reduced surfaced hallucinations._",
+	);
+
+	return lines.join("\n");
+}
+
+function formatRate(rate: number): string {
+	return `${(rate * 100).toFixed(1)}%`;
+}
+
+async function main(): Promise<void> {
+	const { report, jsonPath, markdownPath } = await runEvalHarness();
+	console.log(
+		[
+			`Created ${path.relative(process.cwd(), jsonPath)}`,
+			`Created ${path.relative(process.cwd(), markdownPath)}`,
+			`Baseline hallucination rate: ${formatRate(report.baselineHallucinationRate)}`,
+			`Verified hallucination rate: ${formatRate(report.verifiedHallucinationRate)}`,
+		].join("\n"),
+	);
+}
+
+function isMainModule(): boolean {
+	const entry = process.argv[1];
+	return Boolean(entry) && pathToFileURL(path.resolve(entry)).href === import.meta.url;
+}
+
+if (isMainModule()) {
+	void main().catch((error) => {
+		console.error(error instanceof Error ? error.message : String(error));
+		process.exitCode = 1;
+	});
+}

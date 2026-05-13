@@ -1,4 +1,3 @@
-import { requestUrl } from "obsidian";
 import {
 	type AssembledToolCall,
 	AuthError,
@@ -144,14 +143,12 @@ export class OpenAICompatibleProvider implements ModelProvider {
 	async listModels(): Promise<string[]> {
 		try {
 			const base = this.config.baseUrl.replace(/\/$/, "");
-			const res = await requestUrl({
-				url: `${base}/models`,
+			const res = await fetch(`${base}/models`, {
 				method: "GET",
 				headers: { Authorization: `Bearer ${this.config.apiKey}` },
-				throw: false,
 			});
 			if (res.status >= 400) return [];
-			const json = res.json as { data?: Array<{ id: string }> } | null;
+			const json = (await res.json().catch(() => null)) as { data?: Array<{ id: string }> } | null;
 			const ids = (json?.data ?? []).map((m) => m.id).filter(Boolean);
 			return ids.sort();
 		} catch {
