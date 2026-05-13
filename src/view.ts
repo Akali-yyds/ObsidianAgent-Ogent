@@ -130,6 +130,7 @@ export class ChatView extends ItemView {
 	private packHintEl!: HTMLElement;
 	private packRecoveryEl!: HTMLElement;
 	private packMobileBannerEl!: HTMLElement;
+	private sessionRecoveryEl!: HTMLElement;
 
 	private turns: UiTurn[] = [];
 	private readonly inFlights = new Map<string, AbortController>();
@@ -309,6 +310,7 @@ export class ChatView extends ItemView {
 		this.packHintEl = header.createDiv({ cls: "open-agent-pack-hint", text: "Applies to future turns in this chat." });
 		this.packRecoveryEl = header.createDiv({ cls: "open-agent-pack-recovery" });
 		this.packMobileBannerEl = header.createDiv({ cls: "open-agent-pack-mobile-banner" });
+		this.sessionRecoveryEl = header.createDiv({ cls: "open-agent-session-recovery" });
 
 		this.refreshHeader();
 	}
@@ -329,9 +331,11 @@ export class ChatView extends ItemView {
 		const activePack = this.getActivePack();
 		const packMode = Boolean(active.selectedPackId);
 		const mobileBlocked = packMode && this.isMobileBlockedPack();
+		const sessionRecovery = active.recovery;
 		this.packSummaryEl.empty();
 		this.packRecoveryEl.empty();
 		this.packMobileBannerEl.empty();
+		this.sessionRecoveryEl.empty();
 
 		if (this.modelInputEl.parentElement) {
 			this.modelInputEl.parentElement.classList.toggle("is-hidden", packMode);
@@ -373,6 +377,13 @@ export class ChatView extends ItemView {
 					this.modeSelectEl.focus();
 				});
 			}
+		}
+
+		if (sessionRecovery) {
+			this.sessionRecoveryEl.createEl("div", {
+				cls: "open-agent-pack-banner open-agent-pack-banner-error",
+				text: sessionRecovery.message,
+			});
 		}
 	}
 

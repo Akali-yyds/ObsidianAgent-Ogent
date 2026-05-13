@@ -1,5 +1,5 @@
 import type { JsonSchema } from "../types";
-import type { OpenAICompatibleConfig } from "../provider";
+import type { OpenAICompatibleConfig } from "../provider-config";
 
 export type PackStepKind = "retrieval" | "structured" | "verification";
 

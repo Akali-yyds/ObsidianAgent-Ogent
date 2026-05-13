@@ -11,12 +11,7 @@ import {
 	type StreamEvent,
 	type StreamOptions,
 } from "./types";
-
-export interface OpenAICompatibleConfig {
-	baseUrl: string;
-	apiKey: string;
-	model: string;
-}
+import type { OpenAICompatibleConfig } from "./provider-config";
 
 interface ToolCallBuffer {
 	id: string;
@@ -112,6 +107,7 @@ export class OpenAICompatibleProvider implements ModelProvider {
 }
 
 export type { OpenAiToolSpec };
+export type { OpenAICompatibleConfig } from "./provider-config";
 
 function mapHttpError(status: number, text: string): Error {
 	if (status === 401 || status === 403) return new AuthError(`HTTP ${status}`);

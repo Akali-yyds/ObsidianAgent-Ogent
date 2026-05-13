@@ -287,7 +287,8 @@
 }
 
 .open-agent-pack-recovery,
-.open-agent-pack-mobile-banner {
+.open-agent-pack-mobile-banner,
+.open-agent-session-recovery {
 	display: flex;
 	flex-wrap: wrap;
 	gap: 0.5rem;

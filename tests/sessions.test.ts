@@ -1,10 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
-import { SessionStore, type StoredTurn } from "../src/sessions";
+import { SessionStore, loadStoredTurnsFile, type StoredTurn } from "../src/sessions";
+import { createMockAdapter } from "./setup";
 
 describe("SessionStore", () => {
 	it("migrates embedded turns and falls back to the first session when active id is invalid", async () => {
 		const persistIndex = vi.fn(async () => undefined);
-		const readTurns = vi.fn(async (id: string) => [{ role: "assistant", content: `loaded:${id}` } satisfies StoredTurn]);
+		const readTurns = vi.fn(async (id: string) => ({ turns: [{ role: "assistant", content: `loaded:${id}` } satisfies StoredTurn] }));
 		const writeTurns = vi.fn(async () => undefined);
 		const deleteTurns = vi.fn(async () => undefined);
 		const store = new SessionStore({ persistIndex, readTurns, writeTurns, deleteTurns });
@@ -43,7 +44,7 @@ describe("SessionStore", () => {
 
 	it("persists turns and index together so pack metadata is retained", async () => {
 		const persistIndex = vi.fn(async () => undefined);
-		const readTurns = vi.fn(async () => []);
+		const readTurns = vi.fn(async () => ({ turns: [] }));
 		const writeTurns = vi.fn(async () => undefined);
 		const deleteTurns = vi.fn(async () => undefined);
 		const store = new SessionStore({ persistIndex, readTurns, writeTurns, deleteTurns });
@@ -105,11 +106,17 @@ describe("SessionStore", () => {
 		});
 	});
 
-	it("falls back to an empty turn list when turn reads fail", async () => {
+	it("surfaces recovery metadata when turn reads recover from corrupt data", async () => {
 		const persistIndex = vi.fn(async () => undefined);
-		const readTurns = vi.fn(async () => {
-			throw new Error("corrupt json");
-		});
+		const recovery = {
+			reason: "turns-corrupt" as const,
+			message: "Saved chat history was unreadable. OpenAgent moved the original file to sessions/session-a.corrupt-1.json and reset this chat to an empty history.",
+			backupPath: "sessions/session-a.corrupt-1.json",
+			recoveredAt: 1,
+		};
+		const readTurns = vi.fn()
+			.mockResolvedValueOnce({ turns: [], recovery })
+			.mockResolvedValueOnce({ turns: [{ role: "assistant", content: "healthy again" } satisfies StoredTurn] });
 		const writeTurns = vi.fn(async () => undefined);
 		const deleteTurns = vi.fn(async () => undefined);
 		const store = new SessionStore({ persistIndex, readTurns, writeTurns, deleteTurns });
@@ -130,8 +137,78 @@ describe("SessionStore", () => {
 		);
 
 		expect(store.getActive().turns).toEqual([]);
+		expect(store.getActive().recovery).toEqual(recovery);
 
 		await store.switchTo("session-a");
-		expect(store.getActive().turns).toEqual([]);
+		expect(store.getActive().turns).toEqual([{ role: "assistant", content: "healthy again" }]);
+		expect(store.getActive().recovery).toBeNull();
+	});
+});
+
+describe("loadStoredTurnsFile", () => {
+	it("loads valid turn files without recovery metadata", async () => {
+		const adapter = createMockAdapter({
+			"sessions/session-a.json": JSON.stringify({
+				turns: [{ role: "assistant", content: "loaded" } satisfies StoredTurn],
+			}),
+		});
+
+		const result = await loadStoredTurnsFile({
+			adapter,
+			path: "sessions/session-a.json",
+			now: () => 123,
+		});
+
+		expect(result).toEqual({
+			turns: [{ role: "assistant", content: "loaded" }],
+		});
+		expect(adapter.rename).not.toHaveBeenCalled();
+		expect(adapter.write).not.toHaveBeenCalled();
+	});
+
+	it("backs up corrupt turn files and resets the active file to empty turns", async () => {
+		const adapter = createMockAdapter({
+			"sessions/session-a.json": "{not valid json",
+		});
+
+		const result = await loadStoredTurnsFile({
+			adapter,
+			path: "sessions/session-a.json",
+			now: () => 123,
+		});
+
+		expect(result.recovery).toEqual({
+			reason: "turns-corrupt",
+			backupPath: "sessions/session-a.corrupt-123.json",
+			recoveredAt: 123,
+			message: "Saved chat history was unreadable. OpenAgent moved the original file to sessions/session-a.corrupt-123.json and reset this chat to an empty history.",
+		});
+		expect(result.turns).toEqual([]);
+		expect(adapter.rename).toHaveBeenCalledWith(
+			"sessions/session-a.json",
+			"sessions/session-a.corrupt-123.json",
+		);
+		expect(adapter.write).toHaveBeenCalledWith(
+			"sessions/session-a.json",
+			JSON.stringify({ turns: [] }),
+		);
+		expect(await adapter.read("sessions/session-a.corrupt-123.json")).toBe("{not valid json");
+		expect(await adapter.read("sessions/session-a.json")).toBe(JSON.stringify({ turns: [] }));
+	});
+
+	it("treats non-array turn payloads as corrupt and recovers visibly", async () => {
+		const adapter = createMockAdapter({
+			"sessions/session-a.json": JSON.stringify({ turns: null }),
+		});
+
+		const result = await loadStoredTurnsFile({
+			adapter,
+			path: "sessions/session-a.json",
+			now: () => 456,
+		});
+
+		expect(result.recovery?.backupPath).toBe("sessions/session-a.corrupt-456.json");
+		expect(await adapter.read("sessions/session-a.corrupt-456.json")).toBe(JSON.stringify({ turns: null }));
+		expect(await adapter.read("sessions/session-a.json")).toBe(JSON.stringify({ turns: [] }));
 	});
 });

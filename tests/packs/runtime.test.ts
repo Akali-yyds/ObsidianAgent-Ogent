@@ -281,4 +281,103 @@ describe("runPack", () => {
 		);
 		expect(retrieveEvidenceMock).not.toHaveBeenCalled();
 	});
+
+	it("resolves provider mappings from pack json without requiring hardcoded provider ids", async () => {
+		retrieveEvidenceMock.mockResolvedValue({
+			query: "What happened?",
+			scope: { notePaths: [], folders: [], tags: [] },
+			notes: [
+				{
+					path: "notes/a.md",
+					title: "a",
+					content: "Alpha fact",
+					excerpt: "Alpha fact",
+					score: 5,
+				},
+			],
+		});
+		verifyClaimsMock.mockResolvedValue([
+			{
+				id: "claim-1",
+				text: "Alpha fact",
+				sourceNote: "notes/a.md",
+				sourceQuote: "Alpha fact",
+				quotePresent: true,
+				supportsClaim: true,
+				supportExplanation: "Matches note text",
+				status: "verified",
+			},
+		]);
+		providerStreams.push(
+			"- Alpha fact (notes/a.md)",
+			JSON.stringify({
+				summary: "Alpha summary",
+				claims: [
+					{
+						id: "claim-1",
+						text: "Alpha fact",
+						source_note: "notes/a.md",
+						source_quote: "Alpha fact",
+						confidence: 0.9,
+					},
+				],
+			}),
+		);
+
+		const customPack = structuredClone(groundedResearchDefault);
+		customPack.providers = {
+			fast: {
+				baseUrl: "http://retriever.local/v1",
+				apiKey: "mlx-local",
+				model: "retriever-model",
+			},
+			deep: {
+				baseUrl: "http://synth.local/v1",
+				apiKey: "mlx-local",
+				model: "synth-model",
+			},
+			judge: {
+				baseUrl: "http://verifier.local/v1",
+				apiKey: "mlx-local",
+				model: "verifier-model",
+			},
+		};
+		customPack.agents.retriever.provider = "fast";
+		customPack.agents.synthesizer.provider = "deep";
+		customPack.agents.verifier.provider = "judge";
+
+		const providerFactory = vi.fn((config: { model: string }, _agentId: string) => ({
+			stream: async function* () {
+				yield { kind: "text" as const, text: providerStreams.shift() ?? "" };
+				yield { kind: "done" as const, finishReason: "stop" as const };
+			},
+			config,
+		}));
+
+		const { runPack } = await import("../../src/packs/runtime");
+		const app = createMockApp({
+			files: {
+				"notes/a.md": "Alpha fact",
+			},
+		});
+
+		const result = await runPack({
+			app: app as never,
+			pack: customPack,
+			query: "What happened?",
+			providerFactory,
+		});
+
+		expect(providerFactory.mock.calls.map(([config, agentId]) => [agentId, config.model])).toEqual([
+			["retriever", "retriever-model"],
+			["synthesizer", "synth-model"],
+			["verifier", "verifier-model"],
+		]);
+		expect(result.modelsUsed).toEqual({
+			retriever: "retriever-model",
+			synthesizer: "synth-model",
+			verifier: "verifier-model",
+		});
+		expect(Object.values(groundedResearchDefault.agents).every((agent) => !agent.toolAllowlist || agent.toolAllowlist.length === 0)).toBe(true);
+	});
 });

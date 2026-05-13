@@ -15,6 +15,120 @@ export class MockTFile {
 	}
 }
 
+export class MockClassList {
+	private readonly values = new Set<string>();
+
+	add(...classes: string[]): void {
+		for (const value of classes) {
+			for (const name of value.split(/\s+/).filter(Boolean)) this.values.add(name);
+		}
+	}
+
+	remove(...classes: string[]): void {
+		for (const value of classes) {
+			for (const name of value.split(/\s+/).filter(Boolean)) this.values.delete(name);
+		}
+	}
+
+	toggle(name: string, force?: boolean): boolean {
+		if (force === true) {
+			this.values.add(name);
+			return true;
+		}
+		if (force === false) {
+			this.values.delete(name);
+			return false;
+		}
+		if (this.values.has(name)) {
+			this.values.delete(name);
+			return false;
+		}
+		this.values.add(name);
+		return true;
+	}
+
+	contains(name: string): boolean {
+		return this.values.has(name);
+	}
+
+	toString(): string {
+		return [...this.values].join(" ");
+	}
+}
+
+type MockListener = (event: { preventDefault(): void; target: MockElement }) => void;
+
+export class MockElement {
+	tagName: string;
+	textContent = "";
+	value = "";
+	parentElement: MockElement | null = null;
+	children: MockElement[] = [];
+	classList = new MockClassList();
+	private readonly listeners = new Map<string, MockListener[]>();
+
+	constructor(tagName = "div", options?: { cls?: string; text?: string; attr?: Record<string, string> }) {
+		this.tagName = tagName;
+		if (options?.cls) this.classList.add(options.cls);
+		if (options?.text) this.textContent = options.text;
+		if (options?.attr) {
+			for (const [name, value] of Object.entries(options.attr)) this.setAttribute(name, value);
+		}
+	}
+
+	createDiv(options?: { cls?: string; text?: string; attr?: Record<string, string> }): MockElement {
+		return this.createEl("div", options);
+	}
+
+	createEl(tagName: string, options?: { cls?: string; text?: string; attr?: Record<string, string> }): MockElement {
+		const child = new MockElement(tagName, options);
+		child.parentElement = this;
+		this.children.push(child);
+		return child;
+	}
+
+	empty(): void {
+		this.children = [];
+		this.textContent = "";
+	}
+
+	addClass(name: string): void {
+		this.classList.add(name);
+	}
+
+	removeClass(name: string): void {
+		this.classList.remove(name);
+	}
+
+	setText(text: string): void {
+		this.textContent = text;
+	}
+
+	appendText(text: string): void {
+		this.textContent += text;
+	}
+
+	setAttribute(name: string, value: string): void {
+		if (name === "value") this.value = value;
+	}
+
+	addEventListener(type: string, listener: MockListener): void {
+		const listeners = this.listeners.get(type) ?? [];
+		listeners.push(listener);
+		this.listeners.set(type, listeners);
+	}
+
+	click(): void {
+		for (const listener of this.listeners.get("click") ?? []) {
+			listener({ preventDefault() {}, target: this });
+		}
+	}
+
+	focus(): void {}
+
+	select(): void {}
+}
+
 export interface MockFileCache {
 	tags?: Array<{ tag: string }>;
 	frontmatter?: { tags?: string | string[] };
@@ -94,6 +208,7 @@ export function createMockApp(options?: {
 		},
 		workspace: {
 			getActiveFile: vi.fn(() => null),
+			getLeaf: vi.fn(() => ({ openFile: vi.fn(async () => undefined) })),
 		},
 	};
 }
@@ -110,12 +225,150 @@ export const Platform = {
 	isMobile: false,
 };
 
+export class MockWorkspaceLeaf {
+	app: unknown;
+
+	constructor(app?: unknown) {
+		this.app = app ?? null;
+	}
+
+	openFile = vi.fn(async () => undefined);
+}
+
+export class MockItemView {
+	app: unknown;
+	contentEl: MockElement;
+
+	constructor(leaf: { app?: unknown }) {
+		this.app = leaf?.app ?? null;
+		this.contentEl = new MockElement("div");
+	}
+}
+
+export class MockModal {
+	app: unknown;
+	contentEl: MockElement;
+
+	constructor(app: unknown) {
+		this.app = app;
+		this.contentEl = new MockElement("div");
+	}
+
+	open(): void {}
+
+	close(): void {}
+}
+
+export const MarkdownRendererMock = {
+	render: vi.fn(async (_app: unknown, markdown: string, el: { appendText?: (text: string) => void; createEl?: (tag: string, options?: { text?: string }) => unknown }) => {
+		if (typeof el.appendText === "function") {
+			el.appendText(markdown);
+			return;
+		}
+		if (typeof el.createEl === "function") {
+			el.createEl("span", { text: markdown });
+		}
+	}),
+};
+
+class MockPluginSettingTab {
+	app: unknown;
+	plugin: unknown;
+	containerEl: MockElement;
+
+	constructor(app: unknown, plugin: unknown) {
+		this.app = app;
+		this.plugin = plugin;
+		this.containerEl = new MockElement("div");
+	}
+}
+
+class MockSetting {
+	constructor(_containerEl: unknown) {}
+
+	setName(_value: string): this {
+		return this;
+	}
+
+	setDesc(_value: string): this {
+		return this;
+	}
+
+	setHeading(): this {
+		return this;
+	}
+
+	addDropdown(cb: (drop: { addOption(value: string, label: string): typeof drop; setValue(value: string): typeof drop; onChange(handler: (value: string) => void): typeof drop }) => void): this {
+		const drop = {
+			addOption() {
+				return drop;
+			},
+			setValue() {
+				return drop;
+			},
+			onChange() {
+				return drop;
+			},
+		};
+		cb(drop);
+		return this;
+	}
+
+	addText(cb: (txt: {
+		setPlaceholder(value: string): typeof txt;
+		setValue(value: string): typeof txt;
+		onChange(handler: (value: string) => void): typeof txt;
+		inputEl: { type: string; autocomplete: string };
+	}) => void): this {
+		const txt = {
+			setPlaceholder() {
+				return txt;
+			},
+			setValue() {
+				return txt;
+			},
+			onChange() {
+				return txt;
+			},
+			inputEl: { type: "text", autocomplete: "" },
+		};
+		cb(txt);
+		return this;
+	}
+
+	addTextArea(cb: (txt: {
+		setPlaceholder(value: string): typeof txt;
+		setValue(value: string): typeof txt;
+		onChange(handler: (value: string) => void): typeof txt;
+	}) => void): this {
+		const txt = {
+			setPlaceholder() {
+				return txt;
+			},
+			setValue() {
+				return txt;
+			},
+			onChange() {
+				return txt;
+			},
+		};
+		cb(txt);
+		return this;
+	}
+}
+
 vi.mock("obsidian", () => ({
+	App: class App {},
 	Platform,
 	Plugin: class Plugin {},
+	PluginSettingTab: MockPluginSettingTab,
+	Setting: MockSetting,
+	ItemView: MockItemView,
+	Modal: MockModal,
+	MarkdownRenderer: MarkdownRendererMock,
 	Notice: NoticeMock,
 	TFile: MockTFile,
-	WorkspaceLeaf: class WorkspaceLeaf {},
+	WorkspaceLeaf: MockWorkspaceLeaf,
 	requestUrl: requestUrlMock,
 }));
 

@@ -10,3 +10,4 @@ data.json
 .vault-path
 hackathon/eval/results/*
 !hackathon/eval/results/.gitkeep
+.pi/

@@ -49,13 +49,33 @@ export interface StoredTurn {
 	packTurn?: StoredPackTurnData;
 }
 
+export interface SessionRecoveryState {
+	reason: "turns-corrupt";
+	message: string;
+	backupPath: string;
+	recoveredAt: number;
+}
+
 export interface StoredSession extends SessionMeta {
 	turns: StoredTurn[];
+	recovery?: SessionRecoveryState | null;
+}
+
+export interface SessionReadResult {
+	turns: StoredTurn[];
+	recovery?: SessionRecoveryState;
+}
+
+export interface SessionFileAdapter {
+	exists(path: string): Promise<boolean>;
+	read(path: string): Promise<string>;
+	write(path: string, data: string): Promise<void>;
+	rename(path: string, newPath: string): Promise<void>;
 }
 
 interface Callbacks {
 	persistIndex(meta: SessionMeta[], activeId: string): Promise<void>;
-	readTurns(id: string): Promise<StoredTurn[]>;
+	readTurns(id: string): Promise<SessionReadResult>;
 	writeTurns(id: string, turns: StoredTurn[]): Promise<void>;
 	deleteTurns(id: string): Promise<void>;
 }
@@ -64,10 +84,62 @@ function makeId(): string {
 	return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+function makeCorruptBackupPath(path: string, recoveredAt: number): string {
+	const dotIndex = path.lastIndexOf(".");
+	if (dotIndex === -1) return `${path}.corrupt-${recoveredAt}`;
+	return `${path.slice(0, dotIndex)}.corrupt-${recoveredAt}${path.slice(dotIndex)}`;
+}
+
+async function recoverCorruptTurnsFile(
+	adapter: SessionFileAdapter,
+	path: string,
+	recoveredAt: number,
+): Promise<SessionReadResult> {
+	const backupPath = makeCorruptBackupPath(path, recoveredAt);
+	await adapter.rename(path, backupPath);
+	await adapter.write(path, JSON.stringify({ turns: [] }));
+	return {
+		turns: [],
+		recovery: {
+			reason: "turns-corrupt",
+			backupPath,
+			recoveredAt,
+			message: `Saved chat history was unreadable. OpenAgent moved the original file to ${backupPath} and reset this chat to an empty history.`,
+		},
+	};
+}
+
+export async function loadStoredTurnsFile({
+	adapter,
+	path,
+	now = () => Date.now(),
+}: {
+	adapter: SessionFileAdapter;
+	path: string;
+	now?: () => number;
+}): Promise<SessionReadResult> {
+	if (!(await adapter.exists(path))) return { turns: [] };
+	const rawText = await adapter.read(path);
+
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(rawText) as unknown;
+	} catch {
+		return recoverCorruptTurnsFile(adapter, path, now());
+	}
+
+	if (!parsed || typeof parsed !== "object" || !Array.isArray((parsed as { turns?: unknown }).turns)) {
+		return recoverCorruptTurnsFile(adapter, path, now());
+	}
+
+	return { turns: (parsed as { turns: StoredTurn[] }).turns };
+}
+
 export class SessionStore {
 	private meta: SessionMeta[] = [];
 	private activeId = "";
 	private activeTurns: StoredTurn[] = [];
+	private readonly recoveryById = new Map<string, SessionRecoveryState>();
 	private readonly cb: Callbacks;
 
 	constructor(cb: Callbacks) {
@@ -98,7 +170,7 @@ export class SessionStore {
 		} else {
 			this.meta = meta;
 			this.activeId = meta.find((s) => s.id === activeId) ? activeId : meta[0].id;
-			this.activeTurns = await this.cb.readTurns(this.activeId).catch(() => []);
+			this.activeTurns = await this.loadTurns(this.activeId);
 		}
 	}
 
@@ -112,7 +184,11 @@ export class SessionStore {
 
 	getActive(): StoredSession {
 		const m = this.meta.find((s) => s.id === this.activeId) ?? this.meta[0] ?? this.makeMeta();
-		return { ...m, turns: this.activeTurns };
+		return { ...m, turns: this.activeTurns, recovery: this.recoveryById.get(m.id) ?? null };
+	}
+
+	getRecoveryIssues(): SessionRecoveryState[] {
+		return [...this.recoveryById.values()];
 	}
 
 	async create(): Promise<StoredSession> {
@@ -127,7 +203,7 @@ export class SessionStore {
 	async switchTo(id: string): Promise<void> {
 		if (!this.meta.find((s) => s.id === id)) return;
 		this.activeId = id;
-		this.activeTurns = await this.cb.readTurns(id).catch(() => []);
+		this.activeTurns = await this.loadTurns(id);
 		await this.cb.persistIndex(this.meta, this.activeId);
 	}
 
@@ -149,6 +225,7 @@ export class SessionStore {
 			m.updatedAt = Date.now();
 			this.activeId = m.id;
 			this.activeTurns = [];
+			this.recoveryById.delete(m.id);
 			await Promise.all([
 				this.cb.persistIndex(this.meta, this.activeId),
 				this.cb.writeTurns(m.id, []),
@@ -157,11 +234,12 @@ export class SessionStore {
 			const idx = this.meta.findIndex((s) => s.id === id);
 			if (idx === -1) return;
 			this.meta.splice(idx, 1);
+			this.recoveryById.delete(id);
 			void this.cb.deleteTurns(id).catch(() => {});
 			if (this.activeId === id) {
 				const sorted = [...this.meta].sort((a, b) => b.updatedAt - a.updatedAt);
 				this.activeId = sorted[0].id;
-				this.activeTurns = await this.cb.readTurns(this.activeId).catch(() => []);
+				this.activeTurns = await this.loadTurns(this.activeId);
 			}
 			await this.cb.persistIndex(this.meta, this.activeId);
 		}
@@ -201,6 +279,13 @@ export class SessionStore {
 
 	toJSON(): { sessions: SessionMeta[]; activeSessionId: string } {
 		return { sessions: this.meta, activeSessionId: this.activeId };
+	}
+
+	private async loadTurns(id: string): Promise<StoredTurn[]> {
+		const result = await this.cb.readTurns(id);
+		if (result.recovery) this.recoveryById.set(id, result.recovery);
+		else this.recoveryById.delete(id);
+		return result.turns;
 	}
 
 	private makeMeta(): SessionMeta {

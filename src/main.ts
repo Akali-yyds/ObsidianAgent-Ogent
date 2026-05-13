@@ -5,7 +5,7 @@ import type { AgentPack } from "./packs/types";
 import { ConsentManager } from "./consent/manager";
 import { UndoBuffer } from "./consent/undo";
 import { OpenAgentSettingsTab, DEFAULT_SETTINGS, type PluginSettings } from "./settings";
-import { SessionStore, type SessionMeta, type StoredTurn } from "./sessions";
+import { SessionStore, loadStoredTurnsFile, type SessionMeta, type StoredTurn } from "./sessions";
 import { ToolRegistry } from "./tools/registry";
 import { vaultTools } from "./tools/vault";
 import { CHAT_VIEW_TYPE, ChatView } from "./view";
@@ -33,15 +33,10 @@ export default class OpenAgentPlugin extends Plugin {
 			persistIndex: async (meta, activeId) => {
 				await this.saveData({ ...this.settings, sessions: meta, activeSessionId: activeId });
 			},
-			readTurns: async (id) => {
-				try {
-					const text = await this.app.vault.adapter.read(`${sessionsDir}/${id}.json`);
-					const parsed = JSON.parse(text) as { turns?: unknown };
-					return Array.isArray(parsed.turns) ? (parsed.turns as StoredTurn[]) : [];
-				} catch {
-					return [];
-				}
-			},
+			readTurns: async (id) => loadStoredTurnsFile({
+				adapter: this.app.vault.adapter,
+				path: `${sessionsDir}/${id}.json`,
+			}),
 			writeTurns: async (id, turns) => {
 				await ensureSessionsDir();
 				await this.app.vault.adapter.write(
@@ -58,6 +53,12 @@ export default class OpenAgentPlugin extends Plugin {
 		});
 
 		await this.loadSettings();
+		const recoveryIssues = this.sessionStore.getRecoveryIssues();
+		if (recoveryIssues.length === 1) {
+			new Notice(recoveryIssues[0].message);
+		} else if (recoveryIssues.length > 1) {
+			new Notice(`Recovered ${recoveryIssues.length} unreadable chat histories. Open OpenAgent to review the backup locations.`);
+		}
 		await ensureDefaultPacks(this.app, this.manifest.dir);
 
 		this.toolRegistry = new ToolRegistry();

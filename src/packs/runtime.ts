@@ -3,7 +3,7 @@ import { Agent, runPipeline } from "../agents";
 import { claimsV1Schema, type ClaimsV1 } from "../agents/schemas/claims-v1";
 import { formatRetrievedNotes, retrieveEvidence, type RetrievedNote } from "../agents/retrieval";
 import { verifyClaims, type ClaimVerification } from "../agents/verifier";
-import { OpenAICompatibleProvider, type OpenAICompatibleConfig } from "../provider";
+import type { OpenAICompatibleConfig } from "../provider-config";
 import type { ModelProvider } from "../types";
 import type { AgentPack } from "./types";
 import { createAppVaultAdapter, type VaultAdapter } from "./vault-adapter";
@@ -85,7 +85,7 @@ export async function runPack(opts: PackRunOptions): Promise<PackRunResult> {
 }
 
 export async function runPackForEval(opts: PackRunOptions): Promise<PackRunResult> {
-	const providers = buildProviders(opts.pack, opts.providerFactory);
+	const providers = await buildProviders(opts.pack, opts.providerFactory);
 	const vault = resolveVault(opts);
 	const verifierEnabled = opts.verifierEnabled ?? true;
 	const retrieverStep = opts.pack.steps.find((step) => step.id === "retriever");
@@ -232,11 +232,16 @@ export async function runPackForEval(opts: PackRunOptions): Promise<PackRunResul
 	};
 }
 
-function buildProviders(
+async function buildProviders(
 	pack: AgentPack,
 	providerFactory?: (config: OpenAICompatibleConfig, agentId: string, pack: AgentPack) => ModelProvider,
-): Record<string, { config: { model: string }; provider: ModelProvider }> {
+): Promise<Record<string, { config: { model: string }; provider: ModelProvider }>> {
 	const byAgent: Record<string, { config: { model: string }; provider: ModelProvider }> = {};
+	let resolvedProviderFactory = providerFactory;
+	if (!resolvedProviderFactory) {
+		const { OpenAICompatibleProvider } = await import("../provider");
+		resolvedProviderFactory = (config) => new OpenAICompatibleProvider(config);
+	}
 	for (const [agentId, agent] of Object.entries(pack.agents)) {
 		const providerConfig = pack.providers[agent.provider];
 		if (!providerConfig) {
@@ -252,7 +257,7 @@ function buildProviders(
 		}
 		byAgent[agentId] = {
 			config: { model: providerConfig.model },
-			provider: providerFactory ? providerFactory(providerConfig, agentId, pack) : new OpenAICompatibleProvider(providerConfig),
+			provider: resolvedProviderFactory(providerConfig, agentId, pack),
 		};
 	}
 	return byAgent;
