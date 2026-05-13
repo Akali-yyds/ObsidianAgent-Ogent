@@ -14,9 +14,10 @@ An AI agent that lives inside your vault — vault-aware, tool-capable, BYOK, an
 
 ## Installation
 
-### From Obsidian Community Plugins (coming soon)
+### From Obsidian Community Plugins
 
 Search for **OpenAgent** in Settings → Community Plugins → Browse.
+Or simply open this page and press 'Add to Obsidian': https://community.obsidian.md/plugins/open-agent
 
 ### Manual install
 
