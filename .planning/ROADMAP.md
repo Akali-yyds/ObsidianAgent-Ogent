@@ -12,9 +12,9 @@ This roadmap revises milestone `v0.1 Grounded Research Hackathon` into the user'
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 1: Autonomous Buildout** - Land the grounded-research feature set end to end while keeping the default single-agent path stable.
-- [ ] **Phase 2: Testing & Hardening** - Validate the new flow, measure verifier impact, and fix regressions before submission prep.
-- [ ] **Phase 3: Submission Polish & Final Verification** - Finish submission-facing assets and run the last pre-submission checks.
+- [x] **Phase 1: Autonomous Buildout** - Land the grounded-research feature set end to end while keeping the default single-agent path stable.
+- [x] **Phase 2: Testing & Hardening** - Validate the new flow, measure verifier impact, and fix regressions before submission prep.
+- [x] **Phase 3: Submission Polish & Final Verification** - Finish submission-facing assets and run the last pre-submission checks.
 
 ## Phase Details
 
@@ -32,10 +32,10 @@ Decimal phases appear between their surrounding integers in numeric order.
 **UI hint**: yes
 
 Plans:
-- [ ] 01-01: Refactor the current turn loop into a reusable Agent abstraction with no behavior change to the default single-agent path.
-- [ ] 01-02: Add the linear orchestrator, typed step context, structured-output validation, one retry, and progress/error plumbing.
-- [ ] 01-03: Add pack schemas/loading/default-pack installation plus verifier quote matching and verifier execution.
-- [ ] 01-04: Add pack selection, verifier rendering, source navigation, model attribution, and mobile-safe UI gating.
+- [x] 01-01: Refactor the current turn loop into a reusable Agent abstraction with no behavior change to the default single-agent path.
+- [x] 01-02: Add the linear orchestrator, typed step context, structured-output validation, one retry, and progress/error plumbing.
+- [x] 01-03: Add pack schemas/loading/default-pack installation plus verifier quote matching and verifier execution.
+- [x] 01-04: Add pack selection, verifier rendering, source navigation, model attribution, and mobile-safe UI gating.
 
 ### Phase 2: Testing & Hardening
 **Goal**: Maintainers can measure grounded-research quality, validate the new runtime against regressions, and harden it before submission packaging starts.
@@ -49,9 +49,9 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 02-01: Add regression coverage for the refactor, structured-output retry behavior, pack loading, quote matching, and pipeline execution.
-- [ ] 02-02: Build the eval harness, fixture corpus, report generation, and npm entrypoint.
-- [ ] 02-03: Run a hardening pass from test/eval findings and verify desktop/mobile safety before the final phase.
+- [x] 02-01: Add regression coverage for the refactor, structured-output retry behavior, pack loading, quote matching, and pipeline execution.
+- [x] 02-02: Build the eval harness, fixture corpus, report generation, and npm entrypoint.
+- [x] 02-03: Run a hardening pass from test/eval findings and verify desktop/mobile safety before the final phase.
 
 ### Phase 3: Submission Polish & Final Verification
 **Goal**: Contributors can reproduce the hackathon story, demo it clearly, and perform a final pre-submission smoke test from the repo.
@@ -64,8 +64,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 03-01: Write the hackathon README, demo script, and repo pointers needed for reviewers.
-- [ ] 03-02: Run final smoke testing, fix last-mile polish issues, and prepare the submission handoff.
+- [x] 03-01: Write the hackathon README, demo script, and repo pointers needed for reviewers.
+- [x] 03-02: Run final smoke testing, fix last-mile polish issues, and prepare the submission handoff.
 
 ## Progress
 
@@ -74,6 +74,6 @@ Phases execute in numeric order: 1 → 2 → 3
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Autonomous Buildout | 0/4 | Current | - |
-| 2. Testing & Hardening | 0/3 | Not started | - |
-| 3. Submission Polish & Final Verification | 0/2 | Not started | - |
+| 1. Autonomous Buildout | 4/4 | Complete | 2026-05-13 |
+| 2. Testing & Hardening | 3/3 | Complete | 2026-05-13 |
+| 3. Submission Polish & Final Verification | 2/2 | Complete | 2026-05-13 |
