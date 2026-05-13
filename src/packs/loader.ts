@@ -40,7 +40,7 @@ export async function loadPacks(app: App, pluginDir: string): Promise<AgentPack[
 			const errors = (validate.errors ?? []).map((error) => `${error.instancePath || "/"} ${error.message ?? "invalid"}`).join("; ");
 			throw new PackValidationError(`Invalid pack at ${path}: ${errors}`);
 		}
-		const pack = parsed as AgentPack;
+		const pack = parsed;
 		assertPackIntegrity(pack, path);
 		packs.push(pack);
 	}

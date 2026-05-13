@@ -10,7 +10,7 @@ import type {
 const ajv = new Ajv({ allErrors: true, strict: false });
 
 export async function runStructuredStep<TValue>(
-	opts: RunStructuredStepOptions,
+	opts: RunStructuredStepOptions<TValue>,
 ): Promise<StructuredOutputResult<TValue>> {
 	const validate = ajv.compile<TValue>(opts.schema.schema);
 	let attemptMessages = [...opts.messages];
@@ -43,7 +43,7 @@ export async function runStructuredStep<TValue>(
 
 async function collectStructuredText(
 	messages: ChatMessage[],
-	opts: RunStructuredStepOptions,
+	opts: RunStructuredStepOptions<unknown>,
 ): Promise<string> {
 	let output = "";
 	for await (const event of opts.agent.run({

@@ -11,7 +11,10 @@ export function diffLines(beforeText: string, afterText: string): DiffRow[] {
 	// LCS table — O(n*m) memory, fine for typical note sizes.
 	const n = before.length;
 	const m = after.length;
-	const dp: number[][] = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(0));
+	const dp: number[][] = [];
+	for (let row = 0; row <= n; row++) {
+		dp.push(new Array<number>(m + 1).fill(0));
+	}
 	for (let i = n - 1; i >= 0; i--) {
 		for (let j = m - 1; j >= 0; j--) {
 			dp[i][j] = before[i] === after[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);

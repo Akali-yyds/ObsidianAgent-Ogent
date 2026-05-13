@@ -23,9 +23,10 @@ export interface AgentRunOptions {
 
 export type AgentEvent = LoopEvent;
 
-export interface StructuredOutputSchema {
+export interface StructuredOutputSchema<TValue = unknown> {
 	name: string;
 	schema: JsonSchema;
+	readonly __output?: TValue;
 }
 
 export interface StructuredOutputAttemptFailure {
@@ -52,11 +53,11 @@ export interface StructuredOutputFailure {
 
 export type StructuredOutputResult<TValue> = StructuredOutputSuccess<TValue> | StructuredOutputFailure;
 
-export interface RunStructuredStepOptions {
+export interface RunStructuredStepOptions<TValue = unknown> {
 	agent: Agent;
 	provider: ModelProvider;
 	messages: ChatMessage[];
-	schema: StructuredOutputSchema;
+	schema: StructuredOutputSchema<TValue>;
 	signal?: AbortSignal;
 	tools?: ToolRegistry;
 	consent?: ConsentManager;
@@ -85,8 +86,7 @@ export interface PipelineStructuredRetryEvent {
 
 export type PipelineEvent = PipelineStepStatusEvent | PipelineStructuredRetryEvent;
 
-export interface PipelineHelpers {
-}
+export type PipelineHelpers = Record<string, never>;
 
 export interface PipelineTaskStep<TContext, TOutput> {
 	id: string;
@@ -100,7 +100,7 @@ export interface PipelineStructuredStep<TContext, TOutput> {
 	id: string;
 	label: string;
 	kind: "structured";
-	prepare: (context: TContext, helpers: PipelineHelpers) => Promise<Omit<RunStructuredStepOptions, "onRetry">>;
+	prepare: (context: TContext, helpers: PipelineHelpers) => Promise<Omit<RunStructuredStepOptions<TOutput>, "onRetry">>;
 	apply: (context: TContext, output: TOutput) => TContext | Promise<TContext>;
 }
 

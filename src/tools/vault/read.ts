@@ -1,6 +1,7 @@
-import { type App, getFrontMatterInfo, parseYaml, TFile } from "obsidian";
+import { type App, TFile } from "obsidian";
 import { defineTool, fail, ok } from "../define";
 import { PathError, safeVaultPath } from "./path-safe";
+import { splitFrontmatter } from "./frontmatter";
 
 interface Args {
 	path: string;
@@ -31,17 +32,7 @@ export function readTool(app: App) {
 			if (!(file instanceof TFile)) return fail(`NotFound: ${p}`);
 
 			const raw = await app.vault.cachedRead(file);
-			const fm = getFrontMatterInfo(raw);
-			let frontmatter: unknown = null;
-			let body = raw;
-			if (fm.exists) {
-				try {
-					frontmatter = parseYaml(fm.frontmatter) ?? null;
-				} catch {
-					frontmatter = null;
-				}
-				body = raw.slice(fm.contentStart);
-			}
+			const { frontmatter, body } = splitFrontmatter(raw);
 			return ok({ path: p, frontmatter, body });
 		},
 	});

@@ -1,4 +1,4 @@
-import { ItemView, MarkdownRenderer, Notice, TFile, WorkspaceLeaf } from "obsidian";
+import { type App, ItemView, MarkdownRenderer, Modal, Notice, TFile, WorkspaceLeaf } from "obsidian";
 import type { ConsentChoice, ConsentManager } from "./consent/manager";
 import type { UndoBuffer } from "./consent/undo";
 import { diffLines, type DiffRow } from "./consent/diff";
@@ -21,6 +21,50 @@ import type { ToolRegistry } from "./tools/registry";
 import { AuthError, type ChatMessage, NetworkError, ProviderError, RateLimitError, type ToolResult } from "./types";
 
 export const CHAT_VIEW_TYPE = "open-agent-chat";
+
+class ConfirmActionModal extends Modal {
+	private resolvePrompt: (confirmed: boolean) => void = () => undefined;
+	private decided = false;
+
+	constructor(
+		app: App,
+		private readonly titleText: string,
+		private readonly message: string,
+		private readonly confirmText: string,
+	) {
+		super(app);
+	}
+
+	prompt(): Promise<boolean> {
+		return new Promise<boolean>((resolve) => {
+			this.resolvePrompt = resolve;
+			this.open();
+		});
+	}
+
+	onOpen(): void {
+		const { contentEl } = this;
+		contentEl.empty();
+		contentEl.createEl("h3", { text: this.titleText });
+		contentEl.createEl("p", { text: this.message });
+
+		const buttons = contentEl.createDiv({ cls: "open-agent-edit-buttons" });
+		buttons.createEl("button", { text: "Cancel" }).addEventListener("click", () => this.decide(false));
+		buttons.createEl("button", { text: this.confirmText, cls: "mod-warning" })
+			.addEventListener("click", () => this.decide(true));
+	}
+
+	onClose(): void {
+		if (!this.decided) this.resolvePrompt(false);
+		this.contentEl.empty();
+	}
+
+	private decide(confirmed: boolean): void {
+		this.decided = true;
+		this.resolvePrompt(confirmed);
+		this.close();
+	}
+}
 
 interface ToolCallRecord {
 	id: string;
@@ -207,7 +251,7 @@ export class ChatView extends ItemView {
 			cls: "open-agent-session-rename",
 			attr: { type: "text" },
 		});
-		this.sessionRenameEl.style.display = "none";
+		this.sessionRenameEl.addClass("is-hidden");
 		this.sessionRenameEl.addEventListener("keydown", (e) => {
 			if (e.key === "Enter") this.finishRename();
 			if (e.key === "Escape") this.cancelRename();
@@ -221,30 +265,15 @@ export class ChatView extends ItemView {
 
 		// New session button
 		const newBtn = sessionBar.createEl("button", { text: "+ New", cls: "open-agent-session-new" });
-		newBtn.addEventListener("click", async () => {
-			await this.deps.sessionStore.create();
-			this.turns = [];
-			this.deps.undo.clear();
-			this.refreshHeader();
-			this.renderTranscript();
-		});
+		newBtn.addEventListener("click", () => { void this.createSession(); });
 
 		// Delete session button
 		const deleteBtn = sessionBar.createEl("button", { text: "Delete", cls: "open-agent-session-delete" });
-		deleteBtn.addEventListener("click", async () => {
-			if (!confirm("Delete this session?")) return;
-			const id = this.deps.sessionStore.getActive().id;
-			await this.deps.sessionStore.delete(id);
-			const session = this.deps.sessionStore.getActive();
-			this.turns = this.storedToUiTurns(session.turns);
-			this.deps.undo.clear();
-			this.refreshHeader();
-			this.renderTranscript();
-		});
+		deleteBtn.addEventListener("click", () => { void this.deleteActiveSession(); });
 
 		// Sessions panel (hidden by default)
 		this.sessionsPanelEl = header.createDiv({ cls: "open-agent-sessions-panel" });
-		this.sessionsPanelEl.style.display = "none";
+		this.sessionsPanelEl.addClass("is-hidden");
 
 		this.sessionsSearchEl = this.sessionsPanelEl.createEl("input", {
 			cls: "open-agent-sessions-search",
@@ -259,15 +288,7 @@ export class ChatView extends ItemView {
 		const modeBar = header.createDiv({ cls: "open-agent-mode-bar" });
 		modeBar.createEl("span", { text: "Mode:", cls: "open-agent-model-label" });
 		this.modeSelectEl = modeBar.createEl("select", { cls: "open-agent-mode-select" });
-		this.modeSelectEl.addEventListener("change", async () => {
-			const session = this.deps.sessionStore.getActive();
-			const nextPackId = this.modeSelectEl.value || null;
-			const currentClassicModel = this.modelInputEl.value.trim() || session.lastClassicModel || session.model;
-			this.activePackError = null;
-			await this.deps.sessionStore.updateSelectedPack(session.id, nextPackId, currentClassicModel);
-			this.refreshHeader();
-			this.refreshConfiguredState();
-		});
+		this.modeSelectEl.addEventListener("change", () => { void this.handleModeChange(); });
 
 		// Model bar
 		const modelBar = header.createDiv({ cls: "open-agent-model-bar" });
@@ -278,11 +299,7 @@ export class ChatView extends ItemView {
 			cls: "open-agent-model-input",
 			attr: { type: "text", list: datalistId },
 		});
-		this.modelInputEl.addEventListener("change", async () => {
-			const model = this.modelInputEl.value.trim();
-			const session = this.deps.sessionStore.getActive();
-			await this.deps.sessionStore.updateModel(session.id, model);
-		});
+		this.modelInputEl.addEventListener("change", () => { void this.handleModelChange(); });
 		this.modelInputEl.addEventListener("keydown", (e) => {
 			if (e.key === "Enter") this.modelInputEl.blur();
 		});
@@ -359,6 +376,47 @@ export class ChatView extends ItemView {
 		}
 	}
 
+	private async createSession(): Promise<void> {
+		await this.deps.sessionStore.create();
+		this.turns = [];
+		this.deps.undo.clear();
+		this.refreshHeader();
+		this.renderTranscript();
+	}
+
+	private async deleteActiveSession(): Promise<void> {
+		const confirmed = await new ConfirmActionModal(
+			this.app,
+			"Delete session?",
+			"This will permanently remove the current session history.",
+			"Delete",
+		).prompt();
+		if (!confirmed) return;
+		const id = this.deps.sessionStore.getActive().id;
+		await this.deps.sessionStore.delete(id);
+		const session = this.deps.sessionStore.getActive();
+		this.turns = this.storedToUiTurns(session.turns);
+		this.deps.undo.clear();
+		this.refreshHeader();
+		this.renderTranscript();
+	}
+
+	private async handleModeChange(): Promise<void> {
+		const session = this.deps.sessionStore.getActive();
+		const nextPackId = this.modeSelectEl.value || null;
+		const currentClassicModel = this.modelInputEl.value.trim() || session.lastClassicModel || session.model;
+		this.activePackError = null;
+		await this.deps.sessionStore.updateSelectedPack(session.id, nextPackId, currentClassicModel);
+		this.refreshHeader();
+		this.refreshConfiguredState();
+	}
+
+	private async handleModelChange(): Promise<void> {
+		const model = this.modelInputEl.value.trim();
+		const session = this.deps.sessionStore.getActive();
+		await this.deps.sessionStore.updateModel(session.id, model);
+	}
+
 	private async refreshPacks(): Promise<void> {
 		try {
 			this.availablePacks = await this.deps.getPacks();
@@ -398,13 +456,17 @@ export class ChatView extends ItemView {
 	}
 
 	private toggleSessionsPanel(): void {
-		this.sessionsPanelVisible = !this.sessionsPanelVisible;
-		this.sessionsPanelEl.style.display = this.sessionsPanelVisible ? "" : "none";
+		this.setSessionsPanelVisible(!this.sessionsPanelVisible);
 		if (this.sessionsPanelVisible) {
 			this.sessionsSearchEl.value = "";
 			this.refreshSessionsList("");
 			this.sessionsSearchEl.focus();
 		}
+	}
+
+	private setSessionsPanelVisible(visible: boolean): void {
+		this.sessionsPanelVisible = visible;
+		this.sessionsPanelEl.classList.toggle("is-hidden", !visible);
 	}
 
 	private refreshSessionsList(filter: string): void {
@@ -427,18 +489,7 @@ export class ChatView extends ItemView {
 			if (isBusySession) {
 				item.createEl("span", { cls: "open-agent-session-activity" });
 			}
-			item.addEventListener("click", async () => {
-				this.sessionsPanelVisible = false;
-				this.sessionsPanelEl.style.display = "none";
-				await this.deps.sessionStore.switchTo(s.id);
-				const session = this.deps.sessionStore.getActive();
-				// Prefer live in-memory turns (stream still running) over stale stored state
-				this.turns = this.liveTurns.get(s.id) ?? this.storedToUiTurns(session.turns);
-				this.deps.undo.clear();
-				this.refreshHeader();
-				this.refreshBusyState();
-				this.renderTranscript();
-			});
+			item.addEventListener("click", () => { void this.switchToSession(s.id); });
 		}
 
 		if (filtered.length === 0) {
@@ -448,25 +499,21 @@ export class ChatView extends ItemView {
 
 	private startRename(): void {
 		if (this.isRenaming) return;
-		this.isRenaming = true;
 		const session = this.deps.sessionStore.getActive();
 		this.preRenameTitle = session.title;
-		this.sessionTitleEl.style.display = "none";
 		this.sessionRenameEl.value = session.title;
-		this.sessionRenameEl.style.display = "";
+		this.setRenameMode(true);
 		this.sessionRenameEl.focus();
 		this.sessionRenameEl.select();
 	}
 
 	private finishRename(): void {
 		if (!this.isRenaming) return;
-		this.isRenaming = false;
 		const newTitle = this.sessionRenameEl.value.trim();
 		const session = this.deps.sessionStore.getActive();
 		const title = newTitle.length > 0 ? newTitle : this.preRenameTitle;
-		this.sessionRenameEl.style.display = "none";
 		this.sessionTitleEl.setText(title);
-		this.sessionTitleEl.style.display = "";
+		this.setRenameMode(false);
 		if (title !== session.title) {
 			void this.deps.sessionStore.rename(session.id, title);
 		}
@@ -474,9 +521,26 @@ export class ChatView extends ItemView {
 
 	private cancelRename(): void {
 		if (!this.isRenaming) return;
-		this.isRenaming = false;
-		this.sessionRenameEl.style.display = "none";
-		this.sessionTitleEl.style.display = "";
+		this.sessionRenameEl.value = this.preRenameTitle;
+		this.setRenameMode(false);
+	}
+
+	private setRenameMode(enabled: boolean): void {
+		this.isRenaming = enabled;
+		this.sessionTitleEl.classList.toggle("is-hidden", enabled);
+		this.sessionRenameEl.classList.toggle("is-hidden", !enabled);
+	}
+
+	private async switchToSession(sessionId: string): Promise<void> {
+		this.setSessionsPanelVisible(false);
+		await this.deps.sessionStore.switchTo(sessionId);
+		const session = this.deps.sessionStore.getActive();
+		// Prefer live in-memory turns (stream still running) over stale stored state
+		this.turns = this.liveTurns.get(sessionId) ?? this.storedToUiTurns(session.turns);
+		this.deps.undo.clear();
+		this.refreshHeader();
+		this.refreshBusyState();
+		this.renderTranscript();
 	}
 
 	private async populateModelDatalist(): Promise<void> {
@@ -694,7 +758,7 @@ export class ChatView extends ItemView {
 					// Only update the UI if the user is still viewing this session's turns.
 					if (this.turns.includes(assistantTurn)) this.scheduleRender();
 					// Yield to the browser so it can repaint between token chunks.
-					await new Promise<void>((resolve) => setTimeout(resolve, 0));
+					await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
 					continue;
 				} else if (ev.kind === "tool_call_started") {
 					assistantTurn.thinking = false;
@@ -965,7 +1029,7 @@ export class ChatView extends ItemView {
 					});
 					editBtns.createEl("button", { text: "Send", cls: "mod-cta" })
 						.addEventListener("click", () => void this.submitEdit(i));
-					requestAnimationFrame(() => {
+					window.requestAnimationFrame(() => {
 						editArea.focus();
 						editArea.setSelectionRange(editArea.value.length, editArea.value.length);
 					});
@@ -1203,10 +1267,10 @@ export class ChatView extends ItemView {
 				text: shouldExpand ? "Hide details" : "Show details",
 				cls: "open-agent-claim-toggle",
 			});
-			if (!shouldExpand) details.style.display = "none";
+			details.classList.toggle("is-hidden", !shouldExpand);
 			toggle.addEventListener("click", () => {
-				const open = details.style.display === "none";
-				details.style.display = open ? "" : "none";
+				const open = details.classList.contains("is-hidden");
+				details.classList.toggle("is-hidden", !open);
 				toggle.textContent = open ? "Hide details" : "Show details";
 			});
 

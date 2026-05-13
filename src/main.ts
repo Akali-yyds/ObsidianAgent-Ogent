@@ -1,4 +1,4 @@
-import { Notice, Platform, Plugin, TFile, WorkspaceLeaf } from "obsidian";
+import { Notice, Platform, Plugin, TFile, Workspace, WorkspaceLeaf } from "obsidian";
 import { ensureDefaultPacks, loadPacks } from "./packs/loader";
 import { runPack, type PackRuntimeEvent, type PackRunResult } from "./packs/runtime";
 import type { AgentPack } from "./packs/types";
@@ -133,13 +133,13 @@ export default class OpenAgentPlugin extends Plugin {
 		const { workspace } = this.app;
 		const existing = workspace.getLeavesOfType(CHAT_VIEW_TYPE);
 		if (existing.length > 0) {
-			await workspace.revealLeaf(existing[0]);
+			focusLeaf(workspace, existing[0]);
 			return existing[0].view instanceof ChatView ? existing[0].view : null;
 		}
 		const leaf = Platform.isMobile ? workspace.getLeaf("tab") : workspace.getRightLeaf(false);
 		if (!leaf) return null;
 		await leaf.setViewState({ type: CHAT_VIEW_TYPE, active: true });
-		await workspace.revealLeaf(leaf);
+		focusLeaf(workspace, leaf);
 		return leaf.view instanceof ChatView ? leaf.view : null;
 	}
 
@@ -163,7 +163,7 @@ export default class OpenAgentPlugin extends Plugin {
 		try {
 			const file = this.app.vault.getAbstractFileByPath(op.path);
 			if (op.before === null) {
-				if (file instanceof TFile) await this.app.fileManager.trashFile(file);
+				if (file instanceof TFile) await this.app.vault.trash(file, true);
 			} else if (file instanceof TFile) {
 				await this.app.vault.modify(file, op.before);
 			} else {
@@ -200,4 +200,8 @@ export default class OpenAgentPlugin extends Plugin {
 			onEvent,
 		});
 	}
+}
+
+function focusLeaf(workspace: Workspace, leaf: WorkspaceLeaf): void {
+	workspace.setActiveLeaf(leaf, { focus: true });
 }

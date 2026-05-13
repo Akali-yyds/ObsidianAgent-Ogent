@@ -13,12 +13,14 @@ export async function runWithTimeout<T>(
 	toolName: string,
 	signal?: AbortSignal,
 ): Promise<T> {
-	let timer: ReturnType<typeof setTimeout> | undefined;
+	const timerHost = typeof window !== "undefined" ? window : globalThis;
+	let timer: ReturnType<typeof globalThis.setTimeout> | undefined;
+	let abortHandler: (() => void) | undefined;
 	const timeout = new Promise<never>((_, reject) => {
-		timer = setTimeout(() => reject(new ToolTimeoutError(toolName, ms)), ms);
+		timer = timerHost.setTimeout(() => reject(new ToolTimeoutError(toolName, ms)), ms);
 		if (signal) {
-			const abortHandler = () => {
-				if (timer) clearTimeout(timer);
+			abortHandler = () => {
+				if (timer !== undefined) timerHost.clearTimeout(timer);
 				reject(new DOMException("Aborted", "AbortError"));
 			};
 			if (signal.aborted) abortHandler();
@@ -28,6 +30,7 @@ export async function runWithTimeout<T>(
 	try {
 		return await Promise.race([promise, timeout]);
 	} finally {
-		if (timer) clearTimeout(timer);
+		if (timer !== undefined) timerHost.clearTimeout(timer);
+		if (signal && abortHandler) signal.removeEventListener("abort", abortHandler);
 	}
 }
