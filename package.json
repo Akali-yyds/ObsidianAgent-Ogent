@@ -1,7 +1,7 @@
 {
   "name": "obsidian-open-agent",
-  "version": "0.0.1",
-  "description": "AI agent inside Obsidian — vault-aware, MCP-capable, BYOK, cross-platform.",
+  "version": "0.1.0",
+  "description": "Vault-aware AI agent with tools and your own API keys.",
   "main": "main.js",
   "scripts": {
     "dev": "node esbuild.config.mjs",
