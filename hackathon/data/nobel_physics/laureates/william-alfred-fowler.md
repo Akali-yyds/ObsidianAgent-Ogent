@@ -1,0 +1,76 @@
+---
+title: "William Alfred Fowler"
+source: "https://en.wikipedia.org/wiki/William_Alfred_Fowler"
+tags: [nobel-physics, wikipedia]
+---
+
+# William Alfred Fowler
+
+American nuclear physicist (1911–1995)
+
+**William Alfred Fowler** (August 9, 1911 – March 14, 1995) was an American astrophysicist. He shared the 1983 Nobel Prize in Physics "for his theoretical and experimental studies of the nuclear reactions of importance in the  formation of the chemical elements in the universe." He is known for his theoretical and experimental research into nuclear reactions within stars and the energy elements produced in the process. With  Margaret and Geoffrey Burbidge and Fred Hoyle, he authored the influential B2FH paper, *Synthesis of the Elements in Stars*.
+
+## Early life
+
+edit
+
+On 9 August 1911, Fowler was born in Pittsburgh. Fowler's parents were John MacLeod Fowler and Jennie Summers Watson. Fowler was the eldest of his siblings, Arthur and Nelda.
+
+The family moved to Lima, Ohio, a steam railroad town, when Fowler was two years old. Growing up near the Pennsylvania Railroad yard influenced Fowler's interest in locomotives. In 1973, he travelled to the Soviet Union just to observe the steam engine that powered the Trans-Siberian Railway plying the nearly 2,500-kilometre (1,600 mi) route that connects Khabarovsk and Moscow.
+
+## Education
+
+edit
+
+In 1933, Fowler graduated from the Ohio State University, where he was a member of the Tau Kappa Epsilon fraternity. In 1936, Fowler received a Ph.D. in nuclear physics from the California Institute of Technology in Pasadena, California.
+
+## Career
+
+edit
+
+Fowler's Los Alamos badge
+
+In 1936, Fowler became a research fellow at Caltech. He was elected to the United States National Academy of Sciences in 1938. In 1939, Fowler became an assistant professor at Caltech.
+
+Although an experimental nuclear physicist, Fowler's most famous paper was his collaboration with Margaret and Geoffrey Burbidge, *Synthesis of the Elements in Stars*. Significantly, Margaret Burbidge was first author, her husband Geoffrey Burbidge second, Fowler third, and Cambridge cosmologist Fred Hoyle fourth. That 1957 paper in Reviews of Modern Physics categorized most nuclear processes for origin of all but the lightest chemical elements in stars. It is widely known as the B2FH paper. Though the theory of Stellar Nucleosynthesis established in the paper was later cited by the Nobel Committee as the reason for Fowler's 1983 Nobel in Physics, neither any of the Burbidges nor Hoyle shared in the award.
+
+In 1942, Fowler became an associate professor at Caltech. In 1946, Fowler became a Professor at Caltech. Fowler, along with Lee A. DuBridge, Max Mason, Linus Pauling, and Bruce H. Sage, was awarded the Medal for Merit in 1948 by President Harry S. Truman.
+
+Fowler succeeded Charles Lauritsen as director of the W. K. Kellogg Radiation Laboratory at Caltech, and was himself later succeeded by Steven E. Koonin. Fowler was awarded the National Medal of Science by President Gerald Ford.
+
+Fowler was Guggenheim Fellow at St John's College, Cambridge in 1962–63. He was elected to the American Philosophical Society in 1962, won the Henry Norris Russell Lectureship of the American Astronomical Society in 1963, elected to the American Academy of Arts and Sciences in 1965, won the Vetlesen Prize in 1973, the Eddington Medal in 1978, the Bruce Medal of the Astronomical Society of the Pacific in 1979, and the Nobel Prize in Physics in 1983 (shared with Subrahmanyan Chandrasekhar) for his theoretical and experimental studies of the nuclear reactions of importance in the formation of the chemical elements in the universe .
+
+Fowler's doctoral students at Caltech included Donald D. Clayton and George M. Fuller.
+
+## Personal life
+
+edit
+
+A lifelong fan of steam locomotives, Fowler owned several working models of various sizes.
+
+Fowler's first wife was Adriane Fay (née Olmsted) Fowler (1912-1988). They had two daughters, Mary Emily and Martha.
+
+In December 1989, Fowler married Mary Dutcher, an artist, in Pasadena, California.
+On 11 March 1995, Fowler died from kidney failure in Pasadena, California. He was 83.
+
+## Publications
+
+edit
+
+* Fowler, W.A.; Lauritsen, C.C (1949-05-26). "Gamma radiation from light nuclei under proton bombardment" (PDF). *Physical Review*. **73** (2): 314–315. Bibcode:1948PhRv...73..181F. doi:10.1103/physrev.73.181.2. Archived (PDF) from the original on 2021-08-08.
+* Cook, C.W.; Fowler, W.A.; Lauritsen, C.C.; Lauritsen, T. (1957-07-15). "B12, C12 and the Red Hot Giants". *Physical Review*. **107** (2): 508. Bibcode:1957PhRv..107..508C. doi:10.1103/physrev.107.508.
+* Clayton, D.D; Fowler, W.A; Hull, T.E; Zimmerman, B.A. (1961-03-01). "Neutron capture chains in heavy element synthesis". *Annals of Physics*. **12** (3): 331–408. Bibcode:1961AnPhy..12..331C. doi:10.1016/0003-4916(61)90067-7. ISSN 0003-4916.
+* Burbidge, E. M.; Burbidge, G. R.; Fowler, W. A.; Hoyle, F. (1957). "Synthesis of the Elements in Stars". *Reviews of Modern Physics*. **29** (4): 547–650. Bibcode:1957RvMP...29..547B. doi:10.1103/RevModPhys.29.547. ISSN 0034-6861. LCCN 31021290. OCLC 5975699.
+* Fowler, W. A. (June 1958). *Temperature and Density Conditions for Nucleogenesis by Fusion Processes in Stars*. W. K. Kellogg Radiation Laboratory. doi:10.2172/4308210. OSTI 4308210.
+* Seeger, P. A.; Fowler, W. A.; Clayton, Donald D. (1965). "Nucleosynthesis of heavy elements by neutron capture". *Astrophysical Journal Supplement Series*. **11**: 121–166. Bibcode:1965ApJS...11..121S. doi:10.1086/190111. Archived from the original on 2021-04-28. Retrieved 2022-03-21.
+* Bodansky, D.; Clayton, Donald D.; Fowler, W.A. (1968-01-22). "Nucleosynthesis during silicon burning". *Physical Review Letters*. **20** (4): 161–164. Bibcode:1968PhRvL..20..161B. doi:10.1103/physrevlett.20.161. Archived from the original on 2021-07-23. Retrieved 2022-03-21.
+* Holmes, J.A.; Woosley, S.E.; Fowler, W.A.; Zimmerman, B.A. (1976). "Tables of thermonuclear-reaction-rate for neutron-induced reactions on heavy nuclei". *Atomic Data and Nuclear Data Tables*. **18**: 305. Bibcode:1976ADNDT..18..305H. doi:10.1016/0092-640x(76)90011-5.
+* Caughlan, G.R.; Fowler, W.A.; Zimmerman, B.A. (September 1975). "Thermonuclear reaction rates, II". *Annu. Rev. Astron. Astrophys.* **13**: 69–112. Bibcode:1975ARA&A..13...69F. doi:10.1146/annurev.aa.13.090175.000441. Archived from the original on 2022-01-30. Retrieved 2022-03-21.
+
+## Obituaries
+
+edit
+
+* Woosley, Stanford E. (1995). "Obituary: William A. Fowler, 1911–1995". *Bulletin of the American Astronomical Society*. **27** (4): 1475. Bibcode:1995BAAS...27.1475W. Archived from the original on 2022-03-21. Retrieved 2022-03-21.
+* Clayton, Donald D. (1996). "William Alfred Fowler (1911-1995)". *Publications of the Astronomical Society of the Pacific*. **108** (719): 1–7. Bibcode:1996PASP..108....1C. doi:10.1086/133686. JSTOR 40680678.
+* Burbidge, G. (1996). "William Alfred Fowler, 1911 - 14 March 1995". *Quarterly Journal of the Royal Astronomical Society*. **37** (1): 89. Bibcode:1996QJRAS..37...89B.

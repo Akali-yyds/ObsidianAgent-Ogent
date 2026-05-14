@@ -1,0 +1,103 @@
+---
+title: "Philip W. Anderson"
+source: "https://en.wikipedia.org/wiki/Philip_W._Anderson"
+tags: [nobel-physics, wikipedia]
+---
+
+# Philip W. Anderson
+
+American theoretical physicist (1923–2020)
+
+**Philip Warren Anderson** (December 13, 1923 – March 29, 2020) was an American theoretical physicist who shared the 1977 Nobel Prize in Physics with Nevill Mott and John Van Vleck "for their fundamental theoretical investigations of the electronic structure of magnetic and disordered systems."
+
+Anderson made contributions to the theories of localization, antiferromagnetism, symmetry breaking (including a paper in 1962 discussing symmetry breaking in particle physics, leading to the development of the Standard Model around 10 years later), and high-temperature superconductivity, and to the philosophy of science through his writings on emergent phenomena. He is also responsible for naming the field of physics that is now known as condensed matter physics.
+
+## Education
+
+edit
+
+Philip Warren Anderson was born on December 13, 1923, in Indianapolis, Indiana, and grew up in Urbana, Illinois. His father, Harry Warren Anderson, was a professor of plant pathology at the University of Illinois at Urbana–Champaign; his maternal grandfather was a mathematician at Wabash College, where Anderson's father studied; and his maternal uncle was a Rhodes Scholar who became a professor of English, also at Wabash College.
+
+Anderson graduated from University Laboratory High School in Urbana in 1940. Under the encouragement of a math teacher by the name of Miles Hartley, he enrolled at Harvard University to study under a fully-funded scholarship. He concentrated in "Electronic Physics" and received his B.S. in 1943, after which he was drafted into the war effort and built antennas in the Naval Research Laboratory until the end of the Second World War in 1945. As an undergraduate, his close associates included particle-nuclear physicist H. Pierre Noyes, philosopher and historian of science Thomas Kuhn, and molecular physicist Henry Silsbee.
+
+After the war, Anderson returned to Harvard to pursue graduate studies in physics, obtaining an M.A. in 1947 and a Ph.D. in 1949. His doctoral thesis, written under John Van Vleck, was titled *The Theory of Pressure Broadening of Spectral Lines in the Microwave and Infrared Regions*.
+
+## Career and research
+
+edit
+
+From 1949 to 1984, Anderson was employed by Bell Telephone Laboratories in New Jersey, where he worked on a wide variety of problems in condensed matter physics. During this period, he developed what is now called Anderson localization (the idea that extended states can be localized by the presence of disorder in a system) and Anderson's theorem (concerning impurity scattering in superconductors); invented the Anderson Hamiltonian, which describes the site-wise interaction of electrons in a transition metal; proposed symmetry breaking within particle physics (this played a role in the development of the Standard Model and the development of the theory behind the Higgs mechanism, which in turn generates mass in some elementary particles); created the pseudospin approach to the BCS theory of superconductivity; made seminal studies of non-s-wave pairing (both symmetry-breaking and microscopic mechanism) in the superfluidity of helium-3, and helped found the area of spin-glasses.
+
+Anderson spent a year as lecturer at the University of Cambridge in 1961–1962, and recalled that having Brian Josephson in a class was "a disconcerting experience for a lecturer, I can assure you, because everything had to be right or he would come up and explain it to me after class."
+
+From 1967 to 1975, Anderson was a professor of theoretical physics at Cambridge. In 1977 Anderson was awarded the Nobel Prize in Physics for his investigations into the electronic structure of magnetic and disordered systems, which allowed for the development of electronic switching and memory devices in computers. Co-researchers Nevill Mott and John Van Vleck shared the award with him. In 1982, he was awarded the National Medal of Science. He retired from Bell Labs in 1984 and was Joseph Henry Professor Emeritus of Physics at Princeton University.
+
+Anderson's writings included *Concepts in Solids*, *Basic Notions of Condensed Matter Physics* and *The Theory of Superconductivity in the High-Tc Cuprates*. Anderson served on the board of advisors of Scientists and Engineers for America, an organization focused on promoting sound science in American government.
+
+In response to the discovery of high-temperature superconductors in the 1980s, Anderson proposed Resonating valence bond (RVB) theory to explain the phenomenon. While many found the idea unconvincing, RVB theory proved instrumental in the study of spin liquids.
+
+Anderson also made conceptual contributions to the philosophy of science through his explication of emergent phenomena, which became an inspiration for the science of complex systems. In 1972, he wrote an article called "More is Different" in which he emphasized the limitations of reductionism and the existence of hierarchical levels of science, each of which requires its own fundamental principles for advancement.
+
+In 1984, he participated in the founding workshops of the Santa Fe Institute, a multidisciplinary research institute dedicated to the science of complex systems. Anderson also co-chaired the institute's 1987 conference on economics with Kenneth Arrow and W. Brian Arthur, and participated in its 2007 workshop on models of emergent behavior in complex systems.
+
+In 1987, Anderson testified to the US Congress, "against the construction of the Superconducting Super Collider (SSC), a 40 TeV proton-proton collider in Texas that would have been the biggest experiment in particle physics. Anderson's opposition to the SSC did not directly lead to its cancellation in 1993—spiralling costs were the main factor—but he was perhaps its most high-profile opponent." He was, "skeptical of the supposed boost it would provide to science in the US and the claim that the spin-offs would provide great return on investment."
+
+A 2006 statistical analysis of scientific research papers by José Soler, comparing the number of references in a paper to the number of citations, declared Anderson to be the "most creative" amongst ten most cited physicists in the world. In 2021, Oxford University Press published the biography *A Mind over Matter: Philip Anderson and the Physics of the Very Many* by Andrew Zangwill.
+
+## Personal life
+
+edit
+
+Anderson was an atheist and was one of 22 Nobel Laureates who signed the Humanist Manifesto. Anderson was also interested in Japanese culture, living there for a time and becoming a 1st Dan master of the board game Go. The Nihon Ki-in awarded him a lifetime achievement award in 2007, and Anderson joked that there were only four people in Japan who could beat him.
+
+Anderson married Joyce Gothwaite in 1947 and they had a daughter, Susan. He died on March 29, 2020, in Princeton, New Jersey, at the age of 96.
+
+## Recognition
+
+edit
+
+### Memberships
+
+edit
+
+### Awards
+
+edit
+
+### National awards
+
+edit
+
+## Publications
+
+edit
+
+### Books
+
+edit
+
+* Anderson, Philip W. (1954). *Notes on theory of magnetism*. Tokyo: University of Tokyo. OCLC 782103851.
+* Anderson, Philip W. (1997) [1963]. *Concepts in solids: lectures on the theory of solids*. Singapore River Edge, New Jersey: World Scientific. ISBN 9789810232313.
+* Anderson, Philip W. (1997) [1984]. *Basic notions of condensed matter physics*. Reading, Massachusetts: Addison-Wesley. ISBN 9780201328301.
+* Anderson, Philip W.; Arrow, Kenneth J.; Pines, David, eds. (1988). *The economy as an evolving complex system: the proceedings of the Evolutionary Paths of the Global Economy Workshop, held September, 1987 in Santa Fe, New Mexico*. Redwood City, California: Addison-Wesley Pub. Co. ISBN 9780201156850.
+* Anderson, Philip W. (2004) [1994]. *A career in theoretical physics*. World Scientific Series in 20th Century Physics, volume 35. Singapore Hackensack, New Jersey: World Scientific Pub. Co. ISBN 9789812567154.
+* Anderson, Philip W. (1997). *The theory of superconductivity in the high-TC cuprates*. Princeton, New Jersey: Princeton University Press. ISBN 9780691043654.
+* Anderson, Philip W. (2011). *More and different: notes from a thoughtful curmudgeon*. Singapore Hackensack, New Jersey: World Scientific. ISBN 9789814350143.
+
+### Journal articles
+
+edit
+
+* Anderson, Philip W. (March 1, 1958). "Absence of diffusion in certain random lattices". *Physical Review*. **109** (5): 1492–1505. Bibcode:1958PhRv..109.1492A. doi:10.1103/PhysRev.109.1492. Pdf. Archived May 11, 2017, at the Wayback Machine
+* Anderson, Philip W. (April 1, 1963). "Plasmons, gauge invariance, and mass". *Physical Review*. **130** (1): 439–442. Bibcode:1963PhRv..130..439A. doi:10.1103/PhysRev.130.439. Pdf.
+* Anderson, Philip W.; Halperin, Bertrand I.; Varma, Chandra M. (January 1972). "Anomalous low-temperature thermal properties of glasses and spin glasses". *Philosophical Magazine*. **25** (1): 1–9. Bibcode:1972PMag...25....1A. doi:10.1080/14786437208229210. Pdf.
+* Anderson, Philip W. (August 4, 1972). "More is different". *Science*. **177** (4047): 393–396. Bibcode:1972Sci...177..393A. doi:10.1126/science.177.4047.393. JSTOR 1734697. PMID 17796623. S2CID 34548824. Pdf.
+* Anderson, Philip W. (March 6, 1987). "The resonating valence bond state in La2CuO4 and superconductivity". *Science*. **235** (4793): 1196–1198. Bibcode:1987Sci...235.1196A. doi:10.1126/science.235.4793.1196. JSTOR 1698247. PMID 17818979. S2CID 28146486. Pdf.
+* Anderson, Philip W. (July 18, 1995). "Physics: the opening to complexity". *Proceedings of the National Academy of Sciences*. **92** (15): 6653–6654. Bibcode:1995PNAS...92.6653A. doi:10.1073/pnas.92.15.6653. JSTOR 236771. PMC 41390. PMID 11607557. Pdf.
+* Anderson, Philip W. (April 3, 1997). "Mind over matter: Review of *The Large, the Small and the Human Mind* by Roger Penrose". *Nature*. **386** (6624): 456. Bibcode:1997Natur.386..456A. doi:10.1038/386456c0. S2CID 4336986.
+* Anderson, Philip W. (October 1997). "When the electron falls apart". *Physics Today*. **50** (10): 42–49. Bibcode:1997PhT....50j..42A. doi:10.1063/1.881959.
+* Anderson, Philip W. (July 8, 1999). "Computing: solving problems in finite time". *Nature*. **400** (6740): 115. Bibcode:1999Natur.400..115A. doi:10.1038/22001. PMID 10408432.
+* Anderson, Philip W. (February 2000). "Brainwashed by Feynman?". *Physics Today*. **53** (2): 11–14. Bibcode:2000PhT....53b..11A. doi:10.1063/1.882955. Pdf.
+* Anderson, Philip W. (September 27, 2005). "Thinking big". *Nature*. **437** (7059): 625–626. Bibcode:2005Natur.437..625A. doi:10.1038/437625a. PMID 16193027. S2CID 4416556.
+* Anderson, Philip W. (September 1, 2007). "Twenty years of talking past each other: the theory of high *T*C". *Physica C*. 460–462 (Part 1): 3–6. Bibcode:2007PhyC..460....3A. doi:10.1016/j.physc.2007.03.261.
+* Casey, Philip A.; Anderson, Philip W. (February 28, 2011). "Hidden Fermi Liquid: Self-Consistent Theory for the Normal State of High-*T*c Superconductors". *Physical Review Letters*. **106** (9) 097002. arXiv:1101.3609. Bibcode:2011PhRvL.106i7002C. doi:10.1103/PhysRevLett.106.097002. PMID 21405646.

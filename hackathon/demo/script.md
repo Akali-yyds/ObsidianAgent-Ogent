@@ -6,7 +6,7 @@ Show that OpenAgent keeps the familiar Obsidian chat workflow, adds a higher-tru
 
 ## Prep
 
-1. Start the three local MLX-LM servers on ports `8081`, `8082`, and `8083`.
+1. Start the local OpenAI-compatible endpoint used by `grounded-research.json` on `127.0.0.1:8000`, or edit the pack so it matches your local stack before demoing.
 2. Build and install the plugin into a test vault.
 3. Open Obsidian with a vault that contains a few notes worth citing.
 4. Keep a terminal open with the repo root ready for `npm run eval`.

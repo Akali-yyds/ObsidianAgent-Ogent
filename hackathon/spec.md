@@ -80,9 +80,9 @@ multi-agent flow is opt-in via "agent packs."
   the model names that ran.
 - The default grounded-research.json pack lives in the plugin bundle and is
   copied to the user's plugin folder on first run if no packs are present.
-- A second pack file (grounded-research.openai.json) ships alongside it,
-  identical except for the providers block, pointing at api.openai.com so
-  the architecture works without a local Gemma setup.
+- The grounded-research pack keeps its provider block fully editable so the
+  same architecture can target hosted OpenAI-compatible endpoints without
+  code changes.
 - The eval harness can be run with `npm run eval` against
   hackathon/eval/fixtures/, produces hackathon/eval/results/<timestamp>.json,
   and writes hackathon/eval/results/<timestamp>.md with hallucination rate
@@ -130,7 +130,6 @@ src/
     types.ts              # AgentPack, schemas
     defaults/
       grounded-research.json
-      grounded-research.openai.json
   view/
     pack-picker.ts        # Dropdown in chat panel
     claim-renderer.ts     # Per-claim UI with badges + links
@@ -161,7 +160,7 @@ hackathon/
 
 - Working code on main, with the refactor landed as separate PRs in the
   order above.
-- One default pack and one OpenAI variant in src/packs/defaults/.
+- One default pack in src/packs/defaults/.
 - hackathon/README.md, hackathon/eval/ with at least 20 queries and run
   results, hackathon/demo/script.md.
 - Release tagged v0.1.0-gemma4-hackathon at submission time.

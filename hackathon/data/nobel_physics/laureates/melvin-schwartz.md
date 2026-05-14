@@ -1,0 +1,39 @@
+---
+title: "Melvin Schwartz"
+source: "https://en.wikipedia.org/wiki/Melvin_Schwartz"
+tags: [nobel-physics, wikipedia]
+---
+
+# Melvin Schwartz
+
+American physicist
+
+**Melvin Schwartz** (wɔːrts/ *SHWORTS*; November 2, 1932 – August 28, 2006) was an American physicist. He shared the 1988 Nobel Prize in Physics with Leon M. Lederman and Jack Steinberger for their development of the neutrino beam method and their demonstration of the doublet structure of the leptons through the discovery of the muon neutrino.
+
+## Biography
+
+edit
+
+Schwartz was Jewish. He grew up in New York City in the Great Depression and went to the Bronx High School of Science. His interest in physics began there at the age of 12.
+
+Schwartz earned his B.A. (1953) and Ph.D. (1958) at Columbia University, where Nobel laureate Isidor Isaac Rabi was the head of the physics department. He became an assistant professor at Columbia in 1958, was promoted to associate professor in 1960 and full professor in 1963. Tsung-Dao Lee, a Columbia colleague who had recently won the Nobel prize at age 30, inspired the experiment for which he received his Nobel. Schwartz and his colleagues performed the experiments which led to their Nobel Prize in the early 1960s, when all three were on the Columbia faculty. The experiment was carried out at the nearby Brookhaven National Laboratory.
+
+In 1966, after 17 years at Columbia, Schwartz moved west to Stanford University, where SLAC, a new accelerator, was just being completed. There, he was involved in research investigating the charge asymmetry in the decay of long-lived neutral kaons and another project which produced and detected relativistic hydrogen-like atoms made up of a pion and a muon.
+
+In the 1970s, Schwartz founded and became president of Digital Pathways. In 1972 he published a textbook on classical electrodynamics that has become a standard reference for intermediate and advanced students for its particularly clear exposition of the basic physical principles of the theory. In 1991, he became Associate Director of High Energy and Nuclear Physics at Brookhaven National Laboratory. At the same time, he rejoined the Columbia faculty as Professor of Physics. He became I. I. Rabi Professor of Physics in 1994 and retired as Rabi Professor Emeritus in 2000. He spent his retirement years in Ketchum, Idaho, and died August 28, 2006, at a Twin Falls, Idaho, nursing home after struggling with Parkinson's disease and hepatitis C.
+
+## Awards and honors
+
+edit
+
+* The Nobel Prize in Physics (1988)
+* Golden Plate Award of the American Academy of Achievement (1989)
+
+## Publications
+
+edit
+
+* Samios, N. P., Plano, R., Prodell, A., Schwartz, M. and J. Steinberger. "The Parity of the Neutral Pion and the Decay pi{sup 0} Yields 2e{sup +} + 2e{sup -}", Nevis Cyclotron Laboratory, Columbia University, United States Department of Energy (through predecessor agency the Atomic Energy Commission), Office of Naval Research, (January 1962).
+* Lee, T. D., Robinson, H., Schwartz, M. and R. Cool. "Intensity of Upward Muon Flux Due to Cosmic-Ray Neutrinos Produced in the Atmosphere", Nevis Cyclotron Laboratory, Columbia University, United States Department of Energy (through predecessor agency the Atomic Energy Commission), (June 1963).
+* Franzini, P., Leontic, B., Rahm, D., Samios, N. and M. Schwartz. "Search for Massive Particles Produced in Interactions at 30 BeV", Brookhaven National Laboratory, Columbia University, United States Department of Energy (through predecessor agency the Atomic Energy Commission), (January 1965).
+* G. Danby, J.-M. Gaillard, K. Goulianos, L.M. Lederman, N.B.Mistry, M. Schwartz, J. Steinberger (1962). "Observation of high-energy neutrino reactions and the existence of two kinds of neutrinos." *Physical Review Letters* **9**:36

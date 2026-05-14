@@ -26,9 +26,9 @@ Single-agent note assistants are fast, but they are hard to trust when they summ
 
 | Stage | Default endpoint | Default model | Responsibility |
 | --- | --- | --- | --- |
-| Retriever | `http://127.0.0.1:8081/v1` | `gemma-4-4b-it` | Pull likely notes and summarize the strongest evidence. |
-| Synthesizer | `http://127.0.0.1:8082/v1` | `gemma-4-31b-it` | Produce `claims-v1` JSON grounded in the retrieved notes. |
-| Verifier | `http://127.0.0.1:8083/v1` | `gemma-4-4b-it` | Check whether each cited quote actually supports the claim. |
+| Retriever | `http://127.0.0.1:8000/v1` | `gemma-4-E4B-it-MLX-8bit` | Pull likely notes and summarize the strongest evidence. |
+| Synthesizer | `http://127.0.0.1:8000/v1` | `gemma-4-31B-it-MLX-8bit` | Produce `claims-v1` JSON grounded in the retrieved notes. |
+| Verifier | `http://127.0.0.1:8000/v1` | `gemma-4-26B-A4B-it-MLX-8bit` | Check whether each cited quote actually supports the claim. |
 
 Key code paths:
 
@@ -39,33 +39,30 @@ Key code paths:
 
 ## Local Gemma + MLX setup
 
-The bundled `grounded-research.json` pack already points at three local OpenAI-compatible endpoints. The setup job is to bring those endpoints up.
+The bundled `grounded-research.json` pack currently points all three agents at one local OpenAI-compatible endpoint, `http://127.0.0.1:8000/v1`, with different model ids per stage.
 
-1. Install or update `mlx-lm` in your preferred Python environment.
-2. Start three MLX-LM servers. Context7’s current MLX-LM docs show `mlx_lm.server --model <path_or_hf_repo>` as the OpenAI-compatible entrypoint and support explicit host and port flags.
+1. Install or start the local OpenAI-compatible server stack you want to use, such as an MLX-backed setup on Apple silicon.
+2. Make sure that endpoint exposes these model ids:
 
-```bash
-mlx_lm.server --model <gemma4-retriever-model> --host 127.0.0.1 --port 8081
-mlx_lm.server --model <gemma4-synthesizer-model> --host 127.0.0.1 --port 8082
-mlx_lm.server --model <gemma4-verifier-model> --host 127.0.0.1 --port 8083
-```
+   - retriever: `gemma-4-E4B-it-MLX-8bit`
+   - synthesizer: `gemma-4-31B-it-MLX-8bit`
+   - verifier: `gemma-4-26B-A4B-it-MLX-8bit`
 
-Use any MLX-compatible Gemma 4 model path or Hugging Face repo that fits those roles. The plugin only requires that each server expose a standard OpenAI-compatible `/v1/chat/completions` API.
+3. If your local stack uses different ports or model names, edit the `providers` block in `grounded-research.json` before building or after the pack is copied into your plugin folder.
+4. The plugin only requires a standard OpenAI-compatible `/v1/chat/completions` API at that endpoint.
 
-3. Build the plugin from this repo:
+5. Build the plugin from this repo:
 
 ```bash
 npm install
 npm run build
 ```
 
-4. Copy `main.js`, `styles.css`, and `manifest.json` into `<vault>/.obsidian/plugins/open-agent/`, or use `npm run deploy` with `.vault-path` / `OBSIDIAN_VAULT`.
-5. Enable **OpenAgent** in Obsidian.
-6. Open the chat panel, keep **Classic** mode for the legacy path, or switch to **Grounded Research** to run the multi-agent pipeline.
+6. Copy `main.js`, `styles.css`, and `manifest.json` into `<vault>/.obsidian/plugins/open-agent/`, or use `npm run deploy` with `.vault-path` / `OBSIDIAN_VAULT`.
+7. Enable **OpenAgent** in Obsidian.
+8. Open the chat panel, keep **Classic** mode for the legacy path, or switch to **Grounded Research** to run the multi-agent pipeline.
 
-### Hosted fallback
-
-The repo also ships `grounded-research.openai.json`. It is identical in structure, but the API keys intentionally remain `replace-me` until a maintainer edits that pack with real credentials.
+If you want to target a hosted OpenAI-compatible provider instead of local MLX, edit the `providers` block in `grounded-research.json`.
 
 ## Running the eval harness
 
@@ -109,6 +106,26 @@ npm run build && npm run lint && npm test -- --run && npm run eval
    - verify that step progress, claim badges, note links, and model attribution render correctly
    - temporarily break a pack config and confirm the recovery banner suggests Classic mode or another pack
    - on mobile or a mobile-like unsupported session, confirm the pack stays hidden or offers **Use Classic mode**
+
+### Manual smoke sign-off record
+
+After the pass, capture the outcome in your PR, release note, or submission checklist with this template:
+
+```text
+Smoke pass date:
+Environment: desktop / mobile / both
+Vault used:
+Classic mode:
+Grounded Research mode:
+Step progress + claim badges:
+Source-note links + model attribution:
+Broken-pack recovery banner:
+Mobile-safe fallback:
+Notes:
+Signed off by:
+```
+
+Mark each line as `pass`, `fail`, or `n/a`, and use `Notes` for anything that needs follow-up before submission.
 
 ## Demo assets
 

@@ -1,0 +1,58 @@
+---
+title: "David J. Wineland"
+source: "https://en.wikipedia.org/wiki/David_J._Wineland"
+tags: [nobel-physics, wikipedia]
+---
+
+# David J. Wineland
+
+American physicist
+
+Wineland in Stockholm, 2012
+
+**David Jeffery Wineland** (born February 24, 1944) is an American physicist at the Physical Measurement Laboratory of the National Institute of Standards and Technology (NIST). His most notable contributions include the laser cooling of trapped ions and the use of ions for quantum-computing operations. He received the 2012 Nobel Prize in Physics, jointly with Serge Haroche, for "ground-breaking experimental methods that enable measuring and manipulation of individual quantum systems."
+
+## Early life and career
+
+edit
+
+Wineland was born in Wauwatosa, Wisconsin. He lived in Denver until he was three years old, at which time his family moved to Sacramento, California. Wineland graduated from Encina High School in Sacramento in 1961. In Sept. 1961–Dec. 1963, he studied at University of California, Davis. He received his bachelor's degree in physics from the University of California, Berkeley in 1965 and his master's and doctoral degrees in physics from Harvard University. He completed his PhD in 1970, supervised by Norman Foster Ramsey, Jr. His doctoral dissertation is titled "The Atomic Deuterium Maser". He then performed postdoctoral research in Hans Dehmelt's group at the University of Washington where he investigated electrons in ion traps. In 1975, he joined the National Bureau of Standards (now called NIST), where he started the ion storage group and is on the physics faculty of the University of Colorado at Boulder. In January 2018, Wineland moved to the Department of Physics University of Oregon as a Knight Research Professor, while still being engaged with the Ion Storage Group at NIST in a consulting role.
+
+Wineland was the first to laser-cool ions in 1978. His NIST group uses trapped ions in many experiments on fundamental physics, and quantum state control. They have demonstrated optical techniques to prepare ground, superposition and entangled states. This work has led to advances in spectroscopy, atomic clocks and quantum information. In 1995 he created the first single atom quantum logic gate and was the first to quantum teleport information in massive particles in 2004. Wineland implemented the most precise atomic clock using quantum logic on a single aluminum ion in 2005.
+
+Wineland is a fellow of the American Physical Society and the Optical Society of America, and was elected to the National Academy of Sciences in 1992. He shared the 2012 Nobel Prize in Physics with French physicist Serge Haroche "for ground-breaking experimental methods that enable measuring and manipulation of individual quantum systems."
+
+## Family
+
+edit
+
+Wineland is married to Sedna Quimby-Wineland, and they have two sons.
+
+Sedna Helen Quimby is the daughter of George I. Quimby (1913-2003), an archaeologist and anthropologist, who was Professor of Anthropology at the University of Washington and Director of the Thomas Burke Memorial Washington State Museum, and his wife Helen Ziehm Quimby.
+
+## Awards
+
+edit
+
+* 1990 Davisson-Germer Prize in Atomic or Surface Physics
+* 1990 William F. Meggers Award of the  Optical Society of America
+* 1996 Einstein Prize for Laser Science of the Society of Optical and Quantum Electronics (awarded at *Lasers* '96)
+* 1998 Rabi Award from the IEEE Ultrasonics, Ferroelectrics, and Frequency Control Society
+* 2001 Arthur L. Schawlow Prize in Laser Science
+* 2003 Samuel Stratton Award
+* 2004 Frederic Ives Medal
+* 2007 National Medal of Science in the engineering sciences
+* 2009 Herbert Walther Award from the OSA
+* 2010 Benjamin Franklin Medal in Physics, shared with Juan Ignacio Cirac and Peter Zoller
+* T. Washington Fellows
+* 2012 Nobel Prize in Physics, shared with Serge Haroche
+* 2014 Golden Plate Award of the American Academy of Achievement
+* 2017 elected Honorary member of OSA
+* 2019 Micius Quantum Prize
+* 2020 IRI Medal, established by the Industrial Research Institute (IRI).
+
+## Appearances
+
+edit
+
+Wineland was a keynote speaker at the 2015 Congress of Future Science and Technology Leaders.
