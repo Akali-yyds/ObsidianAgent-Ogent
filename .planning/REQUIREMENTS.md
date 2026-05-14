@@ -68,7 +68,7 @@
 ### Interface
 
 - [ ] **UI-04**: User can inspect grounded-research transparency by clicking the existing Retriever, Synthesizer, and Verifier step blocks instead of opening a separate `Agent work` surface.
-- [ ] **UI-05**: User receives a primary `Research result` answer rendered as prose-like research text with inline citation links for claims that have exact phrase anchors.
+- [x] **UI-05**: User receives a primary `Research result` answer rendered as prose-like research text with inline citation links for claims that have exact phrase anchors.
 - [x] **UI-06**: User can click an inline citation and jump to the exact matched phrase in the source note when anchor data exists, while claim cards still provide safe fallback evidence and note-opening behavior.
 - [x] **UI-07**: User can see per-step and total timing in the reused transcript surfaces, and Classic/legacy turns stay safe when step-detail or phrase-anchor data is absent.
 
@@ -112,7 +112,7 @@
 | DOCS-01 | Phase 3 | Complete |
 | DOCS-02 | Phase 3 | Complete |
 | UI-04 | Phase 4 | Planned |
-| UI-05 | Phase 4 | Planned |
+| UI-05 | Phase 4 | Complete |
 | UI-06 | Phase 4 | Complete |
 | UI-07 | Phase 4 | Complete |
 
@@ -120,7 +120,7 @@
 - total requirements: 29
 - Mapped to phases: 29
 - Unmapped: 0 ✓
-- Completed: 27
+- Completed: 28
 
 ---
 *Requirements defined: 2026-05-12*

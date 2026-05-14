@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v0.1
 milestone_name: milestone
 status: in_progress
-stopped_at: Completed OA-04-improve-agent-work-transparency-ui-04-01-PLAN.md
-last_updated: "2026-05-14T17:05:41Z"
-last_activity: 2026-05-14 - Completed redesigned 04-01 exact-anchor and citation-contract work
+stopped_at: Completed OA-04-improve-agent-work-transparency-ui-04-02-PLAN.md
+last_updated: "2026-05-14T17:16:28.774Z"
+last_activity: 2026-05-14 - Completed redesigned 04-02 citation-ready result composition
 progress:
   total_phases: 4
   completed_phases: 3
   total_plans: 12
-  completed_plans: 10
-  percent: 83
+  completed_plans: 11
+  percent: 92
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-05-12)
 ## Current Position
 
 Phase: 4 of 4 (Improve agent work transparency UI)
-Plan: 04-02 of 3
-Status: Ready to execute redesigned Plan 04-02 after exact-anchor groundwork
-Last activity: 2026-05-14 - Completed redesigned 04-01 exact-anchor and citation-contract work
+Plan: 04-03 of 3
+Status: Ready to execute redesigned Plan 04-03 after citation-ready result composition
+Last activity: 2026-05-14 - Completed redesigned 04-02 citation-ready result composition
 
-Progress: [████████░░] 83%
+Progress: [█████████░] 92%
 
 ## Performance Metrics
 
@@ -58,6 +58,7 @@ Progress: [████████░░] 83%
 
 | Plan | Duration | Scope | Files |
 |------|----------|-------|-------|
+| Phase OA-04-improve-agent-work-transparency-ui P04-02 (redesigned) | 2min | 2 tasks | 4 files |
 | Phase OA-04-improve-agent-work-transparency-ui P04-02 | 3min | 2 tasks | 3 files (obsolete after redesign re-scope) |
 | Phase OA-04-improve-agent-work-transparency-ui P04-01 | 4min | 2 tasks | 8 files |
 
@@ -80,6 +81,8 @@ Recent decisions affecting current work:
 - [Phase OA-04-improve-agent-work-transparency-ui]: Exact anchors are captured only from whitespace-normalized exact spans, while punctuation/markdown drift stays fuzzy and anchorless.
 - [Phase OA-04-improve-agent-work-transparency-ui]: Runtime and stored-turn citation fields stay optional so legacy and Classic sessions remain readable without migration.
 - [Phase OA-04-improve-agent-work-transparency-ui]: Malformed stored anchors and citations are dropped on load instead of crashing or trusting nested persisted JSON.
+- [Phase OA-04-improve-agent-work-transparency-ui]: Compose `Research result` directly from exact anchored verified claims instead of rewriting the synthesizer summary heuristically.
+- [Phase OA-04-improve-agent-work-transparency-ui]: Use the ordered `citations` array index as the stable inline label mapping for citation-ready runtime results.
 
 ### Roadmap Evolution
 
@@ -88,15 +91,16 @@ Recent decisions affecting current work:
 - 04-02 complete: transcript-local Agent work cards now render live and persisted transparency details
 - Phase 4 reopened: redesign now targets clickable step blocks and inline exact-phrase citations instead of a separate transparency section
 - Redesigned 04-01 complete: exact anchors, citation-ready runtime/session contracts, and legacy-safe sanitizing landed
+- Redesigned 04-02 complete: citation-ready research-result composition and ordered exact-anchor mappings now persist from runtime
 
 ### Pending Todos
 
 - Final manual Obsidian smoke pass is documented in `hackathon/README.md` and still needs maintainer sign-off before the overall handoff is complete.
-- Redesigned Plans 04-02 and 04-03 remain to finish research-result composition and clickable step-block rendering.
+- Redesigned Plan 04-03 remains to finish clickable step-block rendering and inline citation UI behavior.
 
 ### Blockers/Concerns
 
-- The redesigned transcript UI work is still incomplete until Plans 04-02 and 04-03 land.
+- The redesigned transcript UI work is still incomplete until Plan 04-03 lands.
 - Full `tsc --noEmit` remains blocked by pre-existing `src/main.ts` manifest-dir typing outside the redesigned 04-01 file scope.
 - Remaining project follow-up is maintainer manual Obsidian smoke/sign-off outside the automated repo checks.
 
@@ -108,6 +112,6 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-05-14T17:06:25.265Z
-Stopped at: Completed OA-04-improve-agent-work-transparency-ui-04-01-PLAN.md
+Last session: 2026-05-14T17:16:28.768Z
+Stopped at: Completed OA-04-improve-agent-work-transparency-ui-04-02-PLAN.md
 Resume file: None

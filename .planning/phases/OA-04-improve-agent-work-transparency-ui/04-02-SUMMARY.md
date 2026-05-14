@@ -2,94 +2,108 @@
 phase: OA-04-improve-agent-work-transparency-ui
 plan: 04-02
 subsystem: ui
-tags: [transparency, transcript, obsidian, vitest, css]
+tags: [citations, runtime, verifier, vitest]
 
 # Dependency graph
 requires:
   - phase: Phase 4 Plan 04-01
-    provides: live and persisted grounded-research transparency payloads with timing
+    provides: exact phrase anchors plus optional runtime/session citation contracts
 provides:
-  - transcript-local Agent work cards for retriever, synthesizer, verifier, and run metadata
-  - exclusive disclosure behavior with live pending and failed partial-data states
-  - regression coverage and CSS guards for transparency rendering and raw JSON styling
-affects: [phase-4-ui-rendering, transcript-rendering, grounded-research-demo]
+  - deterministic `researchMarkdown` composition from exact anchored verified claims
+  - ordered citation mappings with label reuse for repeated anchored phrase occurrences
+  - safe citation target resolution with offset validation, relocation, and fallback
+affects: [phase-4-transcript-rendering, citation-navigation, session-persistence]
 
 # Tech tracking
 tech-stack:
   added: []
-  patterns: [transcript-local disclosure cards, text-only transparency rendering, CSS-gated raw JSON scrolling]
+  patterns: [deterministic citation composition, occurrence-index anchor relocation, runtime-ready citation mapping]
 
 key-files:
-  created: [.planning/phases/OA-04-improve-agent-work-transparency-ui/04-02-SUMMARY.md]
-  modified: [src/view.ts, styles.css, tests/view.test.ts]
+  created: [src/citations.ts, tests/citations.test.ts]
+  modified: [src/packs/runtime.ts, tests/packs/runtime.test.ts]
 
 key-decisions:
-  - "Keep Agent work expansion state transcript-local via renderer-owned state instead of persisting UI disclosure choices."
-  - "Reuse existing Obsidian note opening checks for retriever note chips so stored paths never bypass TFile validation."
+  - "Compose `Research result` directly from exact anchored verified claims instead of rewriting the synthesizer summary heuristically."
+  - "Treat the ordered `citations` array index as the stable inline label mapping so the view can render exact-link clicks without recomputing labels."
 
 patterns-established:
-  - "Agent work cards render only when live or persisted transparency exists, preserving Classic and legacy pack turns unchanged."
-  - "Structured transparency details stay text-only in the transcript, with monospace scrolling isolated to the Synthesizer raw JSON block."
+  - "Only verified claims with exact phrase anchors are eligible for primary-result citations; fuzzy, unsupported, and quote-missing claims stay secondary evidence only."
+  - "Citation clicks validate stored offsets first, then relocate by exact phrase plus occurrence index before falling back safely."
 
-requirements-completed: [UI-04, UI-05, UI-06, UI-07]
+requirements-completed: [UI-05, UI-06]
 
 # Metrics
-duration: 3min
+duration: 2min
 completed: 2026-05-14
 ---
 
-# Phase 4 Plan 04-02: Render and style the Agent work cards Summary
+# Phase 4 Plan 04-02: Citation-ready research result composition Summary
 
-**Grounded-research turns now show transcript-local Agent work cards with live pending states, failed partial-data handling, verifier summaries, and spec-locked run timing details.**
+**Deterministic research-result markdown now ships with ordered exact-anchor citation mappings and safe live-note relocation for stale targets.**
 
 ## Performance
 
-- **Duration:** 3 min
-- **Started:** 2026-05-14T15:14:11Z
-- **Completed:** 2026-05-14T15:17:30Z
+- **Duration:** 2 min
+- **Started:** 2026-05-14T17:13:48Z
+- **Completed:** 2026-05-14T17:15:42Z
 - **Tasks:** 2
-- **Files modified:** 3
+- **Files modified:** 4
 
 ## Accomplishments
-- Rendered the `Agent work` section after the outcome surface and before claim cards with Retriever, Synthesizer, Verifier, and Run metadata cards.
-- Wired live and persisted transparency into pack turns so pending steps, failed runs, and legacy-safe absence all render correctly.
-- Added regression coverage and transcript-local CSS for note chips, verifier chips, raw JSON caps, timing formatting, and touch-safe disclosure controls.
+- Added a pure citation helper module that composes `researchMarkdown` and ordered citations only from exact anchored verified claims.
+- Added citation target resolution that validates stored offsets, relocates by `exactPhrase + occurrenceIndex`, and returns an explicit fallback instead of throwing.
+- Wired grounded-research runtime results to persist citation-ready fields while preserving legacy-compatible `verifiedSummary` behavior and absence rules.
 
 ## Task Commits
 
 Each task was committed atomically:
 
-1. **Task 1: Plumb persisted transparency data into pack turns and render the Agent work cards**
-   - `e31d815` test(OA-04-improve-agent-work-transparency-ui-04-02): add failing agent work view coverage
-   - `433a871` feat(OA-04-improve-agent-work-transparency-ui-04-02): render transcript agent work cards
-2. **Task 2: Style the Agent work section to match the approved UI contract and lock regressions**
-   - `f9d5177` test(OA-04-improve-agent-work-transparency-ui-04-02): add agent work style regression coverage
-   - `3b934a7` feat(OA-04-improve-agent-work-transparency-ui-04-02): style transcript agent work cards
+1. **Task 1: Build deterministic result-composition and citation-resolution helpers**
+   - `d0976f6` test(OA-04-improve-agent-work-transparency-ui-04-02): add failing citation composition tests
+   - `a94d334` feat(OA-04-improve-agent-work-transparency-ui-04-02): compose citation-ready research results
+2. **Task 2: Populate runtime results with citation-ready research text and ordered citation mappings**
+   - `6a05217` test(OA-04-improve-agent-work-transparency-ui-04-02): add failing runtime citation-result tests
+   - `2c35681` feat(OA-04-improve-agent-work-transparency-ui-04-02): populate citation-ready runtime results
 
-**Plan metadata:** recorded in the final docs/state commit for this plan.
+**Plan metadata:** pending final docs/state commit
 
 ## Files Created/Modified
-- `src/view.ts` - Stores live/final transparency snapshots on pack turns and renders the transcript-local Agent work cards with exclusive disclosure behavior.
-- `styles.css` - Adds card, chip, note-path, disclosure, and raw JSON styling for the new transparency section.
-- `tests/view.test.ts` - Covers section placement, live/failed states, note opening, exact labels, timing fallbacks, and CSS guardrails.
+- `src/citations.ts` - Pure helpers for deterministic research-result composition and exact-target resolution with relocation fallback.
+- `src/packs/runtime.ts` - Populates `researchMarkdown` and ordered `citations` from anchored verified claims while preserving `verifiedSummary`.
+- `tests/citations.test.ts` - Covers ordered labels, label reuse, ineligible-claim filtering, and relocation fallback semantics.
+- `tests/packs/runtime.test.ts` - Verifies runtime population, label reuse, safe absence without anchors, and compatibility for verifier-disabled paths.
 
 ## Decisions Made
-- Kept Agent work expansion state inside the renderer so saved turns persist only data, not transient UI state.
-- Reused the existing note-opening path and `TFile` checks for retriever note chips to satisfy the note-path trust-boundary mitigation.
+- Built the primary `Research result` from vetted claim text instead of the synthesizer summary so inline citations only appear on evidence-backed content.
+- Kept citation labels implicit in markdown order (`[1]`, `[2]`, ...) and the ordered `citations` array so 04-03 can render link clicks without recomputing mappings.
 
 ## Deviations from Plan
 
-None - plan executed exactly as written.
+### Auto-fixed Issues
+
+**1. [Rule 3 - Blocking] Fixed lint-blocking whitespace in the new citation helper**
+- **Found during:** Task 2 verification
+- **Issue:** Targeted eslint failed on `src/citations.ts` because the fallback union branch used mixed whitespace indentation.
+- **Fix:** Normalized the union indentation so the new helper passes targeted repo lint checks.
+- **Files modified:** `src/citations.ts`
+- **Verification:** `npm test -- --run tests/citations.test.ts tests/packs/runtime.test.ts` and `npx eslint src/citations.ts src/packs/runtime.ts tests/citations.test.ts tests/packs/runtime.test.ts`
+- **Committed in:** `2c35681`
+
+---
+
+**Total deviations:** 1 auto-fixed (1 blocking)
+**Impact on plan:** The fix was verification-only hygiene required to leave the changed files in a clean, shippable state.
 
 ## Issues Encountered
-- None.
+- Targeted eslint surfaced mixed indentation in the new helper after runtime integration; fixing it kept the task-scoped verification green.
 
 ## User Setup Required
 
 None - no external service configuration required.
 
 ## Next Phase Readiness
-- Phase 4 UI transparency work is complete, including live rendering, persisted rerender support, and regression coverage.
-- The remaining overall project follow-up is the maintainer manual Obsidian smoke/sign-off already tracked outside this plan.
+- 04-03 can render `Research result` markdown and clickable inline citations directly from persisted runtime data without reconstructing labels in the view.
+- Citation clicks now have a ready-to-use resolver that either returns an exact target or the spec-approved fallback message when notes drift.
 
 ## Self-Check: PASSED
