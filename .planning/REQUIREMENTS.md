@@ -22,7 +22,7 @@
 
 - [x] **PACK-01**: User can load agent packs from `.obsidian/plugins/open-agent/packs/*.json`.
 - [x] **PACK-02**: User can select a bundled `grounded-research` pack from the chat panel.
-- [x] **PACK-03**: User gets bundled `grounded-research` and `grounded-research.openai` pack files copied into the plugin folder when no pack files are present.
+- [x] **PACK-03**: User gets the bundled `grounded-research` pack file copied into the plugin folder when no pack files are present.
 - [x] **PACK-04**: User can assign different OpenAI-compatible provider/model endpoints to different agents by editing the pack JSON only.
 - [x] **PACK-05**: Mobile user does not see unsupported multi-agent packs that would fail on mobile.
 
@@ -65,6 +65,13 @@
 
 - **VERF-06**: User can inspect a verifier confidence score alongside the support decision for each claim.
 
+### Interface
+
+- [x] **UI-04**: User can inspect an `Agent work` section on grounded-research turns with Retriever, Synthesizer, Verifier, and Run metadata cards.
+- [x] **UI-05**: User can expand one `Agent work` card at a time to inspect intermediate artifacts without leaving the transcript.
+- [x] **UI-06**: User can see retriever note/path summary, synthesizer draft-claim summary plus raw JSON, and verifier status counts plus reasons for the run.
+- [x] **UI-07**: User can see total elapsed time and per-step durations for grounded-research runs.
+
 ## Out of Scope
 
 | Feature | Reason |
@@ -104,12 +111,16 @@
 | EVAL-03 | Phase 2 | Complete |
 | DOCS-01 | Phase 3 | Complete |
 | DOCS-02 | Phase 3 | Complete |
+| UI-04 | Phase 4 | Complete |
+| UI-05 | Phase 4 | Complete |
+| UI-06 | Phase 4 | Complete |
+| UI-07 | Phase 4 | Complete |
 
 **Coverage:**
-- v1 requirements: 25 total
-- Mapped to phases: 25
+- total requirements: 29
+- Mapped to phases: 29
 - Unmapped: 0 ✓
-- Completed: 25
+- Completed: 29
 
 ---
 *Requirements defined: 2026-05-12*

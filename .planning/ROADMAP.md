@@ -77,14 +77,14 @@ Phases execute in numeric order: 1 → 2 → 3
 | 1. Autonomous Buildout | 4/4 | Complete | 2026-05-13 |
 | 2. Testing & Hardening | 3/3 | Complete | 2026-05-13 |
 | 3. Submission Polish & Final Verification | 2/2 | Complete | 2026-05-13 |
-| 4. Improve agent work transparency UI | 1/2 | In Progress | — |
+| 4. Improve agent work transparency UI | 2/2 | Complete   | 2026-05-14 |
 
 ### Phase 4: Improve agent work transparency UI
 
 **Goal:** Users can inspect balanced, demo-friendly transparency details for grounded-research turns without changing the lightweight Classic-mode experience.
 **Requirements**: UI-04, UI-05, UI-06, UI-07
 **Depends on:** Phase 3
-**Plans:** 2 plans
+**Plans:** 2/2 plans complete
 
 **Success Criteria** (what must be TRUE):
   1. Grounded-research turns render an `Agent work` section with Retriever, Synthesizer, Verifier, and Run metadata cards.
@@ -94,4 +94,4 @@ Phases execute in numeric order: 1 → 2 → 3
 
 Plans:
 - [x] 04-01: Add runtime timing capture and persisted transparency payloads for grounded-research runs.
-- [ ] 04-02: Render and style the `Agent work` cards in the transcript with regression coverage.
+- [x] 04-02: Render and style the `Agent work` cards in the transcript with regression coverage.
