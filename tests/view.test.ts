@@ -7,6 +7,7 @@ import { ChatView } from "../src/view";
 import {
 	MockElement,
 	MockTFile,
+	NoticeMock,
 	createMockApp,
 	setMobileMode,
 } from "./setup";
@@ -272,7 +273,7 @@ describe("ChatView pack UI", () => {
 		setMobileMode(false);
 	});
 
-	it("renders claim cards, source-note navigation, and model attribution for pack turns", () => {
+	it("renders claim cards as secondary evidence with Show evidence / Hide evidence copy, source-note navigation, and model attribution", () => {
 		const app = createMockApp({
 			files: {
 				"notes/source.md": "Alpha evidence",
@@ -349,13 +350,13 @@ describe("ChatView pack UI", () => {
 		const flaggedDetails = findByClass(cards[1], "open-agent-claim-details")[0];
 		const toggles = findByClass(parent, "open-agent-claim-toggle");
 
-		expect(toggles[0].textContent).toBe("Info");
+		expect(toggles[0].textContent).toBe("Show evidence");
 		expect(verifiedDetails.classList.contains("is-hidden")).toBe(true);
-		expect(toggles[1].textContent).toBe("Hide info");
+		expect(toggles[1].textContent).toBe("Hide evidence");
 		expect(flaggedDetails.classList.contains("is-hidden")).toBe(false);
 
 		toggles[0].click();
-		expect(toggles[0].textContent).toBe("Hide info");
+		expect(toggles[0].textContent).toBe("Hide evidence");
 		expect(verifiedDetails.classList.contains("is-hidden")).toBe(false);
 		expect(textTree(verifiedDetails)).toContain("Directly supported");
 
@@ -685,12 +686,96 @@ describe("ChatView pack UI", () => {
 		expect(textTree(steps[1])).not.toContain("Third line should not appear");
 	});
 
-	it("ships transcript-local inline info styles with touch-safe disclosure controls and a capped monospace JSON block", () => {
-		expect(agentWorkStyles).toContain(".open-agent-pack-info-bar");
-		expect(agentWorkStyles).toContain(".open-agent-pack-info-toggle");
-		expect(agentWorkStyles).toContain(".open-agent-pack-info-subtoggle");
+	it("renders inline citation links, resolves exact jumps, and falls back safely when notes drift", () => {
+		const app = createMockApp({
+			files: {
+				"notes/source.md": "Lead in\nAlpha evidence\nBeta quote",
+			},
+		});
+		const openFile = vi.fn(async () => undefined);
+		app.workspace.getLeaf = vi.fn(() => ({ openFile }));
+		const { deps } = createDeps({
+			id: "session-a",
+			model: "gpt-4o-mini",
+			selectedPackId: groundedResearchDefault.id,
+			lastClassicModel: "gpt-4o-mini",
+		});
+		const view = new ChatView({ app } as never, deps);
+		const parent = renderPackTurn(view, createAgentWorkTurn({
+			researchMarkdown:
+				"Alpha is supported by the source note. [1](openagent://citation/1)\n\nAlpha is still supported later. [1](openagent://citation/1)",
+			citations: [
+				{
+					claimId: "claim-verified",
+					notePath: "notes/source.md",
+					exactPhrase: "Alpha evidence",
+					startOffset: 0,
+					endOffset: "Alpha evidence".length,
+					occurrenceIndex: 0,
+				},
+			],
+		}));
+		const citationLinks = findByClass(parent, "open-agent-citation-link");
+		expect(citationLinks.map((el) => el.textContent)).toEqual(["[1]", "[1]"]);
+
+		citationLinks[0].click();
+		expect(openFile).toHaveBeenCalledWith(
+			expect.objectContaining({ path: "notes/source.md" }),
+			expect.objectContaining({
+				eState: {
+					selection: {
+						from: { line: 1, ch: 0 },
+						to: { line: 1, ch: "Alpha evidence".length },
+					},
+				},
+			}),
+		);
+
+		const fallbackParent = renderPackTurn(view, createAgentWorkTurn({
+			citations: [
+				{
+					claimId: "claim-verified",
+					notePath: "notes/source.md",
+					exactPhrase: "Missing phrase",
+					startOffset: 0,
+					endOffset: "Missing phrase".length,
+					occurrenceIndex: 0,
+				},
+			],
+			researchMarkdown: "Broken link [1](openagent://citation/1)",
+		}));
+		findByClass(fallbackParent, "open-agent-citation-link")[0].click();
+		expect(NoticeMock).toHaveBeenCalledWith("Citation target no longer matches the live note.");
+		expect(openFile).toHaveBeenLastCalledWith(expect.objectContaining({ path: "notes/source.md" }));
+	});
+
+	it("renders safely when researchMarkdown, citations, or anchors are absent and shows the locked no-result fallback copy", () => {
+		const app = createMockApp();
+		const { deps } = createDeps({
+			id: "session-a",
+			model: "gpt-4o-mini",
+			selectedPackId: groundedResearchDefault.id,
+			lastClassicModel: "gpt-4o-mini",
+		});
+		const view = new ChatView({ app } as never, deps);
+		const parent = renderPackTurn(view, createAgentWorkTurn({
+			researchMarkdown: undefined,
+			citations: undefined,
+		}));
+
+		expect(textTree(parent)).toContain("Research result unavailable");
+		expect(textTree(parent)).toContain(
+			"This run did not produce a citation-ready research answer. Review the completed steps and claim details below, then rerun research if needed.",
+		);
+		expect(findByClass(parent, "open-agent-citation-link")).toHaveLength(0);
+	});
+
+	it("ships transcript-local redesign styles with touch-safe step rows, inline citations, and a capped monospace JSON block", () => {
+		expect(agentWorkStyles).toContain(".open-agent-pack-step");
+		expect(agentWorkStyles).toContain(".open-agent-pack-step-details");
+		expect(agentWorkStyles).toContain(".open-agent-citation-link");
 		expect(agentWorkStyles).toContain("min-height: 44px");
-		expect(agentWorkStyles).toContain("min-width: 44px");
+		expect(agentWorkStyles).toContain("cursor: pointer");
 		expect(agentWorkStyles).toContain(".open-agent-work-raw-json");
 		expect(agentWorkStyles).toContain("font-family: var(--font-monospace)");
 		expect(agentWorkStyles).toContain("max-height: 240px");
