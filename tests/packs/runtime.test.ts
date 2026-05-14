@@ -167,6 +167,17 @@ describe("runPack", () => {
 			packId: "grounded-research",
 			packName: "Grounded Research",
 			verifiedSummary: "- Alpha fact",
+			researchMarkdown: "Alpha fact [1](openagent://citation/1)",
+			citations: [
+				{
+					claimId: "claim-1",
+					notePath: "notes/a.md",
+					exactPhrase: "Alpha fact",
+					startOffset: 0,
+					endOffset: "Alpha fact".length,
+					occurrenceIndex: 0,
+				},
+			],
 			claims: [
 				{
 					id: "claim-1",
@@ -204,8 +215,6 @@ describe("runPack", () => {
 			artifacts: expect.any(Object),
 			transparency: expect.any(Object),
 		});
-		expect(result.researchMarkdown).toBeUndefined();
-		expect(result.citations).toBeUndefined();
 		expect(events).toEqual([
 			{ kind: "step", step: { id: "retriever", label: "Retrieving notes", state: "pending", message: undefined } },
 			{ kind: "step", step: { id: "synthesizer", label: "Drafting claims", state: "pending", message: undefined } },
@@ -292,6 +301,161 @@ describe("runPack", () => {
 			verifications: null,
 		});
 		expect(baseline.transparency.verifier.status).toBe("absent");
+		expect(baseline.researchMarkdown).toBeUndefined();
+		expect(baseline.citations).toBeUndefined();
+	});
+
+	it("reuses citation labels when the same anchored phrase is verified across multiple claims", async () => {
+		retrieveEvidenceMock.mockResolvedValue({
+			query: "What happened?",
+			scope: { notePaths: [], folders: [], tags: [] },
+			notes: [
+				{
+					path: "notes/a.md",
+					title: "a",
+					content: "Alpha fact",
+					excerpt: "Alpha fact",
+					score: 5,
+				},
+			],
+		});
+		const repeatedAnchor = {
+			notePath: "notes/a.md",
+			exactPhrase: "Alpha fact",
+			startOffset: 0,
+			endOffset: "Alpha fact".length,
+			occurrenceIndex: 0,
+		};
+		verifyClaimsMock.mockResolvedValue([
+			{
+				id: "claim-1",
+				text: "Alpha fact",
+				sourceNote: "notes/a.md",
+				sourceQuote: "Alpha fact",
+				quotePresent: true,
+				supportsClaim: true,
+				supportExplanation: "Matches note text",
+				status: "verified",
+				exactPhraseAnchor: repeatedAnchor,
+			},
+			{
+				id: "claim-2",
+				text: "Alpha remained on schedule",
+				sourceNote: "notes/a.md",
+				sourceQuote: "Alpha fact",
+				quotePresent: true,
+				supportsClaim: true,
+				supportExplanation: "Same supporting phrase",
+				status: "verified",
+				exactPhraseAnchor: repeatedAnchor,
+			},
+		]);
+		providerStreams.push(
+			"- Alpha fact (notes/a.md)",
+			JSON.stringify({
+				summary: "Alpha summary",
+				claims: [
+					{
+						id: "claim-1",
+						text: "Alpha fact",
+						source_note: "notes/a.md",
+						source_quote: "Alpha fact",
+						confidence: 0.9,
+					},
+					{
+						id: "claim-2",
+						text: "Alpha remained on schedule",
+						source_note: "notes/a.md",
+						source_quote: "Alpha fact",
+						confidence: 0.8,
+					},
+				],
+			}),
+		);
+
+		const { runPack } = await import("../../src/packs/runtime");
+		const app = createMockApp({
+			files: {
+				"notes/a.md": "Alpha fact",
+			},
+		});
+
+		const result = await runPack({
+			app: app as never,
+			pack: groundedResearchDefault,
+			query: "What happened?",
+		});
+
+		expect(result.verifiedSummary).toBe("- Alpha fact\n- Alpha remained on schedule");
+		expect(result.researchMarkdown).toBe(
+			"Alpha fact [1](openagent://citation/1)\n\nAlpha remained on schedule [1](openagent://citation/1)",
+		);
+		expect(result.citations).toEqual([
+			{
+				claimId: "claim-1",
+				...repeatedAnchor,
+			},
+		]);
+	});
+
+	it("leaves citation-ready fields absent when verified claims have no exact anchors", async () => {
+		retrieveEvidenceMock.mockResolvedValue({
+			query: "What happened?",
+			scope: { notePaths: [], folders: [], tags: [] },
+			notes: [
+				{
+					path: "notes/a.md",
+					title: "a",
+					content: "Alpha fact",
+					excerpt: "Alpha fact",
+					score: 5,
+				},
+			],
+		});
+		verifyClaimsMock.mockResolvedValue([
+			{
+				id: "claim-1",
+				text: "Alpha fact",
+				sourceNote: "notes/a.md",
+				sourceQuote: "Alpha fact",
+				quotePresent: true,
+				supportsClaim: true,
+				supportExplanation: "Matches note text",
+				status: "verified",
+			},
+		]);
+		providerStreams.push(
+			"- Alpha fact (notes/a.md)",
+			JSON.stringify({
+				summary: "Alpha summary",
+				claims: [
+					{
+						id: "claim-1",
+						text: "Alpha fact",
+						source_note: "notes/a.md",
+						source_quote: "Alpha fact",
+						confidence: 0.9,
+					},
+				],
+			}),
+		);
+
+		const { runPack } = await import("../../src/packs/runtime");
+		const app = createMockApp({
+			files: {
+				"notes/a.md": "Alpha fact",
+			},
+		});
+
+		const result = await runPack({
+			app: app as never,
+			pack: groundedResearchDefault,
+			query: "What happened?",
+		});
+
+		expect(result.verifiedSummary).toBe("- Alpha fact");
+		expect(result.researchMarkdown).toBeUndefined();
+		expect(result.citations).toBeUndefined();
 	});
 
 	it("rejects placeholder provider credentials before pack execution begins", async () => {
