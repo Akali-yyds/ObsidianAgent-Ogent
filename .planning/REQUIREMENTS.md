@@ -67,10 +67,10 @@
 
 ### Interface
 
-- [x] **UI-04**: User can inspect an `Agent work` section on grounded-research turns with Retriever, Synthesizer, Verifier, and Run metadata cards.
-- [x] **UI-05**: User can expand one `Agent work` card at a time to inspect intermediate artifacts without leaving the transcript.
-- [x] **UI-06**: User can see retriever note/path summary, synthesizer draft-claim summary plus raw JSON, and verifier status counts plus reasons for the run.
-- [x] **UI-07**: User can see total elapsed time and per-step durations for grounded-research runs.
+- [ ] **UI-04**: User can inspect grounded-research transparency by clicking the existing Retriever, Synthesizer, and Verifier step blocks instead of opening a separate `Agent work` surface.
+- [ ] **UI-05**: User receives a primary `Research result` answer rendered as prose-like research text with inline citation links for claims that have exact phrase anchors.
+- [x] **UI-06**: User can click an inline citation and jump to the exact matched phrase in the source note when anchor data exists, while claim cards still provide safe fallback evidence and note-opening behavior.
+- [x] **UI-07**: User can see per-step and total timing in the reused transcript surfaces, and Classic/legacy turns stay safe when step-detail or phrase-anchor data is absent.
 
 ## Out of Scope
 
@@ -111,8 +111,8 @@
 | EVAL-03 | Phase 2 | Complete |
 | DOCS-01 | Phase 3 | Complete |
 | DOCS-02 | Phase 3 | Complete |
-| UI-04 | Phase 4 | Complete |
-| UI-05 | Phase 4 | Complete |
+| UI-04 | Phase 4 | Planned |
+| UI-05 | Phase 4 | Planned |
 | UI-06 | Phase 4 | Complete |
 | UI-07 | Phase 4 | Complete |
 
@@ -120,8 +120,8 @@
 - total requirements: 29
 - Mapped to phases: 29
 - Unmapped: 0 ✓
-- Completed: 29
+- Completed: 27
 
 ---
 *Requirements defined: 2026-05-12*
-*Last updated: 2026-05-13 after Phase 2 and Phase 3 completion*
+*Last updated: 2026-05-14 after Phase 4 redesign re-scope*

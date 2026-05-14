@@ -77,21 +77,22 @@ Phases execute in numeric order: 1 → 2 → 3
 | 1. Autonomous Buildout | 4/4 | Complete | 2026-05-13 |
 | 2. Testing & Hardening | 3/3 | Complete | 2026-05-13 |
 | 3. Submission Polish & Final Verification | 2/2 | Complete | 2026-05-13 |
-| 4. Improve agent work transparency UI | 2/2 | Complete   | 2026-05-14 |
+| 4. Improve agent work transparency UI | 1/3 | In Progress | - |
 
 ### Phase 4: Improve agent work transparency UI
 
-**Goal:** Users can inspect balanced, demo-friendly transparency details for grounded-research turns without changing the lightweight Classic-mode experience.
+**Goal:** Users can inspect grounded-research progress and evidence inside the existing transcript surfaces, and read a citation-ready research result with exact phrase links, without changing the lightweight Classic-mode experience.
 **Requirements**: UI-04, UI-05, UI-06, UI-07
 **Depends on:** Phase 3
-**Plans:** 2/2 plans complete
+**Plans:** 3 plans
 
 **Success Criteria** (what must be TRUE):
-  1. Grounded-research turns render an `Agent work` section with Retriever, Synthesizer, Verifier, and Run metadata cards.
-  2. Users can expand one card at a time to inspect intermediate agent work without leaving the transcript or opening a separate pane.
-  3. Users can see retriever note/path summary, synthesizer draft-claim summary/raw JSON, verifier status counts/reasons, and total/per-step timing.
-  4. Classic turns and legacy stored pack turns remain safe: no new transparency UI is shown when supporting data is absent.
+  1. Grounded-research turns reuse the existing Retriever, Synthesizer, and Verifier step blocks as the only transparency surface, and whole step rows are clickable for live/final details.
+  2. The primary outcome surface is a `Research result` answer with inline citation links for claims that have exact phrase anchors; there is no separate `Agent work` or `Run details` node.
+  3. Clicking an inline citation jumps to the exact matched phrase in the source note, while claim cards remain the secondary evidence surface with safe fallback behavior.
+  4. Users can see retriever, synthesizer, verifier, and timing details inside the reused transcript surfaces, and Classic/legacy turns remain safe when supporting data is absent.
 
 Plans:
-- [x] 04-01: Add runtime timing capture and persisted transparency payloads for grounded-research runs.
-- [x] 04-02: Render and style the `Agent work` cards in the transcript with regression coverage.
+- [x] 04-01: Capture exact phrase anchors and extend stored/runtime data contracts for citation-ready grounded-research turns.
+- [ ] 04-02: Compose and persist citation-ready `Research result` text with inline citation mapping and legacy-safe fallback rules.
+- [ ] 04-03: Rework transcript rendering to use clickable existing step blocks, inline citations, and reused claim cards with regression coverage.
