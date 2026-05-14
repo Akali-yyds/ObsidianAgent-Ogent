@@ -32,12 +32,6 @@ export class OpenAICompatibleProvider implements ModelProvider {
 
 		const url = this.endpoint();
 		const tools = opts.tools && opts.tools.length > 0 ? opts.tools : undefined;
-		const body = JSON.stringify({
-			model: this.config.model,
-			messages,
-			stream: false,
-			...(tools ? { tools, tool_choice: "auto" } : {}),
-		});
 		const headers: Record<string, string> = {
 			"Content-Type": "application/json",
 			Authorization: `Bearer ${this.config.apiKey}`,
@@ -45,17 +39,17 @@ export class OpenAICompatibleProvider implements ModelProvider {
 
 		let responseText = "";
 		let responseStatus = 0;
+		let degraded = false;
 		try {
-			const response = await requestUrl({
-				url,
-				method: "POST",
-				contentType: "application/json",
-				headers,
-				body,
-				throw: false,
-			});
-			responseText = response.text;
-			responseStatus = response.status;
+			const primary = await requestCompletion(url, headers, this.config.model, messages, tools, opts.responseFormat);
+			responseText = primary.text;
+			responseStatus = primary.status;
+			if (opts.responseFormat && shouldRetryWithoutResponseFormat(primary.status, primary.text)) {
+				const fallback = await requestCompletion(url, headers, this.config.model, messages, tools);
+				responseText = fallback.text;
+				responseStatus = fallback.status;
+				degraded = true;
+			}
 		} catch (err) {
 			if (isAbortError(err) || opts.signal?.aborted) return;
 			throw new NetworkError(redactNetworkError(err));
@@ -72,12 +66,12 @@ export class OpenAICompatibleProvider implements ModelProvider {
 
 		const text = extractMessageText(choice.message?.content);
 		if (text.length > 0) {
-			yield { kind: "text", text };
+			yield { kind: "text", text, degraded: degraded || undefined };
 		}
 
 		const calls = parseCompletionToolCalls(choice.message?.tool_calls);
 		if (calls.length > 0) {
-			yield { kind: "tool_call_assembled", calls };
+			yield { kind: "tool_call_assembled", calls, degraded: degraded || undefined };
 			yield { kind: "done", finishReason: "tool_calls" };
 		} else {
 			yield { kind: "done", finishReason: mapFinishReason(choice.finish_reason ?? undefined) };
@@ -109,6 +103,32 @@ export class OpenAICompatibleProvider implements ModelProvider {
 export type { OpenAiToolSpec };
 export type { OpenAICompatibleConfig } from "./provider-config";
 
+async function requestCompletion(
+	url: string,
+	headers: Record<string, string>,
+	model: string,
+	messages: ChatMessage[],
+	tools?: OpenAiToolSpec[],
+	responseFormat?: StreamOptions["responseFormat"],
+): Promise<{ status: number; text: string }> {
+	const body = JSON.stringify({
+		model,
+		messages,
+		stream: false,
+		...(tools ? { tools, tool_choice: "auto" } : {}),
+		...(responseFormat ? { response_format: responseFormat } : {}),
+	});
+	const response = await requestUrl({
+		url,
+		method: "POST",
+		contentType: "application/json",
+		headers,
+		body,
+		throw: false,
+	});
+	return { status: response.status, text: response.text };
+}
+
 function mapHttpError(status: number, text: string): Error {
 	if (status === 401 || status === 403) return new AuthError(`HTTP ${status}`);
 	if (status === 429) return new RateLimitError(`HTTP ${status}`);
@@ -134,6 +154,12 @@ function parseAssembled(buf: ToolCallBuffer): AssembledToolCall {
 function redactNetworkError(err: unknown): string {
 	if (err instanceof Error) return err.message.replace(/Bearer [^\s]+/g, "Bearer ***");
 	return "Network error";
+}
+
+function shouldRetryWithoutResponseFormat(status: number, text: string): boolean {
+	if (![400, 404, 415, 422].includes(status)) return false;
+	const lowered = text.toLowerCase();
+	return lowered.includes("response_format") || lowered.includes("json_schema");
 }
 
 function parseChatCompletionChoice(responseText: string): {

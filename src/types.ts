@@ -26,9 +26,21 @@ export type StreamEvent =
 	| { kind: "tool_call_assembled"; calls: AssembledToolCall[]; degraded?: boolean }
 	| { kind: "done"; finishReason: "stop" | "tool_calls" | "length" | "content_filter" | "unknown" };
 
+export interface ResponseFormatJsonSchemaConfig {
+	name: string;
+	schema: JsonSchema;
+	strict?: boolean;
+}
+
+export interface ResponseFormatConfig {
+	type: "json_schema";
+	json_schema: ResponseFormatJsonSchemaConfig;
+}
+
 export interface StreamOptions {
 	signal?: AbortSignal;
 	tools?: OpenAiToolSpec[];
+	responseFormat?: ResponseFormatConfig;
 }
 
 export interface OpenAiToolSpec {

@@ -12,6 +12,7 @@ import type {
 	ChatMessage,
 	ModelProvider,
 	OpenAiToolSpec,
+	ResponseFormatConfig,
 	ToolCallSpec,
 	ToolDef,
 	ToolResult,
@@ -48,6 +49,7 @@ export interface ExecuteAgentLoopOptions {
 	tools?: ToolRegistry;
 	consent?: ConsentManager;
 	maxSteps?: number;
+	responseFormat?: ResponseFormatConfig;
 }
 
 async function* executeAgentLoop(
@@ -72,6 +74,7 @@ async function* executeAgentLoop(
 		for await (const ev of opts.provider.stream(messages, {
 			signal: opts.signal,
 			tools: useTools ? toolsApi?.toApiSpec() : undefined,
+			responseFormat: opts.responseFormat,
 		})) {
 			if (opts.signal?.aborted) return;
 			if (ev.kind === "text") {

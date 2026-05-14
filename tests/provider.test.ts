@@ -50,6 +50,66 @@ describe("OpenAICompatibleProvider", () => {
 		]);
 	});
 
+	it("includes response_format when provided", async () => {
+		requestUrlMock.mockResolvedValue({
+			status: 200,
+			text: JSON.stringify({
+				choices: [
+					{
+						message: { content: '{"summary":"ok","claims":[]}' },
+						finish_reason: "stop",
+					},
+				],
+			}),
+		});
+
+		const provider = new OpenAICompatibleProvider({
+			baseUrl: "https://api.example.com",
+			apiKey: "secret",
+			model: "test-model",
+		});
+
+		const events = [];
+		for await (const event of provider.stream(
+			[{ role: "user", content: "hi" }],
+			{
+				responseFormat: {
+					type: "json_schema",
+					json_schema: {
+						name: "claims_v1",
+						strict: true,
+						schema: {
+							type: "object",
+							properties: {
+								summary: { type: "string" },
+								claims: { type: "array", items: { type: "string" } },
+							},
+							required: ["summary", "claims"],
+							additionalProperties: false,
+						},
+					},
+				},
+			},
+		)) {
+			events.push(event);
+		}
+
+		expect(JSON.parse(requestUrlMock.mock.calls[0][0].body)).toEqual(expect.objectContaining({
+			model: "test-model",
+			response_format: {
+				type: "json_schema",
+				json_schema: expect.objectContaining({
+					name: "claims_v1",
+					strict: true,
+				}),
+			},
+		}));
+		expect(events).toEqual([
+			{ kind: "text", text: '{"summary":"ok","claims":[]}' },
+			{ kind: "done", finishReason: "stop" },
+		]);
+	});
+
 	it("assembles tool calls from non-streaming completions", async () => {
 		requestUrlMock.mockResolvedValue({
 			status: 200,
@@ -124,5 +184,67 @@ describe("OpenAICompatibleProvider", () => {
 			method: "GET",
 			throw: false,
 		}));
+	});
+
+	it("falls back when the endpoint rejects response_format", async () => {
+		requestUrlMock
+			.mockResolvedValueOnce({
+				status: 400,
+				text: JSON.stringify({
+					error: {
+						message: "response_format json_schema is not supported",
+					},
+				}),
+			})
+			.mockResolvedValueOnce({
+				status: 200,
+				text: JSON.stringify({
+					choices: [
+						{
+							message: { content: '{"summary":"fallback","claims":[]}' },
+							finish_reason: "stop",
+						},
+					],
+				}),
+			});
+
+		const provider = new OpenAICompatibleProvider({
+			baseUrl: "https://api.example.com",
+			apiKey: "secret",
+			model: "test-model",
+		});
+
+		const events = [];
+		for await (const event of provider.stream(
+			[{ role: "user", content: "hi" }],
+			{
+				responseFormat: {
+					type: "json_schema",
+					json_schema: {
+						name: "claims_v1",
+						strict: true,
+						schema: {
+							type: "object",
+							properties: {
+								summary: { type: "string" },
+								claims: { type: "array", items: { type: "string" } },
+							},
+							required: ["summary", "claims"],
+							additionalProperties: false,
+						},
+					},
+				},
+			},
+		)) {
+			events.push(event);
+		}
+
+		expect(requestUrlMock).toHaveBeenCalledTimes(2);
+		expect(JSON.parse(requestUrlMock.mock.calls[0][0].body)).toHaveProperty("response_format");
+		expect(JSON.parse(requestUrlMock.mock.calls[1][0].body)).not.toHaveProperty("response_format");
+		expect(events).toEqual([
+			{ kind: "text", text: '{"summary":"fallback","claims":[]}', degraded: true },
+			{ kind: "done", finishReason: "stop" },
+		]);
 	});
 });

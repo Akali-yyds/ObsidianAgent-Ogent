@@ -1,5 +1,5 @@
 import Ajv, { type ErrorObject } from "ajv";
-import type { ChatMessage } from "../types";
+import type { ChatMessage, ResponseFormatConfig } from "../types";
 import type {
 	RunStructuredStepOptions,
 	StructuredOutputAttemptFailure,
@@ -52,11 +52,23 @@ async function collectStructuredText(
 		signal: opts.signal,
 		tools: opts.tools,
 		consent: opts.consent,
+		responseFormat: buildResponseFormat(opts.schema.name, opts.schema.schema),
 	})) {
 		await opts.onAgentEvent?.(event);
 		if (event.kind === "text") output += event.text;
 	}
 	return output.trim();
+}
+
+function buildResponseFormat(schemaName: string, schema: RunStructuredStepOptions<unknown>["schema"]["schema"]): ResponseFormatConfig {
+	return {
+		type: "json_schema",
+		json_schema: {
+			name: schemaName.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 64) || "structured_output",
+			strict: true,
+			schema,
+		},
+	};
 }
 
 function parseJsonPayload(rawText: string): { ok: true; value: unknown } | { ok: false; reason: string } {
