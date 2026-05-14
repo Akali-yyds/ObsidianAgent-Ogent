@@ -73,6 +73,60 @@ describe("SessionStore", () => {
 					packId: "grounded-research",
 					packName: "Grounded Research",
 					verifiedSummary: "- Answer",
+					agentWork: {
+						retriever: {
+							status: "ready",
+							elapsedMs: 120,
+							notesFoundCount: 2,
+							topNotePaths: ["notes/a.md", "notes/b.md"],
+							brief: "- Answer",
+						},
+						synthesizer: {
+							status: "ready",
+							elapsedMs: 240,
+							claimCount: 1,
+							summary: "Answer",
+							rawJson: {
+								summary: "Answer",
+								claims: [
+									{
+										id: "claim-1",
+										text: "Answer",
+										source_note: "notes/a.md",
+										source_quote: "Answer",
+										confidence: 0.9,
+									},
+								],
+							},
+						},
+						verifier: {
+							status: "ready",
+							elapsedMs: 360,
+							counts: {
+								verified: 1,
+								unsupported: 0,
+								quoteMissing: 0,
+							},
+							reasons: [
+								{
+									claimId: "claim-1",
+									claimText: "Answer",
+									sourceNote: "notes/a.md",
+									status: "verified",
+									explanation: "Supported",
+								},
+							],
+						},
+						run: {
+							state: "completed",
+							elapsedMs: 720,
+							stepElapsedMs: {
+								retriever: 120,
+								synthesizer: 240,
+								verifier: 360,
+							},
+						},
+					},
 					claims: [
 						{
 							id: "claim-1",
@@ -104,6 +158,97 @@ describe("SessionStore", () => {
 			],
 			activeSessionId: "session-a",
 		});
+	});
+
+	it("keeps the agentWork payload optional for legacy and partial-failure pack turns", async () => {
+		const persistIndex = vi.fn(async () => undefined);
+		const readTurns = vi.fn(async () => ({ turns: [] }));
+		const writeTurns = vi.fn(async () => undefined);
+		const deleteTurns = vi.fn(async () => undefined);
+		const store = new SessionStore({ persistIndex, readTurns, writeTurns, deleteTurns });
+
+		await store.init(
+			[
+				{
+					id: "session-a",
+					title: "A",
+					model: "classic",
+					selectedPackId: "grounded-research",
+					lastClassicModel: "classic",
+					createdAt: 1,
+					updatedAt: 2,
+				},
+			],
+			"session-a",
+		);
+
+		const turns: StoredTurn[] = [
+			{
+				role: "assistant",
+				content: "",
+				packTurn: {
+					packId: "grounded-research",
+					packName: "Grounded Research",
+					error: "Verifier offline",
+					agentWork: {
+						retriever: {
+							status: "ready",
+							elapsedMs: 120,
+							notesFoundCount: 1,
+							topNotePaths: ["notes/a.md"],
+							brief: "- Answer",
+						},
+						synthesizer: {
+							status: "ready",
+							elapsedMs: 240,
+							claimCount: 1,
+							summary: "Answer",
+							rawJson: {
+								summary: "Answer",
+								claims: [
+									{
+										id: "claim-1",
+										text: "Answer",
+										source_note: "notes/a.md",
+										source_quote: "Answer",
+										confidence: 0.9,
+									},
+								],
+							},
+						},
+						verifier: {
+							status: "absent",
+							elapsedMs: 90,
+						},
+						run: {
+							state: "failed",
+							elapsedMs: 450,
+							stepElapsedMs: {
+								retriever: 120,
+								synthesizer: 240,
+								verifier: 90,
+							},
+							failedStepId: "verifier",
+						},
+					},
+				},
+			},
+			{
+				role: "assistant",
+				content: "",
+				packTurn: {
+					packId: "grounded-research",
+					packName: "Grounded Research",
+					verifiedSummary: "- Legacy answer",
+				},
+			},
+		];
+
+		await store.updateTurns("session-a", turns);
+
+		expect(writeTurns).toHaveBeenCalledWith("session-a", turns);
+		expect(store.getActive().turns[0].packTurn?.agentWork?.verifier.status).toBe("absent");
+		expect(store.getActive().turns[1].packTurn?.agentWork).toBeUndefined();
 	});
 
 	it("surfaces recovery metadata when turn reads recover from corrupt data", async () => {
@@ -164,6 +309,134 @@ describe("loadStoredTurnsFile", () => {
 		});
 		expect(adapter.rename).not.toHaveBeenCalled();
 		expect(adapter.write).not.toHaveBeenCalled();
+	});
+
+	it("loads legacy turns without agentWork and preserves newer payloads unchanged", async () => {
+		const adapter = createMockAdapter({
+			"sessions/session-a.json": JSON.stringify({
+				turns: [
+					{
+						role: "assistant",
+						content: "legacy",
+						packTurn: {
+							packId: "grounded-research",
+							packName: "Grounded Research",
+							verifiedSummary: "- Legacy answer",
+						},
+					},
+					{
+						role: "assistant",
+						content: "partial",
+						packTurn: {
+							packId: "grounded-research",
+							packName: "Grounded Research",
+							error: "Verifier offline",
+							agentWork: {
+								retriever: {
+									status: "ready",
+									elapsedMs: 120,
+									notesFoundCount: 1,
+									topNotePaths: ["notes/a.md"],
+									brief: "- Answer",
+								},
+								synthesizer: {
+									status: "ready",
+									elapsedMs: 240,
+									claimCount: 1,
+									summary: "Answer",
+									rawJson: {
+										summary: "Answer",
+										claims: [
+											{
+												id: "claim-1",
+												text: "Answer",
+												source_note: "notes/a.md",
+												source_quote: "Answer",
+												confidence: 0.9,
+											},
+										],
+									},
+								},
+								verifier: {
+									status: "absent",
+									elapsedMs: 90,
+								},
+								run: {
+									state: "failed",
+									elapsedMs: 450,
+									stepElapsedMs: {
+										retriever: 120,
+										synthesizer: 240,
+										verifier: 90,
+									},
+									failedStepId: "verifier",
+								},
+							},
+						},
+					},
+				],
+			}),
+		});
+
+		const result = await loadStoredTurnsFile({
+			adapter,
+			path: "sessions/session-a.json",
+			now: () => 789,
+		});
+
+		expect(result.turns[0].packTurn?.agentWork).toBeUndefined();
+		expect(result.turns[1].packTurn?.agentWork?.run).toEqual({
+			state: "failed",
+			elapsedMs: 450,
+			stepElapsedMs: {
+				retriever: 120,
+				synthesizer: 240,
+				verifier: 90,
+			},
+			failedStepId: "verifier",
+		});
+	});
+
+	it("drops malformed agentWork payloads while keeping the rest of the turn readable", async () => {
+		const adapter = createMockAdapter({
+			"sessions/session-a.json": JSON.stringify({
+				turns: [
+					{
+						role: "assistant",
+						content: "partial",
+						packTurn: {
+							packId: "grounded-research",
+							packName: "Grounded Research",
+							error: "Verifier offline",
+							agentWork: {
+								retriever: "bad",
+								synthesizer: null,
+								verifier: { status: "ready" },
+								run: { state: "failed", elapsedMs: "fast" },
+							},
+						},
+					},
+				],
+			}),
+		});
+
+		const result = await loadStoredTurnsFile({
+			adapter,
+			path: "sessions/session-a.json",
+			now: () => 790,
+		});
+
+		expect(result.turns).toEqual([
+			{
+				role: "assistant",
+				content: "partial",
+				packTurn: {
+					packId: "grounded-research",
+					packName: "Grounded Research",
+					error: "Verifier offline",
+				},
+			},
+		]);
 	});
 
 	it("backs up corrupt turn files and resets the active file to empty turns", async () => {
