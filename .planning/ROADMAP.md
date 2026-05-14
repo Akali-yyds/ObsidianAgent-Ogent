@@ -77,7 +77,7 @@ Phases execute in numeric order: 1 → 2 → 3
 | 1. Autonomous Buildout | 4/4 | Complete | 2026-05-13 |
 | 2. Testing & Hardening | 3/3 | Complete | 2026-05-13 |
 | 3. Submission Polish & Final Verification | 2/2 | Complete | 2026-05-13 |
-| 4. Improve agent work transparency UI | 2/3 | In Progress | - |
+| 4. Improve agent work transparency UI | 3/3 | Complete | 2026-05-14 |
 
 ### Phase 4: Improve agent work transparency UI
 
@@ -95,4 +95,4 @@ Phases execute in numeric order: 1 → 2 → 3
 Plans:
 - [x] 04-01: Capture exact phrase anchors and extend stored/runtime data contracts for citation-ready grounded-research turns.
 - [x] 04-02: Compose and persist citation-ready `Research result` text with inline citation mapping and legacy-safe fallback rules.
-- [ ] 04-03: Rework transcript rendering to use clickable existing step blocks, inline citations, and reused claim cards with regression coverage.
+- [x] 04-03: Rework transcript rendering to use clickable existing step blocks, inline citations, and reused claim cards with regression coverage.
