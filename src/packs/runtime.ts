@@ -2,7 +2,7 @@ import type { App } from "obsidian";
 import { Agent, runPipeline } from "../agents";
 import { claimsV1Schema, type ClaimsV1 } from "../agents/schemas/claims-v1";
 import { formatRetrievedNotes, retrieveEvidence, type RetrievedNote } from "../agents/retrieval";
-import { verifyClaims, type ClaimVerification } from "../agents/verifier";
+import { verifyClaims, type ClaimVerification, type ExactPhraseAnchor } from "../agents/verifier";
 import type { OpenAICompatibleConfig } from "../provider-config";
 import type { ModelProvider } from "../types";
 import type { AgentPack } from "./types";
@@ -80,10 +80,16 @@ export interface PackRunArtifacts {
 	verifications: ClaimVerification[] | null;
 }
 
+export interface PackCitation extends ExactPhraseAnchor {
+	claimId: string;
+}
+
 export interface PackRunResult {
 	packId: string;
 	packName: string;
 	verifiedSummary: string;
+	researchMarkdown?: string;
+	citations?: PackCitation[];
 	claims: ClaimVerification[];
 	modelsUsed: PackModelsUsed;
 	artifacts: PackRunArtifacts;
@@ -377,6 +383,8 @@ export async function runPackForEval(opts: PackRunOptions): Promise<PackRunResul
 		packId: opts.pack.id,
 		packName: opts.pack.name,
 		verifiedSummary,
+		researchMarkdown: undefined,
+		citations: undefined,
 		claims,
 		modelsUsed,
 		artifacts: buildArtifacts(),

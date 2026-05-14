@@ -1,4 +1,4 @@
-import type { PackRunTransparency } from "./packs/runtime";
+import type { PackCitation, PackRunTransparency } from "./packs/runtime";
 
 export interface SessionMeta {
 	id: string;
@@ -28,6 +28,15 @@ export interface StoredPackClaim {
 	supportsClaim: boolean | null;
 	supportExplanation: string;
 	status: StoredClaimStatus;
+	exactPhraseAnchor?: StoredExactPhraseAnchor;
+}
+
+export interface StoredExactPhraseAnchor {
+	notePath: string;
+	exactPhrase: string;
+	startOffset: number;
+	endOffset: number;
+	occurrenceIndex: number;
 }
 
 export interface StoredPackTurnData {
@@ -37,7 +46,9 @@ export interface StoredPackTurnData {
 	retryingStepId?: string | null;
 	error?: string;
 	verifiedSummary?: string;
+	researchMarkdown?: string;
 	claims?: StoredPackClaim[];
+	citations?: StoredPackCitation[];
 	agentWork?: StoredPackTurnTransparency;
 	modelsUsed?: {
 		retriever: string;
@@ -47,6 +58,7 @@ export interface StoredPackTurnData {
 }
 
 export type StoredPackTurnTransparency = PackRunTransparency;
+export type StoredPackCitation = PackCitation;
 
 export interface StoredTurn {
 	role: "user" | "assistant";
@@ -315,23 +327,40 @@ function sanitizeStoredTurn(turn: unknown): StoredTurn {
 	if (!turn || typeof turn !== "object") return turn as StoredTurn;
 	const packTurn = (turn as { packTurn?: unknown }).packTurn;
 	if (!packTurn || typeof packTurn !== "object") return turn as StoredTurn;
-	if (!Object.prototype.hasOwnProperty.call(packTurn, "agentWork")) return turn as StoredTurn;
-	const agentWork = sanitizeStoredPackTurnTransparency((packTurn as { agentWork?: unknown }).agentWork);
-	if (agentWork === undefined) {
-		const restPackTurn = { ...(packTurn as StoredPackTurnData & { agentWork?: unknown }) };
-		delete restPackTurn.agentWork;
-		return {
-			...(turn as StoredTurn),
-			packTurn: restPackTurn,
-		};
-	}
 	return {
 		...(turn as StoredTurn),
-		packTurn: {
-			...(packTurn as StoredPackTurnData),
-			agentWork,
-		},
+		packTurn: sanitizeStoredPackTurn(packTurn),
 	};
+}
+
+function sanitizeStoredPackTurn(turn: unknown): StoredPackTurnData {
+	const packTurn = { ...(turn as StoredPackTurnData & Record<string, unknown>) };
+
+	if (Object.prototype.hasOwnProperty.call(packTurn, "agentWork")) {
+		const agentWork = sanitizeStoredPackTurnTransparency(packTurn.agentWork);
+		if (agentWork === undefined) delete packTurn.agentWork;
+		else packTurn.agentWork = agentWork;
+	}
+
+	if (Object.prototype.hasOwnProperty.call(packTurn, "claims")) {
+		const claims = sanitizeOptionalStoredClaims(packTurn.claims);
+		if (claims === undefined) delete packTurn.claims;
+		else packTurn.claims = claims;
+	}
+
+	if (Object.prototype.hasOwnProperty.call(packTurn, "researchMarkdown")) {
+		const researchMarkdown = sanitizeOptionalString(packTurn.researchMarkdown);
+		if (researchMarkdown === undefined) delete packTurn.researchMarkdown;
+		else packTurn.researchMarkdown = researchMarkdown;
+	}
+
+	if (Object.prototype.hasOwnProperty.call(packTurn, "citations")) {
+		const citations = sanitizeOptionalStoredCitations(packTurn.citations);
+		if (citations === undefined) delete packTurn.citations;
+		else packTurn.citations = citations;
+	}
+
+	return packTurn as StoredPackTurnData;
 }
 
 function sanitizeStoredPackTurnTransparency(value: unknown): StoredPackTurnTransparency | undefined {
@@ -342,6 +371,92 @@ function sanitizeStoredPackTurnTransparency(value: unknown): StoredPackTurnTrans
 	const run = sanitizeRunTransparency(value.run);
 	if (!retriever || !synthesizer || !verifier || !run) return undefined;
 	return { retriever, synthesizer, verifier, run };
+}
+
+function sanitizeOptionalStoredClaims(value: unknown): StoredPackClaim[] | undefined {
+	if (value === undefined) return undefined;
+	if (!Array.isArray(value)) return undefined;
+	const claims = value.map((claim) => sanitizeStoredPackClaim(claim));
+	return claims.every((claim) => claim !== null) ? claims : undefined;
+}
+
+function sanitizeStoredPackClaim(value: unknown): StoredPackClaim | null {
+	if (!isRecord(value)) return null;
+	const status = sanitizeClaimStatus(value.status);
+	const supportsClaim =
+		value.supportsClaim === null || typeof value.supportsClaim === "boolean" ? value.supportsClaim : undefined;
+	if (
+		typeof value.id !== "string" ||
+		typeof value.text !== "string" ||
+		typeof value.sourceNote !== "string" ||
+		typeof value.sourceQuote !== "string" ||
+		typeof value.quotePresent !== "boolean" ||
+		supportsClaim === undefined ||
+		typeof value.supportExplanation !== "string" ||
+		!status
+	) {
+		return null;
+	}
+
+	const claim: StoredPackClaim = {
+		id: value.id,
+		text: value.text,
+		sourceNote: value.sourceNote,
+		sourceQuote: value.sourceQuote,
+		quotePresent: value.quotePresent,
+		supportsClaim,
+		supportExplanation: value.supportExplanation,
+		status,
+	};
+	const exactPhraseAnchor = sanitizeOptionalExactPhraseAnchor(value.exactPhraseAnchor);
+	if (exactPhraseAnchor !== undefined) claim.exactPhraseAnchor = exactPhraseAnchor;
+	return claim;
+}
+
+function sanitizeOptionalStoredCitations(value: unknown): StoredPackCitation[] | undefined {
+	if (value === undefined) return undefined;
+	if (!Array.isArray(value)) return undefined;
+	const citations = value.map((citation) => sanitizeStoredCitation(citation));
+	return citations.every((citation) => citation !== null) ? citations : undefined;
+}
+
+function sanitizeStoredCitation(value: unknown): StoredPackCitation | null {
+	if (!isRecord(value) || typeof value.claimId !== "string") return null;
+	const anchor = sanitizeExactPhraseAnchor(value);
+	if (anchor === null) return null;
+	return {
+		claimId: value.claimId,
+		...anchor,
+	};
+}
+
+function sanitizeOptionalExactPhraseAnchor(value: unknown): StoredExactPhraseAnchor | undefined {
+	if (value === undefined) return undefined;
+	return sanitizeExactPhraseAnchor(value) ?? undefined;
+}
+
+function sanitizeExactPhraseAnchor(value: unknown): StoredExactPhraseAnchor | null {
+	if (!isRecord(value)) return null;
+	const startOffset = sanitizeNumber(value.startOffset);
+	const endOffset = sanitizeNumber(value.endOffset);
+	const occurrenceIndex = sanitizeNumber(value.occurrenceIndex);
+	if (
+		typeof value.notePath !== "string" ||
+		typeof value.exactPhrase !== "string" ||
+		startOffset === undefined ||
+		endOffset === undefined ||
+		occurrenceIndex === undefined ||
+		endOffset < startOffset
+	) {
+		return null;
+	}
+	return {
+		notePath: value.notePath,
+		exactPhrase: value.exactPhrase,
+		startOffset,
+		endOffset,
+		occurrenceIndex,
+	};
 }
 
 function sanitizeRetrieverTransparency(value: unknown): StoredPackTurnTransparency["retriever"] | null {
