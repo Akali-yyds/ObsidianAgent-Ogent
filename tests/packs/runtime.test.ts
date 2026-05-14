@@ -188,17 +188,36 @@ describe("runPack", () => {
 				verifier: groundedResearchDefault.providers.verifier.model,
 			},
 			artifacts: expect.any(Object),
+			transparency: expect.any(Object),
 		});
 		expect(events).toEqual([
 			{ kind: "step", step: { id: "retriever", label: "Retrieving notes", state: "pending", message: undefined } },
 			{ kind: "step", step: { id: "synthesizer", label: "Drafting claims", state: "pending", message: undefined } },
 			{ kind: "step", step: { id: "verifier", label: "Verifying claims", state: "pending", message: undefined } },
 			{ kind: "step", step: { id: "retriever", label: "Retrieving notes", state: "running", message: undefined } },
-			{ kind: "step", step: { id: "retriever", label: "Retrieving notes", state: "complete", message: undefined } },
+			expect.objectContaining({
+				kind: "step",
+				step: { id: "retriever", label: "Retrieving notes", state: "complete", message: undefined },
+				agentWork: expect.objectContaining({
+					retriever: expect.objectContaining({ status: "ready" }),
+				}),
+			}),
 			{ kind: "step", step: { id: "synthesizer", label: "Drafting claims", state: "running", message: undefined } },
-			{ kind: "step", step: { id: "synthesizer", label: "Drafting claims", state: "complete", message: undefined } },
+			expect.objectContaining({
+				kind: "step",
+				step: { id: "synthesizer", label: "Drafting claims", state: "complete", message: undefined },
+				agentWork: expect.objectContaining({
+					synthesizer: expect.objectContaining({ status: "ready" }),
+				}),
+			}),
 			{ kind: "step", step: { id: "verifier", label: "Verifying claims", state: "running", message: undefined } },
-			{ kind: "step", step: { id: "verifier", label: "Verifying claims", state: "complete", message: undefined } },
+			expect.objectContaining({
+				kind: "step",
+				step: { id: "verifier", label: "Verifying claims", state: "complete", message: undefined },
+				agentWork: expect.objectContaining({
+					verifier: expect.objectContaining({ status: "ready" }),
+				}),
+			}),
 		]);
 
 		verifyClaimsMock.mockClear();
@@ -256,6 +275,7 @@ describe("runPack", () => {
 			},
 			verifications: null,
 		});
+		expect(baseline.transparency.verifier.status).toBe("absent");
 	});
 
 	it("rejects placeholder provider credentials before pack execution begins", async () => {
