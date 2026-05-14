@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { normalizeWhitespace, quotePresent } from "../../src/agents/quote-match";
+import { normalizeWhitespace, quotePresent, resolveQuoteMatch } from "../../src/agents/quote-match";
 
 describe("quotePresent", () => {
 	it("collapses whitespace for matching", () => {
@@ -38,5 +38,40 @@ describe("quotePresent", () => {
 				"In May beta users saw Alpha after its 2024 launch",
 			),
 		).toBe(false);
+	});
+});
+
+describe("resolveQuoteMatch", () => {
+	it("returns exact anchors with preserved phrase text, offsets, and occurrence index", () => {
+		const noteBody = "Lead in\nAlpha   Beta.\nTail";
+		const result = resolveQuoteMatch(noteBody, "alpha beta.");
+
+		expect(result).toEqual({
+			kind: "exact",
+			exactPhrase: "Alpha   Beta.",
+			startOffset: noteBody.indexOf("Alpha"),
+			endOffset: noteBody.indexOf("Alpha") + "Alpha   Beta.".length,
+			occurrenceIndex: 0,
+		});
+	});
+
+	it("chooses the exact duplicate occurrence that best matches the quoted casing", () => {
+		const noteBody = "Alpha beta.\nalpha beta.";
+		const secondOffset = noteBody.lastIndexOf("alpha beta.");
+		const result = resolveQuoteMatch(noteBody, "alpha beta.");
+
+		expect(result).toEqual({
+			kind: "exact",
+			exactPhrase: "alpha beta.",
+			startOffset: secondOffset,
+			endOffset: secondOffset + "alpha beta.".length,
+			occurrenceIndex: 1,
+		});
+	});
+
+	it("returns fuzzy matches without inline-citation-ready anchors", () => {
+		expect(resolveQuoteMatch("**Alpha** launched — in 2024.", "Alpha launched in 2024")).toEqual({
+			kind: "fuzzy",
+		});
 	});
 });

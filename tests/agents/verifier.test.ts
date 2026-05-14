@@ -105,7 +105,7 @@ describe("verifyClaims", () => {
 					id: "claim-1",
 					text: "Alpha is true",
 					source_note: "notes/a.md",
-					source_quote: "Alpha is true.",
+					source_quote: "alpha is true.",
 				},
 				{
 					id: "claim-2",
@@ -143,11 +143,18 @@ describe("verifyClaims", () => {
 				id: "claim-1",
 				text: "Alpha is true",
 				sourceNote: "notes/a.md",
-				sourceQuote: "Alpha is true.",
+				sourceQuote: "alpha is true.",
 				quotePresent: true,
 				supportsClaim: true,
 				supportExplanation: "Directly supported",
 				status: "verified",
+				exactPhraseAnchor: {
+					notePath: "notes/a.md",
+					exactPhrase: "Alpha is true.",
+					startOffset: 0,
+					endOffset: "Alpha is true.".length,
+					occurrenceIndex: 0,
+				},
 			},
 			{
 				id: "claim-2",
@@ -160,5 +167,47 @@ describe("verifyClaims", () => {
 				status: "unsupported",
 			},
 		]);
+	});
+
+	it("keeps fuzzy-only matches quote-present but anchorless", async () => {
+		runStructuredStepMock.mockResolvedValueOnce({
+			ok: true,
+			attempts: 1,
+			rawText: '{"supports_claim":true,"explanation":"Supported despite punctuation drift"}',
+			value: { supports_claim: true, explanation: "Supported despite punctuation drift" },
+		});
+
+		const results = await verifyClaims({
+			vault: createVault({
+				"notes/a.md": "**Alpha** launched — in 2024.",
+			}),
+			claims: {
+				summary: "Summary",
+				claims: [
+					{
+						id: "claim-1",
+						text: "Alpha launched in 2024",
+						source_note: "notes/a.md",
+						source_quote: "Alpha launched in 2024",
+					},
+				],
+			},
+			agent,
+			provider,
+		});
+
+		expect(results).toEqual([
+			{
+				id: "claim-1",
+				text: "Alpha launched in 2024",
+				sourceNote: "notes/a.md",
+				sourceQuote: "Alpha launched in 2024",
+				quotePresent: true,
+				supportsClaim: true,
+				supportExplanation: "Supported despite punctuation drift",
+				status: "verified",
+			},
+		]);
+		expect(results[0]?.exactPhraseAnchor).toBeUndefined();
 	});
 });
