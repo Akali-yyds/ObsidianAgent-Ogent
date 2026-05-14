@@ -6,6 +6,7 @@ import { renderRows } from "./consent/render-diff";
 import { runTurn } from "./loop";
 import { isMobile } from "./platform";
 import { OpenAICompatibleProvider } from "./provider";
+import { resolveCitationTarget } from "./citations";
 import { PackConfigError, PackRunError, type PackRuntimeEvent, type PackRunResult, type PackRunTransparency } from "./packs/runtime";
 import type { AgentPack } from "./packs/types";
 import { isConfigured, type PluginSettings } from "./settings";
@@ -890,6 +891,8 @@ export class ChatView extends ItemView {
 			});
 			if (assistantTurn.packTurn) {
 				assistantTurn.packTurn.verifiedSummary = result.verifiedSummary;
+				assistantTurn.packTurn.researchMarkdown = result.researchMarkdown;
+				assistantTurn.packTurn.citations = result.citations;
 				assistantTurn.packTurn.claims = result.claims.map((claim) => ({
 					id: claim.id,
 					text: claim.text,
@@ -899,6 +902,7 @@ export class ChatView extends ItemView {
 					supportsClaim: claim.supportsClaim,
 					supportExplanation: claim.supportExplanation,
 					status: claim.status,
+					exactPhraseAnchor: claim.exactPhraseAnchor,
 				}));
 				assistantTurn.packTurn.agentWork = result.transparency;
 				assistantTurn.packTurn.modelsUsed = result.modelsUsed;
@@ -921,6 +925,7 @@ export class ChatView extends ItemView {
 							supportsClaim: claim.supportsClaim,
 							supportExplanation: claim.supportExplanation,
 							status: claim.status,
+							exactPhraseAnchor: claim.exactPhraseAnchor,
 						}));
 					}
 				}
@@ -1285,13 +1290,13 @@ export class ChatView extends ItemView {
 					text: formatDuration(agentWork.run.elapsedMs),
 				});
 				const resultBody = parent.createDiv({ cls: "open-agent-turn-body" });
-				void MarkdownRenderer.render(
-					this.app,
-					researchMarkdown || "This run did not produce a citation-ready research answer. Review the completed steps and claim details below, then rerun research if needed.",
-					resultBody,
-					"",
-					this,
-				);
+				if (researchMarkdown) {
+					this.renderResearchMarkdown(resultBody, researchMarkdown, packTurn.citations ?? []);
+				} else {
+					resultBody.setText(
+						"This run did not produce a citation-ready research answer. Review the completed steps and claim details below, then rerun research if needed.",
+					);
+				}
 			}
 
 			const progress = parent.createDiv({ cls: "open-agent-pack-progress" });
@@ -1496,6 +1501,72 @@ export class ChatView extends ItemView {
 			});
 		}
 
+		private renderResearchMarkdown(parent: HTMLElement, markdown: string, citations: NonNullable<StoredPackTurnData["citations"]>): void {
+			for (const paragraph of markdown.split(/\n{2,}/).map((value) => value.trim()).filter(Boolean)) {
+				const paragraphEl = parent.createEl("p");
+				this.renderResearchParagraph(paragraphEl, paragraph, citations);
+			}
+		}
+
+		private renderResearchParagraph(
+			parent: HTMLElement,
+			paragraph: string,
+			citations: NonNullable<StoredPackTurnData["citations"]>,
+		): void {
+			const citationPattern = /\[(\d+)\]\(openagent:\/\/citation\/\1\)/g;
+			let cursor = 0;
+			for (const match of paragraph.matchAll(citationPattern)) {
+				const index = match.index ?? 0;
+				if (index > cursor) {
+					parent.appendText(paragraph.slice(cursor, index));
+				}
+				const citationIndex = Number(match[1]) - 1;
+				const citation = citations[citationIndex];
+				if (!citation) {
+					parent.appendText(match[0]);
+				} else {
+					const link = parent.createEl("button", {
+						cls: "open-agent-citation-link",
+						text: `[${citationIndex + 1}]`,
+					});
+					link.setAttribute("type", "button");
+					link.addEventListener("click", (event) => {
+						event.preventDefault();
+						void this.openCitationTarget(citation);
+					});
+				}
+				cursor = index + match[0].length;
+			}
+			if (cursor < paragraph.length) {
+				parent.appendText(paragraph.slice(cursor));
+			}
+		}
+
+		private async openCitationTarget(citation: NonNullable<StoredPackTurnData["citations"]>[number]): Promise<void> {
+			const file = this.app.vault.getAbstractFileByPath(citation.notePath);
+			if (!(file instanceof TFile)) {
+				new Notice(`Not found: ${citation.notePath}`);
+				return;
+			}
+			const leaf = this.app.workspace.getLeaf(false);
+			const noteBody = await this.app.vault.cachedRead(file);
+			const resolution = resolveCitationTarget(citation, noteBody);
+			if (resolution.kind === "fallback") {
+				await leaf.openFile(file);
+				new Notice(resolution.message);
+				return;
+			}
+			await leaf.openFile(file, {
+				active: true,
+				eState: {
+					selection: {
+						from: offsetToEditorPosition(noteBody, resolution.startOffset),
+						to: offsetToEditorPosition(noteBody, resolution.endOffset),
+					},
+				},
+			});
+		}
+
 		private getPackStepDetails(
 			stepId: string,
 			agentWork: PackRunTransparency,
@@ -1541,14 +1612,14 @@ export class ChatView extends ItemView {
 			const details = card.createDiv({ cls: "open-agent-claim-details" });
 			const shouldExpand = claim.status !== "verified";
 			const toggle = meta.createEl("button", {
-				text: shouldExpand ? "Hide info" : "Info",
+				text: shouldExpand ? "Hide evidence" : "Show evidence",
 				cls: "open-agent-claim-toggle",
 			});
 			details.classList.toggle("is-hidden", !shouldExpand);
 			toggle.addEventListener("click", () => {
 				const open = details.classList.contains("is-hidden");
 				details.classList.toggle("is-hidden", !open);
-				toggle.textContent = open ? "Hide info" : "Info";
+				toggle.textContent = open ? "Hide evidence" : "Show evidence";
 			});
 
 			details.createEl("div", {
@@ -1738,6 +1809,14 @@ function verifierReasonStatusClass(status: StoredPackClaim["status"]): string {
 		case "quote-missing":
 			return "open-agent-work-chip open-agent-work-chip-quote-missing";
 	}
+}
+
+function offsetToEditorPosition(text: string, offset: number): { line: number; ch: number } {
+	const boundedOffset = Math.max(0, Math.min(offset, text.length));
+	const preceding = text.slice(0, boundedOffset).split("\n");
+	const line = preceding.length - 1;
+	const ch = preceding[preceding.length - 1]?.length ?? 0;
+	return { line, ch };
 }
 
 function formatDuration(ms: number | undefined): string {

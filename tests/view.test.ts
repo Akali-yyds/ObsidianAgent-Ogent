@@ -686,7 +686,7 @@ describe("ChatView pack UI", () => {
 		expect(textTree(steps[1])).not.toContain("Third line should not appear");
 	});
 
-	it("renders inline citation links, resolves exact jumps, and falls back safely when notes drift", () => {
+	it("renders inline citation links, resolves exact jumps, and falls back safely when notes drift", async () => {
 		const app = createMockApp({
 			files: {
 				"notes/source.md": "Lead in\nAlpha evidence\nBeta quote",
@@ -719,6 +719,8 @@ describe("ChatView pack UI", () => {
 		expect(citationLinks.map((el) => el.textContent)).toEqual(["[1]", "[1]"]);
 
 		citationLinks[0].click();
+		await Promise.resolve();
+		await Promise.resolve();
 		expect(openFile).toHaveBeenCalledWith(
 			expect.objectContaining({ path: "notes/source.md" }),
 			expect.objectContaining({
@@ -745,6 +747,8 @@ describe("ChatView pack UI", () => {
 			researchMarkdown: "Broken link [1](openagent://citation/1)",
 		}));
 		findByClass(fallbackParent, "open-agent-citation-link")[0].click();
+		await Promise.resolve();
+		await Promise.resolve();
 		expect(NoticeMock).toHaveBeenCalledWith("Citation target no longer matches the live note.");
 		expect(openFile).toHaveBeenLastCalledWith(expect.objectContaining({ path: "notes/source.md" }));
 	});
