@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import groundedResearchDefault from "../src/packs/defaults/grounded-research.json";
 import { DEFAULT_SETTINGS } from "../src/settings";
@@ -185,6 +186,8 @@ function createAgentWorkTurn(overrides: Partial<StoredPackTurnData> = {}): Store
 		...overrides,
 	};
 }
+
+const agentWorkStyles = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
 
 describe("ChatView pack UI", () => {
 	it("stores pack selection per session and preserves the classic model for future turns", async () => {
@@ -558,6 +561,92 @@ describe("ChatView pack UI", () => {
 		const runDetails = findByClass(parent, "open-agent-work-details")[3];
 		const runState = findByClass(runDetails, "open-agent-work-run-state").at(-1);
 		expect(runState?.textContent).toBe("Completed");
+	});
+
+	it("locks the exact Agent work labels, truncation rules, chip copy, and timing fallbacks from the UI spec", () => {
+		const app = createMockApp();
+		const { deps } = createDeps({
+			id: "session-a",
+			model: "gpt-4o-mini",
+			selectedPackId: groundedResearchDefault.id,
+			lastClassicModel: "gpt-4o-mini",
+		});
+		const view = new ChatView({ app } as never, deps);
+		const parent = renderPackTurn(view, createAgentWorkTurn({
+			agentWork: {
+				retriever: {
+					status: "ready",
+					notesFoundCount: 4,
+					topNotePaths: ["notes/source.md", "notes/appendix.md", "notes/archive.md"],
+					brief: "- notes/source.md backs Alpha",
+				},
+				synthesizer: {
+					status: "ready",
+					elapsedMs: 9800,
+					claimCount: 2,
+					summary: "First line stays visible.\nSecond line stays visible.\nThird line should not appear in the collapsed preview and the preview should also stop before this sentence keeps going past the 140 character cutoff.",
+					rawJson: {
+						summary: "First line stays visible. Second line stays visible.",
+						claims: [],
+					},
+				},
+				verifier: {
+					status: "ready",
+					counts: {
+						verified: 1,
+						unsupported: 2,
+						quoteMissing: 3,
+					},
+					reasons: [],
+				},
+				run: {
+					state: "completed",
+					elapsedMs: 1500,
+					stepElapsedMs: {
+						synthesizer: 9800,
+					},
+				},
+			},
+		}));
+
+		expect(findByClass(parent, "open-agent-work-toggle").map((el) => el.textContent)).toEqual([
+			"Show details",
+			"Show details",
+			"Show details",
+			"Show details",
+		]);
+		const synthesizerSummary = textTree(findByClass(parent, "open-agent-work-card")[1]);
+		expect(synthesizerSummary).toContain("2 draft claims");
+		expect(synthesizerSummary).not.toContain("Third line should not appear");
+
+		const verifierChips = findByClass(parent, "open-agent-work-card")[2];
+		expect(textTree(verifierChips)).toContain("Verified 1");
+		expect(textTree(verifierChips)).toContain("Unsupported 2");
+		expect(textTree(verifierChips)).toContain("Quote missing 3");
+
+		const runSummary = findByClass(parent, "open-agent-work-card")[3];
+		expect(findByClass(runSummary, "open-agent-work-summary-text").map((el) => el.textContent)).toEqual([
+			"Total 1.5s",
+			"Retriever Timing unavailable",
+			"Synthesizer 9.8s",
+			"Verifier Timing unavailable",
+		]);
+
+		findByClass(parent, "open-agent-work-toggle")[1].click();
+		expect(findByClass(parent, "open-agent-work-raw-json-label")[0]?.textContent).toBe("Raw JSON");
+	});
+
+	it("ships transcript-local Agent work styles with touch-safe disclosure controls and a capped monospace JSON block", () => {
+		expect(agentWorkStyles).toContain(".open-agent-work-section");
+		expect(agentWorkStyles).toContain(".open-agent-work-toggle");
+		expect(agentWorkStyles).toContain("min-height: 44px");
+		expect(agentWorkStyles).toContain("min-width: 44px");
+		expect(agentWorkStyles).toContain(".open-agent-work-raw-json");
+		expect(agentWorkStyles).toContain("font-family: var(--font-monospace)");
+		expect(agentWorkStyles).toContain("max-height: 240px");
+		expect(agentWorkStyles).toContain("overflow-x: auto");
+		expect(agentWorkStyles).toContain("overflow-y: auto");
+		expect(agentWorkStyles).toContain("max-height: 30vh");
 	});
 
 	it("shows a recovery banner when the active session was restored from corrupt history", () => {
