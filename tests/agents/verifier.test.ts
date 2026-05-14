@@ -165,6 +165,13 @@ describe("verifyClaims", () => {
 				supportsClaim: false,
 				supportExplanation: "The quote does not support the claim",
 				status: "unsupported",
+				exactPhraseAnchor: {
+					notePath: "notes/a.md",
+					exactPhrase: "Beta is contested.",
+					startOffset: "Alpha is true.\n".length,
+					endOffset: "Alpha is true.\nBeta is contested.".length,
+					occurrenceIndex: 0,
+				},
 			},
 		]);
 	});

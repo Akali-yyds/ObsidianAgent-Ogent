@@ -2,12 +2,95 @@ export function normalizeWhitespace(value: string): string {
 	return value.replace(/\s+/g, " ").trim();
 }
 
+export interface ExactQuoteMatch {
+	kind: "exact";
+	exactPhrase: string;
+	startOffset: number;
+	endOffset: number;
+	occurrenceIndex: number;
+}
+
+export type QuoteResolution = ExactQuoteMatch | { kind: "fuzzy" } | { kind: "missing" };
+
 export function quotePresent(noteBody: string, quote: string): boolean {
+	return resolveQuoteMatch(noteBody, quote).kind !== "missing";
+}
+
+export function resolveQuoteMatch(noteBody: string, quote: string): QuoteResolution {
+	const exactMatch = findExactQuoteMatch(noteBody, quote);
+	if (exactMatch) return exactMatch;
+
 	const normalizedQuote = normalizeForQuoteMatch(quote);
-	if (!normalizedQuote) return false;
+	if (!normalizedQuote) return { kind: "missing" };
 	const normalizedNote = normalizeForQuoteMatch(noteBody);
-	if (normalizedNote.includes(normalizedQuote)) return true;
-	return hasConservativeFuzzyMatch(tokenize(normalizedNote), tokenize(normalizedQuote));
+	if (normalizedNote.includes(normalizedQuote)) return { kind: "fuzzy" };
+	return hasConservativeFuzzyMatch(tokenize(normalizedNote), tokenize(normalizedQuote))
+		? { kind: "fuzzy" }
+		: { kind: "missing" };
+}
+
+function findExactQuoteMatch(noteBody: string, quote: string): ExactQuoteMatch | null {
+	const normalizedQuote = normalizeWhitespace(quote);
+	if (!normalizedQuote) return null;
+	const collapsedNote = collapseWhitespaceWithMap(noteBody, { lowercase: true });
+	const collapsedQuote = normalizeWhitespace(quote).toLocaleLowerCase();
+	if (!collapsedQuote) return null;
+
+	const candidates: ExactQuoteMatch[] = [];
+	for (
+		let index = collapsedNote.text.indexOf(collapsedQuote);
+		index !== -1;
+		index = collapsedNote.text.indexOf(collapsedQuote, index + 1)
+	) {
+		const startOffset = collapsedNote.map[index];
+		const endOffset = collapsedNote.map[index + collapsedQuote.length - 1] + 1;
+		candidates.push({
+			kind: "exact",
+			exactPhrase: noteBody.slice(startOffset, endOffset),
+			startOffset,
+			endOffset,
+			occurrenceIndex: candidates.length,
+		});
+	}
+
+	if (candidates.length === 0) return null;
+
+	return [...candidates].sort((left, right) => {
+		const leftScore = scoreExactCandidate(left.exactPhrase, quote);
+		const rightScore = scoreExactCandidate(right.exactPhrase, quote);
+		if (leftScore !== rightScore) return leftScore - rightScore;
+		return left.startOffset - right.startOffset;
+	})[0];
+}
+
+function scoreExactCandidate(exactPhrase: string, quote: string): number {
+	return normalizeWhitespace(exactPhrase) === normalizeWhitespace(quote) ? 0 : 1;
+}
+
+function collapseWhitespaceWithMap(value: string, { lowercase = false }: { lowercase?: boolean } = {}): {
+	text: string;
+	map: number[];
+} {
+	let text = "";
+	const map: number[] = [];
+	let pendingWhitespaceAt: number | null = null;
+
+	for (let index = 0; index < value.length; index += 1) {
+		const char = value[index];
+		if (/\s/u.test(char)) {
+			if (text.length > 0 && pendingWhitespaceAt === null) pendingWhitespaceAt = index;
+			continue;
+		}
+		if (pendingWhitespaceAt !== null) {
+			text += " ";
+			map.push(pendingWhitespaceAt);
+			pendingWhitespaceAt = null;
+		}
+		text += lowercase ? char.toLocaleLowerCase() : char;
+		map.push(index);
+	}
+
+	return { text, map };
 }
 
 function normalizeForQuoteMatch(value: string): string {

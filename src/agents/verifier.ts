@@ -1,11 +1,19 @@
 import type { ClaimsV1 } from "./schemas/claims-v1";
-import { quotePresent } from "./quote-match";
+import { resolveQuoteMatch } from "./quote-match";
 import type { Agent } from "./agent";
 import { runStructuredStep } from "./structured-output";
 import type { ModelProvider } from "../types";
 import type { VaultAdapter } from "../packs/vault-adapter";
 
 export type ClaimVerificationStatus = "verified" | "unsupported" | "quote-missing";
+
+export interface ExactPhraseAnchor {
+	notePath: string;
+	exactPhrase: string;
+	startOffset: number;
+	endOffset: number;
+	occurrenceIndex: number;
+}
 
 export interface ClaimVerification {
 	id: string;
@@ -16,6 +24,7 @@ export interface ClaimVerification {
 	supportsClaim: boolean | null;
 	supportExplanation: string;
 	status: ClaimVerificationStatus;
+	exactPhraseAnchor?: ExactPhraseAnchor;
 }
 
 interface VerifyClaimsOptions {
@@ -59,8 +68,8 @@ export async function verifyClaims(opts: VerifyClaimsOptions): Promise<ClaimVeri
 		}
 
 		const body = await opts.vault.read(file);
-		const hasQuote = quotePresent(body, claim.source_quote);
-		if (!hasQuote) {
+		const quoteResolution = resolveQuoteMatch(body, claim.source_quote);
+		if (quoteResolution.kind === "missing") {
 			verifications.push({
 				id: claim.id,
 				text: claim.text,
@@ -107,6 +116,17 @@ export async function verifyClaims(opts: VerifyClaimsOptions): Promise<ClaimVeri
 			supportsClaim: result.value.supports_claim,
 			supportExplanation: result.value.explanation,
 			status: result.value.supports_claim ? "verified" : "unsupported",
+			...(quoteResolution.kind === "exact"
+				? {
+					exactPhraseAnchor: {
+						notePath: claim.source_note,
+						exactPhrase: quoteResolution.exactPhrase,
+						startOffset: quoteResolution.startOffset,
+						endOffset: quoteResolution.endOffset,
+						occurrenceIndex: quoteResolution.occurrenceIndex,
+					},
+				}
+				: {}),
 		});
 	}
 
