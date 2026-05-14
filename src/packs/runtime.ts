@@ -3,6 +3,7 @@ import { Agent, runPipeline } from "../agents";
 import { claimsV1Schema, type ClaimsV1 } from "../agents/schemas/claims-v1";
 import { formatRetrievedNotes, retrieveEvidence, type RetrievedNote } from "../agents/retrieval";
 import { verifyClaims, type ClaimVerification, type ExactPhraseAnchor } from "../agents/verifier";
+import { composeResearchResult } from "../citations";
 import type { OpenAICompatibleConfig } from "../provider-config";
 import type { ModelProvider } from "../types";
 import type { AgentPack } from "./types";
@@ -378,13 +379,14 @@ export async function runPackForEval(opts: PackRunOptions): Promise<PackRunResul
 	const verifiedSummary = verifierEnabled
 		? verifiedClaims.map((claim) => `- ${claim.text}`).join("\n")
 		: (pipeline.context.claims?.summary ?? "");
+	const composedResearchResult = verifierEnabled ? composeResearchResult(claims) : null;
 
 	return {
 		packId: opts.pack.id,
 		packName: opts.pack.name,
 		verifiedSummary,
-		researchMarkdown: undefined,
-		citations: undefined,
+		researchMarkdown: composedResearchResult?.researchMarkdown,
+		citations: composedResearchResult?.citations,
 		claims,
 		modelsUsed,
 		artifacts: buildArtifacts(),

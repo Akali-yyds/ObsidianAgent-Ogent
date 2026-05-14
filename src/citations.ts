@@ -15,7 +15,7 @@ export type CitationTargetResolution =
 			kind: "fallback";
 			reason: "unresolved";
 			message: typeof CITATION_TARGET_FALLBACK_MESSAGE;
-	  };
+		};
 
 export const CITATION_TARGET_FALLBACK_MESSAGE = "Citation target no longer matches the live note.";
 
