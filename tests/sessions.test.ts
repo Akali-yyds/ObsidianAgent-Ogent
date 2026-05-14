@@ -73,6 +73,17 @@ describe("SessionStore", () => {
 					packId: "grounded-research",
 					packName: "Grounded Research",
 					verifiedSummary: "- Answer",
+					researchMarkdown: "Answer with [1]",
+					citations: [
+						{
+							claimId: "claim-1",
+							notePath: "notes/a.md",
+							exactPhrase: "Answer",
+							startOffset: 0,
+							endOffset: "Answer".length,
+							occurrenceIndex: 0,
+						},
+					],
 					agentWork: {
 						retriever: {
 							status: "ready",
@@ -137,6 +148,13 @@ describe("SessionStore", () => {
 							supportsClaim: true,
 							supportExplanation: "Supported",
 							status: "verified",
+							exactPhraseAnchor: {
+								notePath: "notes/a.md",
+								exactPhrase: "Answer",
+								startOffset: 0,
+								endOffset: "Answer".length,
+								occurrenceIndex: 0,
+							},
 						},
 					],
 				},
@@ -434,6 +452,85 @@ describe("loadStoredTurnsFile", () => {
 					packId: "grounded-research",
 					packName: "Grounded Research",
 					error: "Verifier offline",
+				},
+			},
+		]);
+	});
+
+	it("drops malformed anchor and citation payloads while keeping the rest of the turn readable", async () => {
+		const adapter = createMockAdapter({
+			"sessions/session-a.json": JSON.stringify({
+				turns: [
+					{
+						role: "assistant",
+						content: "partial",
+						packTurn: {
+							packId: "grounded-research",
+							packName: "Grounded Research",
+							verifiedSummary: "- Answer",
+							researchMarkdown: "Answer with [1]",
+							citations: [
+								{
+									claimId: "claim-1",
+									notePath: "notes/a.md",
+									exactPhrase: "Answer",
+									startOffset: "zero",
+									endOffset: 6,
+									occurrenceIndex: 0,
+								},
+							],
+							claims: [
+								{
+									id: "claim-1",
+									text: "Answer",
+									sourceNote: "notes/a.md",
+									sourceQuote: "Answer",
+									quotePresent: true,
+									supportsClaim: true,
+									supportExplanation: "Supported",
+									status: "verified",
+									exactPhraseAnchor: {
+										notePath: "notes/a.md",
+										exactPhrase: "Answer",
+										startOffset: "zero",
+										endOffset: 6,
+										occurrenceIndex: 0,
+									},
+								},
+							],
+						},
+					},
+				],
+			}),
+		});
+
+		const result = await loadStoredTurnsFile({
+			adapter,
+			path: "sessions/session-a.json",
+			now: () => 791,
+		});
+
+		expect(result.turns).toEqual([
+			{
+				role: "assistant",
+				content: "partial",
+				packTurn: {
+					packId: "grounded-research",
+					packName: "Grounded Research",
+					verifiedSummary: "- Answer",
+					researchMarkdown: "Answer with [1]",
+					claims: [
+						{
+							id: "claim-1",
+							text: "Answer",
+							sourceNote: "notes/a.md",
+							sourceQuote: "Answer",
+							quotePresent: true,
+							supportsClaim: true,
+							supportExplanation: "Supported",
+							status: "verified",
+						},
+					],
 				},
 			},
 		]);

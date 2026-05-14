@@ -68,6 +68,13 @@ describe("runPack", () => {
 				supportsClaim: true,
 				supportExplanation: "Matches note text",
 				status: "verified",
+				exactPhraseAnchor: {
+					notePath: "notes/a.md",
+					exactPhrase: "Alpha fact",
+					startOffset: 0,
+					endOffset: "Alpha fact".length,
+					occurrenceIndex: 0,
+				},
 			},
 			{
 				id: "claim-2",
@@ -170,6 +177,13 @@ describe("runPack", () => {
 					supportsClaim: true,
 					supportExplanation: "Matches note text",
 					status: "verified",
+					exactPhraseAnchor: {
+						notePath: "notes/a.md",
+						exactPhrase: "Alpha fact",
+						startOffset: 0,
+						endOffset: "Alpha fact".length,
+						occurrenceIndex: 0,
+					},
 				},
 				{
 					id: "claim-2",
@@ -190,6 +204,8 @@ describe("runPack", () => {
 			artifacts: expect.any(Object),
 			transparency: expect.any(Object),
 		});
+		expect(result.researchMarkdown).toBeUndefined();
+		expect(result.citations).toBeUndefined();
 		expect(events).toEqual([
 			{ kind: "step", step: { id: "retriever", label: "Retrieving notes", state: "pending", message: undefined } },
 			{ kind: "step", step: { id: "synthesizer", label: "Drafting claims", state: "pending", message: undefined } },
