@@ -147,7 +147,7 @@ export class ChatView extends ItemView {
 	private sessionsPanelVisible = false;
 	private availablePacks: AgentPack[] = [];
 	private activePackError: string | null = null;
-	private readonly agentWorkExpandedCard = new WeakMap<StoredPackTurnData, string | null>();
+	private readonly packExpandedStepId = new WeakMap<StoredPackTurnData, string | null>();
 
 	// Rename state
 	private isRenaming = false;
@@ -1224,19 +1224,9 @@ export class ChatView extends ItemView {
 	}
 
 	private renderPackTurn(parent: HTMLElement, packTurn: StoredPackTurnData): void {
-			const progress = parent.createDiv({ cls: "open-agent-pack-progress" });
-			for (const step of packTurn.progressSteps ?? []) {
-				const stepEl = progress.createDiv({ cls: `open-agent-pack-step open-agent-pack-step-${step.state}` });
-				stepEl.createEl("div", { cls: "open-agent-pack-step-label", text: step.label });
-				if (packTurn.retryingStepId === step.id) {
-					stepEl.createEl("div", {
-						cls: "open-agent-pack-retry",
-						text: "Retrying structured output (1/1)…",
-					});
-				}
-				if (step.state === "failed" && step.message) {
-					stepEl.createEl("div", { cls: "open-agent-pack-step-message", text: step.message });
-				}
+			if (this.shouldUsePackTranscriptRedesign(packTurn)) {
+				this.renderRedesignedPackTurn(parent, packTurn);
+				return;
 			}
 
 			if (packTurn.verifiedSummary && packTurn.verifiedSummary.trim().length > 0) {
@@ -1249,10 +1239,6 @@ export class ChatView extends ItemView {
 					cls: "open-agent-pack-step-message",
 					text: "No claims could be verified against your notes.",
 				});
-			}
-
-			if (packTurn.agentWork) {
-				this.renderAgentWorkSection(parent, packTurn, packTurn.agentWork);
 			}
 
 			const verifiedClaims = (packTurn.claims ?? []).filter((claim) => claim.status === "verified");
@@ -1279,273 +1265,255 @@ export class ChatView extends ItemView {
 			}
 		}
 
-		private renderAgentWorkSection(
-			parent: HTMLElement,
-			packTurn: StoredPackTurnData,
-			agentWork: PackRunTransparency,
-		): void {
-			parent.createEl("div", { cls: "open-agent-pack-section-title", text: "Agent work" });
-			const section = parent.createDiv({ cls: "open-agent-work-section" });
-			const cards: Array<{
-				id: string;
-				toggle: HTMLButtonElement;
-				details: HTMLElement;
-				interactive: boolean;
-			}> = [];
-			let expandedCardId = this.agentWorkExpandedCard.get(packTurn);
-			if (expandedCardId === undefined) {
-				expandedCardId = defaultExpandedAgentWorkCard(agentWork);
-				this.agentWorkExpandedCard.set(packTurn, expandedCardId);
+		private shouldUsePackTranscriptRedesign(packTurn: StoredPackTurnData): boolean {
+			return Boolean(packTurn.agentWork && (packTurn.progressSteps?.length ?? 0) > 0);
+		}
+
+		private renderRedesignedPackTurn(parent: HTMLElement, packTurn: StoredPackTurnData): void {
+			const agentWork = packTurn.agentWork;
+			if (!agentWork) return;
+			const runState = agentWork.run.state;
+			const researchMarkdown = packTurn.researchMarkdown?.trim() ?? "";
+
+			if (runState !== "running") {
+				parent.createEl("div", {
+					cls: "open-agent-pack-section-title",
+					text: researchMarkdown ? "Research result" : "Research result unavailable",
+				});
+				parent.createEl("div", {
+					cls: "open-agent-pack-result-meta",
+					text: formatDuration(agentWork.run.elapsedMs),
+				});
+				const resultBody = parent.createDiv({ cls: "open-agent-turn-body" });
+				void MarkdownRenderer.render(
+					this.app,
+					researchMarkdown || "This run did not produce a citation-ready research answer. Review the completed steps and claim details below, then rerun research if needed.",
+					resultBody,
+					"",
+					this,
+				);
 			}
-			const renderCard = (
-				id: string,
-				title: string,
-				summaryRenderer: (summary: HTMLElement) => boolean,
-				detailsRenderer: (details: HTMLElement) => void,
-			): void => {
-				const card = section.createDiv({ cls: "open-agent-work-card" });
-				const header = card.createDiv({ cls: "open-agent-work-header" });
-				header.createEl("div", { cls: "open-agent-work-card-title", text: title });
-				const summary = header.createDiv({ cls: "open-agent-work-summary" });
-				const interactive = summaryRenderer(summary);
-				const toggle = header.createEl("button", {
-					cls: "open-agent-work-toggle",
-					text: interactive && expandedCardId === id ? "Hide details" : "Show details",
-				});
-				if (!interactive) toggle.disabled = true;
-				const details = card.createDiv({ cls: "open-agent-work-details" });
-				detailsRenderer(details);
-				cards.push({
-					id,
-					toggle,
-					details,
-					interactive,
-				});
-			};
 
-			renderCard(
-				"retriever",
-				"Retriever",
-				(summary) => this.renderRetrieverSummary(summary, packTurn, agentWork),
-				(details) => this.renderRetrieverDetails(details, agentWork),
-			);
-			renderCard(
-				"synthesizer",
-				"Synthesizer",
-				(summary) => this.renderSynthesizerSummary(summary, agentWork),
-				(details) => this.renderSynthesizerDetails(details, agentWork),
-			);
-			renderCard(
-				"verifier",
-				"Verifier",
-				(summary) => this.renderVerifierSummary(summary, agentWork),
-				(details) => this.renderVerifierDetails(details, agentWork),
-			);
-			renderCard(
-				"run",
-				"Run metadata",
-				(summary) => this.renderRunSummary(summary, agentWork),
-				(details) => this.renderRunDetails(details, agentWork),
-			);
+			const progress = parent.createDiv({ cls: "open-agent-pack-progress" });
+			const expandedStepSetters: Array<(open: boolean) => void> = [];
+			let expandedStepId = this.getInitialExpandedPackStep(packTurn, agentWork);
 
-			const setExpanded = (nextId: string | null): void => {
-				this.agentWorkExpandedCard.set(packTurn, nextId);
-				for (const card of cards) {
-					const open = card.interactive && card.id === nextId;
-					card.details.classList.toggle("is-hidden", !open);
-					card.toggle.textContent = open ? "Hide details" : "Show details";
-					card.toggle.classList.toggle("is-active", open);
-					card.toggle.disabled = !card.interactive;
+			for (const step of packTurn.progressSteps ?? []) {
+				const stepId = step.id;
+				const details = this.getPackStepDetails(stepId, agentWork);
+				const readyDetails = details?.status === "ready" ? details : null;
+				const expandable = Boolean(details || step.message);
+				const stepEl = progress.createEl(expandable ? "button" : "div", {
+					cls: `open-agent-pack-step open-agent-pack-step-${step.state}`,
+				});
+				if (expandable) {
+					stepEl.setAttribute("type", "button");
+					stepEl.setAttribute("aria-expanded", String(expandedStepId === stepId));
 				}
-			};
 
-			for (const card of cards) {
-				card.toggle.addEventListener("click", () => {
-					if (!card.interactive) return;
-					setExpanded(this.agentWorkExpandedCard.get(packTurn) === card.id ? null : card.id);
+				const header = stepEl.createDiv({ cls: "open-agent-pack-step-header" });
+				header.createEl("div", {
+					cls: "open-agent-pack-step-label",
+					text: packStepTitle(step),
+				});
+				header.createEl("div", {
+					cls: "open-agent-pack-step-meta",
+					text: `${packStepStateLabel(step.state)} • ${formatDuration(agentWork.run.stepElapsedMs[toPackRunStepId(step.id)])}`,
+				});
+
+				this.renderPackStepSummary(stepEl, stepId, readyDetails);
+				if (packTurn.retryingStepId === step.id) {
+					stepEl.createEl("div", {
+						cls: "open-agent-pack-retry",
+						text: "Retrying structured output (1/1)…",
+					});
+				}
+				if (step.state === "failed" && step.message) {
+					stepEl.createEl("div", { cls: "open-agent-pack-step-message", text: step.message });
+				}
+
+				const detailEl = stepEl.createDiv({ cls: "open-agent-pack-step-details" });
+				if (readyDetails) {
+					this.renderPackStepDetails(detailEl, stepId, readyDetails);
+				} else {
+					detailEl.createEl("div", {
+						cls: "open-agent-pack-step-empty",
+						text: details?.status === "pending" ? "Waiting for step to finish." : "No details captured.",
+					});
+				}
+
+				const setExpanded = (open: boolean): void => {
+					detailEl.classList.toggle("is-hidden", !open);
+					if (expandable) {
+						stepEl.setAttribute("aria-expanded", String(open));
+						stepEl.classList.toggle("is-expanded", open);
+					}
+				};
+				expandedStepSetters.push(setExpanded);
+				setExpanded(expandedStepId === stepId);
+
+				if (expandable) {
+					stepEl.addEventListener("click", () => {
+						expandedStepId = expandedStepId === stepId ? null : stepId;
+						this.packExpandedStepId.set(packTurn, expandedStepId);
+						for (let index = 0; index < expandedStepSetters.length; index += 1) {
+							const targetStep = packTurn.progressSteps?.[index];
+							expandedStepSetters[index]?.(targetStep?.id === expandedStepId);
+						}
+					});
+				}
+			}
+
+			for (const claim of packTurn.claims ?? []) {
+				this.renderPackClaim(parent, claim);
+			}
+
+			if (packTurn.modelsUsed) {
+				parent.createEl("div", {
+					cls: "open-agent-pack-model-footer",
+					text:
+						`Models used: Retriever — ${packTurn.modelsUsed.retriever}; ` +
+						`Synthesizer — ${packTurn.modelsUsed.synthesizer}; ` +
+						`Verifier — ${packTurn.modelsUsed.verifier}`,
 				});
 			}
-			setExpanded(expandedCardId ?? null);
 		}
 
-		private renderRetrieverSummary(
-			summary: HTMLElement,
-			_packTurn: StoredPackTurnData,
+		private getInitialExpandedPackStep(packTurn: StoredPackTurnData, agentWork: PackRunTransparency): string | null {
+			const existing = this.packExpandedStepId.get(packTurn);
+			if (existing !== undefined) return existing;
+			const initial = agentWork.run.state === "failed" ? agentWork.run.failedStepId ?? null : null;
+			this.packExpandedStepId.set(packTurn, initial);
+			return initial;
+		}
+
+		private renderPackStepSummary(
+			parent: HTMLElement,
+			stepId: string,
+			details:
+				| PackRunTransparency["retriever"]
+				| PackRunTransparency["synthesizer"]
+				| PackRunTransparency["verifier"]
+				| null,
+		): void {
+			if (!details) return;
+			const summary = parent.createDiv({ cls: "open-agent-pack-step-summary" });
+			if (stepId === "retriever" && "notesFoundCount" in details) {
+				summary.createEl("span", {
+					cls: "open-agent-work-summary-text",
+					text: `${details.notesFoundCount ?? 0} notes`,
+				});
+				for (const path of details.topNotePaths ?? []) {
+					this.renderNotePathChip(summary, path);
+				}
+				const extraCount = Math.max(0, (details.notesFoundCount ?? 0) - (details.topNotePaths?.length ?? 0));
+				if (extraCount > 0) {
+					summary.createEl("span", {
+						cls: "open-agent-work-summary-text open-agent-work-muted",
+						text: `+${extraCount} more`,
+					});
+				}
+				return;
+			}
+			if (stepId === "synthesizer" && "claimCount" in details) {
+				summary.createEl("span", {
+					cls: "open-agent-work-summary-text",
+					text: `${details.claimCount ?? 0} draft claims`,
+				});
+				summary.createEl("span", {
+					cls: "open-agent-work-summary-text",
+					text: truncateAgentWorkPreview(details.summary ?? ""),
+				});
+				return;
+			}
+			if (stepId === "verifier" && "counts" in details) {
+				const counts = details.counts ?? { verified: 0, unsupported: 0, quoteMissing: 0 };
+				summary.createEl("span", { cls: "open-agent-work-chip open-agent-work-chip-verified", text: `Verified ${counts.verified}` });
+				summary.createEl("span", { cls: "open-agent-work-chip open-agent-work-chip-unsupported", text: `Unsupported ${counts.unsupported}` });
+				summary.createEl("span", {
+					cls: "open-agent-work-chip open-agent-work-chip-quote-missing",
+					text: `Quote missing ${counts.quoteMissing}`,
+				});
+			}
+		}
+
+		private renderPackStepDetails(
+			parent: HTMLElement,
+			stepId: string,
+			details:
+				| PackRunTransparency["retriever"]
+				| PackRunTransparency["synthesizer"]
+				| PackRunTransparency["verifier"],
+		): void {
+			if (stepId === "retriever" && "notesFoundCount" in details) {
+				parent.createEl("div", {
+					cls: "open-agent-work-brief",
+					text: details.brief ?? "No details captured.",
+				});
+				return;
+			}
+			if (stepId === "synthesizer" && "claimCount" in details) {
+				parent.createEl("div", {
+					cls: "open-agent-work-brief",
+					text: truncateAgentWorkPreview(details.summary ?? ""),
+				});
+				parent.createEl("div", { cls: "open-agent-work-raw-json-label", text: "Raw JSON" });
+				const rawJson = parent.createEl("pre", { cls: "open-agent-work-raw-json" });
+				rawJson.setText(safeStringify(details.rawJson ?? {}));
+				return;
+			}
+			if (stepId === "verifier" && "reasons" in details) {
+				for (const reason of details.reasons ?? []) {
+					const row = parent.createDiv({ cls: "open-agent-work-verifier-row" });
+					row.createEl("span", {
+						cls: verifierReasonStatusClass(reason.status),
+						text: claimStatusLabel(reason.status),
+					});
+					row.createEl("span", {
+						cls: "open-agent-work-verifier-claim",
+						text: truncateClaimPreview(reason.claimText),
+					});
+					row.createEl("span", {
+						cls: "open-agent-work-verifier-source",
+						text: sourceNoteLabel(reason.sourceNote),
+					});
+					row.createEl("span", {
+						cls: "open-agent-work-verifier-explanation",
+						text: reason.explanation,
+					});
+				}
+			}
+		}
+
+		private renderNotePathChip(parent: HTMLElement, path: string): void {
+			const chip = parent.createEl("span", {
+				cls: "open-agent-work-note-path",
+				text: path,
+			});
+			chip.addEventListener("click", (event) => {
+				(event as MouseEvent & { stopPropagation?: () => void }).stopPropagation?.();
+				this.openStoredNote(path);
+			});
+		}
+
+		private getPackStepDetails(
+			stepId: string,
 			agentWork: PackRunTransparency,
-		): boolean {
-			const retriever = agentWork.retriever;
-			if (!isAgentWorkCardInteractive(retriever.status, agentWork.run.state)) {
-				summary.createEl("span", {
-					cls: "open-agent-work-muted",
-					text: retriever.status === "pending" ? "Waiting for step to finish." : "No data captured",
-				});
-				return false;
+		):
+			| PackRunTransparency["retriever"]
+			| PackRunTransparency["synthesizer"]
+			| PackRunTransparency["verifier"]
+			| null {
+			switch (stepId) {
+				case "retriever":
+					return agentWork.retriever;
+				case "synthesizer":
+					return agentWork.synthesizer;
+				case "verifier":
+					return agentWork.verifier;
+				default:
+					return null;
 			}
-			summary.createEl("span", {
-				cls: "open-agent-work-summary-text",
-				text: `${retriever.notesFoundCount ?? 0} notes found`,
-			});
-			for (const path of retriever.topNotePaths ?? []) {
-				const button = summary.createEl("button", {
-					cls: "open-agent-work-note-path",
-					text: path,
-				});
-				button.addEventListener("click", () => this.openStoredNote(path));
-			}
-			const extraCount = Math.max(0, (retriever.notesFoundCount ?? 0) - (retriever.topNotePaths?.length ?? 0));
-			if (extraCount > 0) {
-				summary.createEl("span", {
-					cls: "open-agent-work-summary-text open-agent-work-muted",
-					text: `+${extraCount} more`,
-				});
-			}
-			return true;
-		}
-
-		private renderRetrieverDetails(details: HTMLElement, agentWork: PackRunTransparency): void {
-			const retriever = agentWork.retriever;
-			if (retriever.status !== "ready") {
-				details.createEl("div", {
-					cls: "open-agent-work-empty",
-					text: retriever.status === "pending" ? "Waiting for step to finish." : "No data captured",
-				});
-				return;
-			}
-			details.createEl("div", {
-				cls: "open-agent-work-brief",
-				text: retriever.brief ?? "",
-			});
-		}
-
-		private renderSynthesizerSummary(summary: HTMLElement, agentWork: PackRunTransparency): boolean {
-			const synthesizer = agentWork.synthesizer;
-			if (!isAgentWorkCardInteractive(synthesizer.status, agentWork.run.state)) {
-				summary.createEl("span", {
-					cls: "open-agent-work-muted",
-					text: synthesizer.status === "pending" ? "Waiting for step to finish." : "No data captured",
-				});
-				return false;
-			}
-			summary.createEl("span", {
-				cls: "open-agent-work-summary-text",
-				text: `${synthesizer.claimCount ?? 0} draft claims`,
-			});
-			summary.createEl("span", {
-				cls: "open-agent-work-summary-text",
-				text: truncateAgentWorkPreview(synthesizer.summary ?? ""),
-			});
-			return true;
-		}
-
-		private renderSynthesizerDetails(details: HTMLElement, agentWork: PackRunTransparency): void {
-			const synthesizer = agentWork.synthesizer;
-			if (synthesizer.status !== "ready") {
-				details.createEl("div", {
-					cls: "open-agent-work-empty",
-					text: synthesizer.status === "pending" ? "Waiting for step to finish." : "No data captured",
-				});
-				return;
-			}
-			details.createEl("div", { cls: "open-agent-work-raw-json-label", text: "Raw JSON" });
-			const rawJson = details.createEl("pre", { cls: "open-agent-work-raw-json" });
-			rawJson.setText(safeStringify(synthesizer.rawJson ?? {}));
-		}
-
-		private renderVerifierSummary(summary: HTMLElement, agentWork: PackRunTransparency): boolean {
-			const verifier = agentWork.verifier;
-			if (!isAgentWorkCardInteractive(verifier.status, agentWork.run.state)) {
-				summary.createEl("span", {
-					cls: "open-agent-work-muted",
-					text: verifier.status === "pending" ? "Waiting for step to finish." : "No data captured",
-				});
-				return false;
-			}
-			const counts = verifier.counts ?? {
-				verified: 0,
-				unsupported: 0,
-				quoteMissing: 0,
-			};
-			summary.createEl("span", {
-				cls: "open-agent-work-chip open-agent-work-chip-verified",
-				text: `Verified ${counts.verified}`,
-			});
-			summary.createEl("span", {
-				cls: "open-agent-work-chip open-agent-work-chip-unsupported",
-				text: `Unsupported ${counts.unsupported}`,
-			});
-			summary.createEl("span", {
-				cls: "open-agent-work-chip open-agent-work-chip-quote-missing",
-				text: `Quote missing ${counts.quoteMissing}`,
-			});
-			return true;
-		}
-
-		private renderVerifierDetails(details: HTMLElement, agentWork: PackRunTransparency): void {
-			const verifier = agentWork.verifier;
-			if (verifier.status !== "ready") {
-				details.createEl("div", {
-					cls: "open-agent-work-empty",
-					text: verifier.status === "pending" ? "Waiting for step to finish." : "No data captured",
-				});
-				return;
-			}
-			for (const reason of verifier.reasons ?? []) {
-				const row = details.createDiv({ cls: "open-agent-work-verifier-row" });
-				row.createEl("span", {
-					cls: `open-agent-work-chip open-agent-work-chip-${reason.status}`,
-					text: claimStatusLabel(reason.status),
-				});
-				row.createEl("span", {
-					cls: "open-agent-work-verifier-claim",
-					text: truncateAgentWorkLine(reason.claimText),
-				});
-				row.createEl("span", {
-					cls: "open-agent-work-verifier-source",
-					text: sourceNoteLabel(reason.sourceNote),
-				});
-				row.createEl("span", {
-					cls: "open-agent-work-verifier-explanation",
-					text: reason.explanation,
-				});
-			}
-		}
-
-		private renderRunSummary(summary: HTMLElement, agentWork: PackRunTransparency): boolean {
-			summary.createEl("span", {
-				cls: "open-agent-work-summary-text",
-				text: `Total ${formatDuration(agentWork.run.elapsedMs)}`,
-			});
-			summary.createEl("span", {
-				cls: "open-agent-work-summary-text",
-				text: `Retriever ${formatDuration(agentWork.run.stepElapsedMs.retriever)}`,
-			});
-			summary.createEl("span", {
-				cls: "open-agent-work-summary-text",
-				text: `Synthesizer ${formatDuration(agentWork.run.stepElapsedMs.synthesizer)}`,
-			});
-			summary.createEl("span", {
-				cls: "open-agent-work-summary-text",
-				text: `Verifier ${formatDuration(agentWork.run.stepElapsedMs.verifier)}`,
-			});
-			return true;
-		}
-
-		private renderRunDetails(details: HTMLElement, agentWork: PackRunTransparency): void {
-			const rows: Array<[string, number | undefined]> = [
-				["Total", agentWork.run.elapsedMs],
-				["Retriever", agentWork.run.stepElapsedMs.retriever],
-				["Synthesizer", agentWork.run.stepElapsedMs.synthesizer],
-				["Verifier", agentWork.run.stepElapsedMs.verifier],
-			];
-			for (const [label, value] of rows) {
-				const row = details.createDiv({ cls: "open-agent-work-run-row" });
-				row.createEl("span", { cls: "open-agent-work-run-label", text: label });
-				row.createEl("span", { cls: "open-agent-work-run-value", text: formatDuration(value) });
-			}
-			details.createEl("div", {
-				cls: "open-agent-work-run-state",
-				text: runStateLabel(agentWork.run.state),
-			});
 		}
 
 		private openStoredNote(path: string): void {
@@ -1572,22 +1540,22 @@ export class ChatView extends ItemView {
 
 			const details = card.createDiv({ cls: "open-agent-claim-details" });
 			const shouldExpand = claim.status !== "verified";
-			const toggle = card.createEl("button", {
-				text: shouldExpand ? "Hide details" : "Show details",
+			const toggle = meta.createEl("button", {
+				text: shouldExpand ? "Hide info" : "Info",
 				cls: "open-agent-claim-toggle",
 			});
 			details.classList.toggle("is-hidden", !shouldExpand);
 			toggle.addEventListener("click", () => {
 				const open = details.classList.contains("is-hidden");
 				details.classList.toggle("is-hidden", !open);
-				toggle.textContent = open ? "Hide details" : "Show details";
+				toggle.textContent = open ? "Hide info" : "Info";
 			});
 
 			details.createEl("div", {
 				cls: "open-agent-claim-quote",
 				text: claim.quotePresent ? claim.sourceQuote : "Quoted text not found in the live note.",
 			});
-			if (claim.status !== "verified") {
+			if (claim.supportExplanation.trim().length > 0) {
 				details.createEl("div", { cls: "open-agent-claim-explanation", text: claim.supportExplanation });
 			}
 		}
@@ -1709,28 +1677,6 @@ function sourceNoteLabel(path: string): string {
 	return parts[parts.length - 1] || path;
 }
 
-function defaultExpandedAgentWorkCard(agentWork: PackRunTransparency): string | null {
-	if (agentWork.run.state !== "failed") return null;
-	if (agentWork.run.failedStepId && cardShouldAutoExpand(agentWork, agentWork.run.failedStepId)) {
-		return agentWork.run.failedStepId;
-	}
-	for (const id of ["retriever", "synthesizer", "verifier"] as const) {
-		if (cardShouldAutoExpand(agentWork, id)) return id;
-	}
-	return null;
-}
-
-function cardShouldAutoExpand(agentWork: PackRunTransparency, id: "retriever" | "synthesizer" | "verifier"): boolean {
-	return agentWork[id].status !== "ready";
-}
-
-function isAgentWorkCardInteractive(
-	status: PackRunTransparency["retriever"]["status"],
-	runState: PackRunTransparency["run"]["state"],
-): boolean {
-	return status === "ready" || (status === "absent" && runState !== "running");
-}
-
 function truncateAgentWorkPreview(text: string): string {
 	const normalized = text.replace(/\r\n/g, "\n").trim();
 	if (!normalized) return "";
@@ -1740,10 +1686,58 @@ function truncateAgentWorkPreview(text: string): string {
 	return `${truncated.replace(/[.,;:!?-]$/, "")}…`;
 }
 
-function truncateAgentWorkLine(text: string, maxLength = 80): string {
-	const trimmed = text.trim();
-	if (trimmed.length <= maxLength) return trimmed;
-	return `${trimmed.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
+function truncateClaimPreview(text: string): string {
+	const normalized = text.trim();
+	if (normalized.length <= 96) return normalized;
+	return `${normalized.slice(0, 96).trimEnd()}…`;
+}
+
+function packStepTitle(step: StoredPackProgressStep): string {
+	switch (step.id) {
+		case "retriever":
+			return "Retriever";
+		case "synthesizer":
+			return "Synthesizer";
+		case "verifier":
+			return "Verifier";
+		default:
+			return step.label;
+	}
+}
+
+function packStepStateLabel(state: StoredPackProgressStep["state"]): string {
+	switch (state) {
+		case "pending":
+			return "Pending";
+		case "running":
+			return "Running";
+		case "complete":
+			return "Complete";
+		case "failed":
+			return "Failed";
+	}
+}
+
+function toPackRunStepId(stepId: string): "retriever" | "synthesizer" | "verifier" {
+	switch (stepId) {
+		case "retriever":
+		case "synthesizer":
+		case "verifier":
+			return stepId;
+		default:
+			return "verifier";
+	}
+}
+
+function verifierReasonStatusClass(status: StoredPackClaim["status"]): string {
+	switch (status) {
+		case "verified":
+			return "open-agent-work-chip open-agent-work-chip-verified";
+		case "unsupported":
+			return "open-agent-work-chip open-agent-work-chip-unsupported";
+		case "quote-missing":
+			return "open-agent-work-chip open-agent-work-chip-quote-missing";
+	}
 }
 
 function formatDuration(ms: number | undefined): string {
@@ -1760,17 +1754,4 @@ function formatDuration(ms: number | undefined): string {
 	const minutes = Math.floor(roundedSeconds / 60);
 	const seconds = roundedSeconds % 60;
 	return `${minutes}m ${seconds}s`;
-}
-
-function runStateLabel(state: PackRunTransparency["run"]["state"]): string {
-	switch (state) {
-		case "completed":
-			return "Completed";
-		case "failed":
-			return "Failed";
-		case "stopped":
-			return "Stopped";
-		case "running":
-			return "Running";
-	}
 }
