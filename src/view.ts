@@ -6,7 +6,7 @@ import { renderRows } from "./consent/render-diff";
 import { runTurn } from "./loop";
 import { isMobile } from "./platform";
 import { OpenAICompatibleProvider } from "./provider";
-import { PackConfigError, type PackRuntimeEvent, type PackRunResult } from "./packs/runtime";
+import { PackConfigError, PackRunError, type PackRuntimeEvent, type PackRunResult, type PackRunTransparency } from "./packs/runtime";
 import type { AgentPack } from "./packs/types";
 import { isConfigured, type PluginSettings } from "./settings";
 import type {
@@ -147,6 +147,7 @@ export class ChatView extends ItemView {
 	private sessionsPanelVisible = false;
 	private availablePacks: AgentPack[] = [];
 	private activePackError: string | null = null;
+	private readonly agentWorkExpandedCard = new WeakMap<StoredPackTurnData, string | null>();
 
 	// Rename state
 	private isRenaming = false;
@@ -899,6 +900,7 @@ export class ChatView extends ItemView {
 					supportExplanation: claim.supportExplanation,
 					status: claim.status,
 				}));
+				assistantTurn.packTurn.agentWork = result.transparency;
 				assistantTurn.packTurn.modelsUsed = result.modelsUsed;
 				assistantTurn.error = undefined;
 			}
@@ -906,6 +908,22 @@ export class ChatView extends ItemView {
 			const message = error instanceof Error ? error.message : String(error);
 			if (assistantTurn.packTurn) {
 				assistantTurn.packTurn.error = message;
+				if (error instanceof PackRunError) {
+					assistantTurn.packTurn.agentWork = error.failure.transparency;
+					assistantTurn.packTurn.modelsUsed = error.failure.modelsUsed;
+					if (error.failure.artifacts.verifications) {
+						assistantTurn.packTurn.claims = error.failure.artifacts.verifications.map((claim) => ({
+							id: claim.id,
+							text: claim.text,
+							sourceNote: claim.sourceNote,
+							sourceQuote: claim.sourceQuote,
+							quotePresent: claim.quotePresent,
+							supportsClaim: claim.supportsClaim,
+							supportExplanation: claim.supportExplanation,
+							status: claim.status,
+						}));
+					}
+				}
 				markPackFailed(assistantTurn.packTurn.progressSteps ?? []);
 			}
 			assistantTurn.error = message;
@@ -964,6 +982,9 @@ export class ChatView extends ItemView {
 			if (event.step.state !== "running") packTurn.retryingStepId = null;
 			if (event.step.state === "failed" && event.step.message) {
 				packTurn.error = event.step.message;
+			}
+			if (event.agentWork) {
+				packTurn.agentWork = event.agentWork;
 			}
 			return;
 		}
@@ -1230,6 +1251,10 @@ export class ChatView extends ItemView {
 				});
 			}
 
+			if (packTurn.agentWork) {
+				this.renderAgentWorkSection(parent, packTurn, packTurn.agentWork);
+			}
+
 			const verifiedClaims = (packTurn.claims ?? []).filter((claim) => claim.status === "verified");
 			for (const claim of verifiedClaims) {
 				this.renderPackClaim(parent, claim);
@@ -1254,6 +1279,284 @@ export class ChatView extends ItemView {
 			}
 		}
 
+		private renderAgentWorkSection(
+			parent: HTMLElement,
+			packTurn: StoredPackTurnData,
+			agentWork: PackRunTransparency,
+		): void {
+			parent.createEl("div", { cls: "open-agent-pack-section-title", text: "Agent work" });
+			const section = parent.createDiv({ cls: "open-agent-work-section" });
+			const cards: Array<{
+				id: string;
+				toggle: HTMLButtonElement;
+				details: HTMLElement;
+				interactive: boolean;
+			}> = [];
+			let expandedCardId = this.agentWorkExpandedCard.get(packTurn);
+			if (expandedCardId === undefined) {
+				expandedCardId = defaultExpandedAgentWorkCard(agentWork);
+				this.agentWorkExpandedCard.set(packTurn, expandedCardId);
+			}
+			const renderCard = (
+				id: string,
+				title: string,
+				summaryRenderer: (summary: HTMLElement) => boolean,
+				detailsRenderer: (details: HTMLElement) => void,
+			): void => {
+				const card = section.createDiv({ cls: "open-agent-work-card" });
+				const header = card.createDiv({ cls: "open-agent-work-header" });
+				header.createEl("div", { cls: "open-agent-work-card-title", text: title });
+				const summary = header.createDiv({ cls: "open-agent-work-summary" });
+				const interactive = summaryRenderer(summary);
+				const toggle = header.createEl("button", {
+					cls: "open-agent-work-toggle",
+					text: interactive && expandedCardId === id ? "Hide details" : "Show details",
+				});
+				if (!interactive) toggle.disabled = true;
+				const details = card.createDiv({ cls: "open-agent-work-details" });
+				detailsRenderer(details);
+				cards.push({
+					id,
+					toggle,
+					details,
+					interactive,
+				});
+			};
+
+			renderCard(
+				"retriever",
+				"Retriever",
+				(summary) => this.renderRetrieverSummary(summary, packTurn, agentWork),
+				(details) => this.renderRetrieverDetails(details, agentWork),
+			);
+			renderCard(
+				"synthesizer",
+				"Synthesizer",
+				(summary) => this.renderSynthesizerSummary(summary, agentWork),
+				(details) => this.renderSynthesizerDetails(details, agentWork),
+			);
+			renderCard(
+				"verifier",
+				"Verifier",
+				(summary) => this.renderVerifierSummary(summary, agentWork),
+				(details) => this.renderVerifierDetails(details, agentWork),
+			);
+			renderCard(
+				"run",
+				"Run metadata",
+				(summary) => this.renderRunSummary(summary, agentWork),
+				(details) => this.renderRunDetails(details, agentWork),
+			);
+
+			const setExpanded = (nextId: string | null): void => {
+				this.agentWorkExpandedCard.set(packTurn, nextId);
+				for (const card of cards) {
+					const open = card.interactive && card.id === nextId;
+					card.details.classList.toggle("is-hidden", !open);
+					card.toggle.textContent = open ? "Hide details" : "Show details";
+					card.toggle.classList.toggle("is-active", open);
+					card.toggle.disabled = !card.interactive;
+				}
+			};
+
+			for (const card of cards) {
+				card.toggle.addEventListener("click", () => {
+					if (!card.interactive) return;
+					setExpanded(this.agentWorkExpandedCard.get(packTurn) === card.id ? null : card.id);
+				});
+			}
+			setExpanded(expandedCardId ?? null);
+		}
+
+		private renderRetrieverSummary(
+			summary: HTMLElement,
+			_packTurn: StoredPackTurnData,
+			agentWork: PackRunTransparency,
+		): boolean {
+			const retriever = agentWork.retriever;
+			if (!isAgentWorkCardInteractive(retriever.status, agentWork.run.state)) {
+				summary.createEl("span", {
+					cls: "open-agent-work-muted",
+					text: retriever.status === "pending" ? "Waiting for step to finish." : "No data captured",
+				});
+				return false;
+			}
+			summary.createEl("span", {
+				cls: "open-agent-work-summary-text",
+				text: `${retriever.notesFoundCount ?? 0} notes found`,
+			});
+			for (const path of retriever.topNotePaths ?? []) {
+				const button = summary.createEl("button", {
+					cls: "open-agent-work-note-path",
+					text: path,
+				});
+				button.addEventListener("click", () => this.openStoredNote(path));
+			}
+			const extraCount = Math.max(0, (retriever.notesFoundCount ?? 0) - (retriever.topNotePaths?.length ?? 0));
+			if (extraCount > 0) {
+				summary.createEl("span", {
+					cls: "open-agent-work-summary-text open-agent-work-muted",
+					text: `+${extraCount} more`,
+				});
+			}
+			return true;
+		}
+
+		private renderRetrieverDetails(details: HTMLElement, agentWork: PackRunTransparency): void {
+			const retriever = agentWork.retriever;
+			if (retriever.status !== "ready") {
+				details.createEl("div", {
+					cls: "open-agent-work-empty",
+					text: retriever.status === "pending" ? "Waiting for step to finish." : "No data captured",
+				});
+				return;
+			}
+			details.createEl("div", {
+				cls: "open-agent-work-brief",
+				text: retriever.brief ?? "",
+			});
+		}
+
+		private renderSynthesizerSummary(summary: HTMLElement, agentWork: PackRunTransparency): boolean {
+			const synthesizer = agentWork.synthesizer;
+			if (!isAgentWorkCardInteractive(synthesizer.status, agentWork.run.state)) {
+				summary.createEl("span", {
+					cls: "open-agent-work-muted",
+					text: synthesizer.status === "pending" ? "Waiting for step to finish." : "No data captured",
+				});
+				return false;
+			}
+			summary.createEl("span", {
+				cls: "open-agent-work-summary-text",
+				text: `${synthesizer.claimCount ?? 0} draft claims`,
+			});
+			summary.createEl("span", {
+				cls: "open-agent-work-summary-text",
+				text: truncateAgentWorkPreview(synthesizer.summary ?? ""),
+			});
+			return true;
+		}
+
+		private renderSynthesizerDetails(details: HTMLElement, agentWork: PackRunTransparency): void {
+			const synthesizer = agentWork.synthesizer;
+			if (synthesizer.status !== "ready") {
+				details.createEl("div", {
+					cls: "open-agent-work-empty",
+					text: synthesizer.status === "pending" ? "Waiting for step to finish." : "No data captured",
+				});
+				return;
+			}
+			details.createEl("div", { cls: "open-agent-work-raw-json-label", text: "Raw JSON" });
+			const rawJson = details.createEl("pre", { cls: "open-agent-work-raw-json" });
+			rawJson.setText(safeStringify(synthesizer.rawJson ?? {}));
+		}
+
+		private renderVerifierSummary(summary: HTMLElement, agentWork: PackRunTransparency): boolean {
+			const verifier = agentWork.verifier;
+			if (!isAgentWorkCardInteractive(verifier.status, agentWork.run.state)) {
+				summary.createEl("span", {
+					cls: "open-agent-work-muted",
+					text: verifier.status === "pending" ? "Waiting for step to finish." : "No data captured",
+				});
+				return false;
+			}
+			const counts = verifier.counts ?? {
+				verified: 0,
+				unsupported: 0,
+				quoteMissing: 0,
+			};
+			summary.createEl("span", {
+				cls: "open-agent-work-chip open-agent-work-chip-verified",
+				text: `Verified ${counts.verified}`,
+			});
+			summary.createEl("span", {
+				cls: "open-agent-work-chip open-agent-work-chip-unsupported",
+				text: `Unsupported ${counts.unsupported}`,
+			});
+			summary.createEl("span", {
+				cls: "open-agent-work-chip open-agent-work-chip-quote-missing",
+				text: `Quote missing ${counts.quoteMissing}`,
+			});
+			return true;
+		}
+
+		private renderVerifierDetails(details: HTMLElement, agentWork: PackRunTransparency): void {
+			const verifier = agentWork.verifier;
+			if (verifier.status !== "ready") {
+				details.createEl("div", {
+					cls: "open-agent-work-empty",
+					text: verifier.status === "pending" ? "Waiting for step to finish." : "No data captured",
+				});
+				return;
+			}
+			for (const reason of verifier.reasons ?? []) {
+				const row = details.createDiv({ cls: "open-agent-work-verifier-row" });
+				row.createEl("span", {
+					cls: `open-agent-work-chip open-agent-work-chip-${reason.status}`,
+					text: claimStatusLabel(reason.status),
+				});
+				row.createEl("span", {
+					cls: "open-agent-work-verifier-claim",
+					text: truncateAgentWorkLine(reason.claimText),
+				});
+				row.createEl("span", {
+					cls: "open-agent-work-verifier-source",
+					text: sourceNoteLabel(reason.sourceNote),
+				});
+				row.createEl("span", {
+					cls: "open-agent-work-verifier-explanation",
+					text: reason.explanation,
+				});
+			}
+		}
+
+		private renderRunSummary(summary: HTMLElement, agentWork: PackRunTransparency): boolean {
+			summary.createEl("span", {
+				cls: "open-agent-work-summary-text",
+				text: `Total ${formatDuration(agentWork.run.elapsedMs)}`,
+			});
+			summary.createEl("span", {
+				cls: "open-agent-work-summary-text",
+				text: `Retriever ${formatDuration(agentWork.run.stepElapsedMs.retriever)}`,
+			});
+			summary.createEl("span", {
+				cls: "open-agent-work-summary-text",
+				text: `Synthesizer ${formatDuration(agentWork.run.stepElapsedMs.synthesizer)}`,
+			});
+			summary.createEl("span", {
+				cls: "open-agent-work-summary-text",
+				text: `Verifier ${formatDuration(agentWork.run.stepElapsedMs.verifier)}`,
+			});
+			return true;
+		}
+
+		private renderRunDetails(details: HTMLElement, agentWork: PackRunTransparency): void {
+			const rows: Array<[string, number | undefined]> = [
+				["Total", agentWork.run.elapsedMs],
+				["Retriever", agentWork.run.stepElapsedMs.retriever],
+				["Synthesizer", agentWork.run.stepElapsedMs.synthesizer],
+				["Verifier", agentWork.run.stepElapsedMs.verifier],
+			];
+			for (const [label, value] of rows) {
+				const row = details.createDiv({ cls: "open-agent-work-run-row" });
+				row.createEl("span", { cls: "open-agent-work-run-label", text: label });
+				row.createEl("span", { cls: "open-agent-work-run-value", text: formatDuration(value) });
+			}
+			details.createEl("div", {
+				cls: "open-agent-work-run-state",
+				text: runStateLabel(agentWork.run.state),
+			});
+		}
+
+		private openStoredNote(path: string): void {
+			const file = this.app.vault.getAbstractFileByPath(path);
+			if (file instanceof TFile) {
+				void this.app.workspace.getLeaf(false).openFile(file);
+			} else {
+				new Notice(`Not found: ${path}`);
+			}
+		}
+
 		private renderPackClaim(parent: HTMLElement, claim: StoredPackClaim): void {
 			const card = parent.createDiv({ cls: `open-agent-claim open-agent-claim-${claim.status}` });
 			const header = card.createDiv({ cls: "open-agent-claim-header" });
@@ -1263,12 +1566,7 @@ export class ChatView extends ItemView {
 			const meta = card.createDiv({ cls: "open-agent-claim-meta" });
 			const sourceBtn = meta.createEl("button", { text: "Open source note", cls: "open-agent-claim-open" });
 			sourceBtn.addEventListener("click", () => {
-				const file = this.app.vault.getAbstractFileByPath(claim.sourceNote);
-				if (file instanceof TFile) {
-					void this.app.workspace.getLeaf(false).openFile(file);
-				} else {
-					new Notice(`Not found: ${claim.sourceNote}`);
-				}
+				this.openStoredNote(claim.sourceNote);
 			});
 			meta.createEl("span", { cls: "open-agent-claim-source", text: sourceNoteLabel(claim.sourceNote) });
 
@@ -1409,4 +1707,70 @@ function claimStatusLabel(status: StoredPackClaim["status"]): string {
 function sourceNoteLabel(path: string): string {
 	const parts = path.split("/");
 	return parts[parts.length - 1] || path;
+}
+
+function defaultExpandedAgentWorkCard(agentWork: PackRunTransparency): string | null {
+	if (agentWork.run.state !== "failed") return null;
+	if (agentWork.run.failedStepId && cardShouldAutoExpand(agentWork, agentWork.run.failedStepId)) {
+		return agentWork.run.failedStepId;
+	}
+	for (const id of ["retriever", "synthesizer", "verifier"] as const) {
+		if (cardShouldAutoExpand(agentWork, id)) return id;
+	}
+	return null;
+}
+
+function cardShouldAutoExpand(agentWork: PackRunTransparency, id: "retriever" | "synthesizer" | "verifier"): boolean {
+	return agentWork[id].status !== "ready";
+}
+
+function isAgentWorkCardInteractive(
+	status: PackRunTransparency["retriever"]["status"],
+	runState: PackRunTransparency["run"]["state"],
+): boolean {
+	return status === "ready" || (status === "absent" && runState !== "running");
+}
+
+function truncateAgentWorkPreview(text: string): string {
+	const normalized = text.replace(/\r\n/g, "\n").trim();
+	if (!normalized) return "";
+	const twoLines = normalized.split("\n").slice(0, 2).join(" ");
+	if (twoLines.length <= 140 && twoLines === normalized.replace(/\n/g, " ")) return twoLines;
+	const truncated = twoLines.slice(0, 140).trimEnd();
+	return `${truncated.replace(/[.,;:!?-]$/, "")}…`;
+}
+
+function truncateAgentWorkLine(text: string, maxLength = 80): string {
+	const trimmed = text.trim();
+	if (trimmed.length <= maxLength) return trimmed;
+	return `${trimmed.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
+}
+
+function formatDuration(ms: number | undefined): string {
+	if (typeof ms !== "number" || !Number.isFinite(ms) || ms < 0) {
+		return "Timing unavailable";
+	}
+	if (ms < 10_000) {
+		return `${(ms / 1000).toFixed(1)}s`;
+	}
+	const roundedSeconds = Math.round(ms / 1000);
+	if (roundedSeconds < 60) {
+		return `${roundedSeconds}s`;
+	}
+	const minutes = Math.floor(roundedSeconds / 60);
+	const seconds = roundedSeconds % 60;
+	return `${minutes}m ${seconds}s`;
+}
+
+function runStateLabel(state: PackRunTransparency["run"]["state"]): string {
+	switch (state) {
+		case "completed":
+			return "Completed";
+		case "failed":
+			return "Failed";
+		case "stopped":
+			return "Stopped";
+		case "running":
+			return "Running";
+	}
 }
