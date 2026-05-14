@@ -1,6 +1,7 @@
 import type { ClaimsV1 } from "./schemas/claims-v1";
 import { resolveQuoteMatch } from "./quote-match";
 import type { Agent } from "./agent";
+import type { StructuredOutputSchema } from "./types";
 import { runStructuredStep } from "./structured-output";
 import type { ModelProvider } from "../types";
 import type { VaultAdapter } from "../packs/vault-adapter";
@@ -35,7 +36,10 @@ interface VerifyClaimsOptions {
 	signal?: AbortSignal;
 }
 
-const verifierDecisionSchema = {
+const verifierDecisionSchema: StructuredOutputSchema<{
+	supports_claim: boolean;
+	explanation: string;
+}> = {
 	name: "verifier-support-v1",
 	schema: {
 		type: "object",
@@ -46,7 +50,7 @@ const verifierDecisionSchema = {
 		required: ["supports_claim", "explanation"],
 		additionalProperties: false,
 	},
-} as const;
+};
 
 export async function verifyClaims(opts: VerifyClaimsOptions): Promise<ClaimVerification[]> {
 	const verifications: ClaimVerification[] = [];
