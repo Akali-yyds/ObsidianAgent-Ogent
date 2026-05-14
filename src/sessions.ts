@@ -318,7 +318,8 @@ function sanitizeStoredTurn(turn: unknown): StoredTurn {
 	if (!Object.prototype.hasOwnProperty.call(packTurn, "agentWork")) return turn as StoredTurn;
 	const agentWork = sanitizeStoredPackTurnTransparency((packTurn as { agentWork?: unknown }).agentWork);
 	if (agentWork === undefined) {
-		const { agentWork: _discarded, ...restPackTurn } = packTurn as StoredPackTurnData & { agentWork?: unknown };
+		const restPackTurn = { ...(packTurn as StoredPackTurnData & { agentWork?: unknown }) };
+		delete restPackTurn.agentWork;
 		return {
 			...(turn as StoredTurn),
 			packTurn: restPackTurn,
