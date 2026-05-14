@@ -315,6 +315,14 @@
 	margin-bottom: 1rem;
 }
 
+.open-agent-pack-result {
+	margin-bottom: 0.75rem;
+	padding: 0.75rem;
+	border-radius: 8px;
+	border: 1px solid var(--background-modifier-border);
+	background: var(--background-secondary);
+}
+
 .open-agent-pack-step {
 	display: flex;
 	flex-direction: column;
@@ -326,8 +334,18 @@
 	border-radius: 6px;
 	background: var(--background-primary);
 	border: 1px solid var(--background-modifier-border);
-	cursor: pointer;
 	text-align: left;
+	white-space: normal;
+	overflow-wrap: anywhere;
+	transition: border-color 120ms ease, background-color 120ms ease, box-shadow 120ms ease;
+}
+
+.open-agent-pack-result-body {
+	margin-top: 0.35rem;
+}
+
+.open-agent-pack-step.is-expandable {
+	cursor: pointer;
 }
 
 .open-agent-pack-step-header,
@@ -337,6 +355,18 @@
 	flex-wrap: wrap;
 	align-items: center;
 	gap: 0.5rem;
+}
+
+.open-agent-pack-step-header {
+	justify-content: space-between;
+}
+
+.open-agent-pack-step-heading {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	min-width: 0;
+	flex: 1 1 auto;
 }
 
 .open-agent-pack-step-label {
@@ -351,10 +381,81 @@
 	color: var(--text-muted);
 }
 
+.open-agent-pack-progress-title {
+	font-size: 11px;
+	font-weight: 700;
+	letter-spacing: 0.04em;
+	text-transform: uppercase;
+	color: var(--text-muted);
+	margin: 0.25rem 0 0.5rem;
+}
+
+.open-agent-pack-progress-title.is-stopping {
+	color: #d8a13c;
+}
+
+.open-agent-pack-step-meta {
+	margin-left: auto;
+	gap: 0.35rem;
+	flex: 0 0 auto;
+}
+
+.open-agent-pack-step-state {
+	display: inline-flex;
+	align-items: center;
+	padding: 0.15rem 0.45rem;
+	border-radius: 999px;
+	border: 1px solid var(--background-modifier-border);
+	background: var(--background-secondary);
+	font-weight: 600;
+}
+
+.open-agent-pack-step-duration {
+	white-space: nowrap;
+}
+
+.open-agent-pack-step-disclosure {
+	color: var(--text-muted);
+	font-size: 14px;
+	line-height: 1;
+}
+
+.open-agent-pack-step.is-static {
+	cursor: default;
+}
+
+.open-agent-pack-step.is-expanded {
+	background: var(--background-secondary);
+	box-shadow: inset 0 0 0 1px var(--background-modifier-border);
+}
+
 .open-agent-pack-step-pending { color: var(--text-muted); }
-.open-agent-pack-step-running { border-color: var(--interactive-accent); }
-.open-agent-pack-step-complete { border-color: var(--color-green); }
-.open-agent-pack-step-failed { border-color: var(--text-error); color: var(--text-error); }
+.open-agent-pack-step-state-pending { color: var(--text-muted); }
+.open-agent-pack-step-running,
+.open-agent-pack-step-state-running {
+	border-color: var(--interactive-accent);
+	color: var(--interactive-accent);
+}
+.open-agent-pack-step.is-stopping,
+.open-agent-pack-step-state-stopping {
+	border-color: #d8a13c;
+	color: #d8a13c;
+}
+.open-agent-pack-step.is-stopped,
+.open-agent-pack-step-state-stopped {
+	border-color: var(--text-muted);
+	color: var(--text-muted);
+}
+.open-agent-pack-step-complete,
+.open-agent-pack-step-state-complete {
+	border-color: var(--color-green);
+	color: var(--color-green);
+}
+.open-agent-pack-step-failed,
+.open-agent-pack-step-state-failed {
+	border-color: var(--text-error);
+	color: var(--text-error);
+}
 
 .open-agent-pack-step-details {
 	display: flex;

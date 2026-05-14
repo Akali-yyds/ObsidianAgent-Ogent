@@ -1,7 +1,6 @@
 import Ajv from "ajv";
 import type { App } from "obsidian";
 import groundedResearchDefault from "./defaults/grounded-research.json";
-import groundedResearchOpenAiDefault from "./defaults/grounded-research.openai.json";
 import { agentPackSchema, type AgentPack } from "./types";
 
 const ajv = new Ajv({ allErrors: true, strict: false });
@@ -23,7 +22,6 @@ export async function ensureDefaultPacks(app: App, pluginDir: string): Promise<v
 	if (jsonFiles.length > 0) return;
 
 	await app.vault.adapter.write(`${packDir}/grounded-research.json`, JSON.stringify(groundedResearchDefault, null, 2));
-	await app.vault.adapter.write(`${packDir}/grounded-research.openai.json`, JSON.stringify(groundedResearchOpenAiDefault, null, 2));
 }
 
 export async function loadPacks(app: App, pluginDir: string): Promise<AgentPack[]> {

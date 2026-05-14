@@ -75,9 +75,16 @@ multi-agent flow is opt-in via "agent packs."
       against the live note contents (not by the LLM).
     - supports_claim is determined by a separate LLM call (the verifier model)
       that receives the claim, the quote, and the surrounding note context.
-- The UI shows verified/flagged/missing claims with distinct visual treatment,
-  expand/collapse per claim, working Obsidian note links, and a footer with
-  the model names that ran.
+- Grounded-research turns render a primary `Research result` answer surface,
+  followed by the existing Retriever / Synthesizer / Verifier step rows as the
+  only transparency surface. Whole step rows expand inline for live and final
+  details instead of opening a separate `Agent work` panel.
+- Inline citation links in `Research result` jump to exact matched phrases in
+  source notes when exact anchors are available, while claim cards remain the
+  secondary evidence surface with safe fallback note-opening behavior.
+- The UI shows verified / unsupported / quote-missing claims with distinct
+  visual treatment, working Obsidian note links, and a footer with the model
+  names that ran.
 - The default grounded-research.json pack lives in the plugin bundle and is
   copied to the user's plugin folder on first run if no packs are present.
 - The grounded-research pack keeps its provider block fully editable so the
@@ -115,52 +122,53 @@ multi-agent flow is opt-in via "agent packs."
   internally), then add the pipeline, then the verifier, then the UI, then
   the eval.
 
-## Proposed file layout
+## Implemented file layout
 
 ```
 src/
   agents/
-    types.ts              # Agent, AgentResult, RunContext, Provider configs
-    agent.ts              # Agent class — wraps provider call + tool loop
-    orchestrator.ts       # Pipeline runner
+    agent.ts              # Reusable agent loop
+    orchestrator.ts       # Linear pipeline runner
     structured-output.ts  # JSON schema validation + retry helper
-    quote-match.ts        # In-code source-quote verification
+    quote-match.ts        # Exact vs fuzzy quote resolution
+    verifier.ts           # Claim verification + exact phrase anchors
+  citations.ts            # Research-result composition + citation targeting
   packs/
-    loader.ts             # Read + validate pack JSON
-    types.ts              # AgentPack, schemas
+    loader.ts             # Bundled-pack install + user pack loading
+    runtime.ts            # Grounded-research pack execution runtime
     defaults/
       grounded-research.json
-  view/
-    pack-picker.ts        # Dropdown in chat panel
-    claim-renderer.ts     # Per-claim UI with badges + links
+  sessions.ts             # Stored pack-turn persistence + sanitization
+  view.ts                 # Chat panel mode switch, pack execution, transcript UI
 hackathon/
-  README.md               # Submission writeup
+  README.md               # Submission writeup + reviewer flow
+  spec.md                 # Final hackathon implementation spec
   eval/
     run.ts                # Eval harness CLI
     fixtures/
-      vault/              # Sample notes
-      queries.json        # Test queries + manual ground truth
-    results/              # Generated, gitignored except .gitkeep
+      vault/              # Committed fixture vault
+      queries.json        # 20 query corpus + ground truth
+    results/              # Timestamped eval outputs
   demo/
     script.md             # Demo video script
 ```
 
-## Open questions for the spec phase
+## Resolved design decisions
 
-- Should the pack picker live in the chat panel header or in settings? Pick
-  whichever requires fewer changes to existing view.ts.
-- How should the orchestrator stream progress to the UI? Reuse the existing
-  streaming hook if possible; otherwise the simplest per-step "agent X
-  running…" status line is fine for the hackathon.
-- Should the verifier's supports_claim judgment include a confidence score?
-  Default: no, keep it boolean to keep the eval numbers clean. Add later if
-  needed.
+- The grounded-research mode lives in the existing chat panel as a mode switch,
+  preserving the classic path when no pack is selected.
+- Pipeline progress streams into the transcript through the existing Retriever /
+  Synthesizer / Verifier step rows instead of a separate transparency panel.
+- Verifier support judgment stays boolean in v0.1 to keep eval output and user
+  interpretation clean.
+- Citation-ready grounded results are composed from verified claims with exact
+  phrase anchors instead of rewriting the synthesizer summary heuristically.
 
 ## Deliverables
 
-- Working code on main, with the refactor landed as separate PRs in the
-  order above.
-- One default pack in src/packs/defaults/.
-- hackathon/README.md, hackathon/eval/ with at least 20 queries and run
-  results, hackathon/demo/script.md.
-- Release tagged v0.1.0-gemma4-hackathon at submission time.
+- Working repo that keeps Classic mode intact and ships the grounded-research
+  pipeline end to end.
+- One bundled default pack in `src/packs/defaults/grounded-research.json`.
+- `hackathon/README.md`, `hackathon/eval/` with a committed 20-query corpus and
+  generated results, and `hackathon/demo/script.md`.
+- Release tagged `v0.1.0-gemma4-hackathon` at submission time.

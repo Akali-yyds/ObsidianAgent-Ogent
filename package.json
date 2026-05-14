@@ -19,6 +19,13 @@
     "agent",
     "mcp"
   ],
+  "files": [
+    "main.js",
+    "styles.css",
+    "manifest.json",
+    "README.md",
+    "LICENSE"
+  ],
   "author": "nikitaclicks",
   "license": "MIT",
   "devDependencies": {

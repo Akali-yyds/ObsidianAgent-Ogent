@@ -135,6 +135,7 @@ export class ChatView extends ItemView {
 
 	private turns: UiTurn[] = [];
 	private readonly inFlights = new Map<string, AbortController>();
+	private readonly stoppingSessions = new Set<string>();
 	// Live in-memory turns for sessions currently streaming (so switching back restores them)
 	private readonly liveTurns = new Map<string, UiTurn[]>();
 	private boundOnSettingsChanged: () => void;
@@ -658,14 +659,16 @@ export class ChatView extends ItemView {
 	private refreshBusyState(): void {
 		const activeId = this.deps.sessionStore.getActive().id;
 		const busy = this.inFlights.has(activeId);
+		const stopping = this.stoppingSessions.has(activeId);
 		const packMode = Boolean(this.deps.sessionStore.getActive().selectedPackId);
 		const activePack = this.getActivePack();
 		const classicOk = isConfigured(this.deps.getSettings());
 		const packOk = packMode ? Boolean(activePack) && !this.isMobileBlockedPack() : false;
 		this.sendBtn.disabled = !(packMode ? packOk : classicOk) || busy;
-		this.stopBtn.disabled = !busy;
+		this.stopBtn.disabled = !busy || stopping;
 		this.inputEl.disabled = busy;
 		this.sendBtn.textContent = packMode ? "Run research" : "Send";
+		this.stopBtn.textContent = stopping ? "Stopping..." : "Stop";
 		if (this.sessionsPanelVisible) {
 			this.refreshSessionsList(this.sessionsSearchEl.value);
 		}
@@ -705,6 +708,7 @@ export class ChatView extends ItemView {
 		// Mark session busy immediately — before any awaits — so the input is disabled and
 		// a second Send press cannot race with the in-progress request.
 		const ctrl = new AbortController();
+		this.stoppingSessions.delete(sessionId);
 		this.inFlights.set(sessionId, ctrl);
 		this.liveTurns.set(sessionId, turnSnapshot);
 		this.refreshBusyState();
@@ -910,8 +914,8 @@ export class ChatView extends ItemView {
 			}
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
+			const interrupted = ctrl.signal.aborted;
 			if (assistantTurn.packTurn) {
-				assistantTurn.packTurn.error = message;
 				if (error instanceof PackRunError) {
 					assistantTurn.packTurn.agentWork = error.failure.transparency;
 					assistantTurn.packTurn.modelsUsed = error.failure.modelsUsed;
@@ -929,11 +933,22 @@ export class ChatView extends ItemView {
 						}));
 					}
 				}
-				markPackFailed(assistantTurn.packTurn.progressSteps ?? []);
+				if (interrupted) {
+					assistantTurn.packTurn.error = undefined;
+					markPackStopped(assistantTurn.packTurn.progressSteps ?? []);
+				} else {
+					assistantTurn.packTurn.error = message;
+					markPackFailed(assistantTurn.packTurn.progressSteps ?? []);
+				}
 			}
-			assistantTurn.error = message;
-			this.activePackError = this.formatPackRecoveryMessage(pack.name, error);
-			this.refreshHeader();
+			if (interrupted) {
+				assistantTurn.error = undefined;
+				this.activePackError = null;
+			} else {
+				assistantTurn.error = message;
+				this.activePackError = this.formatPackRecoveryMessage(pack.name, error);
+				this.refreshHeader();
+			}
 		} finally {
 			if (this.renderDebounceTimer !== null) {
 				window.clearTimeout(this.renderDebounceTimer);
@@ -942,6 +957,7 @@ export class ChatView extends ItemView {
 			if (ctrl.signal.aborted) {
 				assistantTurn.interrupted = true;
 			}
+			this.stoppingSessions.delete(sessionId);
 			this.inFlights.delete(sessionId);
 			this.liveTurns.delete(sessionId);
 			this.refreshBusyState();
@@ -954,9 +970,13 @@ export class ChatView extends ItemView {
 		const activeId = this.deps.sessionStore.getActive().id;
 		const ctrl = this.inFlights.get(activeId);
 		if (!ctrl) return;
+		if (this.stoppingSessions.has(activeId)) return;
+		this.stoppingSessions.add(activeId);
+		this.refreshBusyState();
+		this.renderTranscript();
 		ctrl.abort();
 		this.deps.consent.cancelPendingConsent();
-		new Notice("Stopped");
+		new Notice("Stopping...");
 	}
 
 	private applyErrorToTurn(turn: UiTurn, err: unknown): void {
@@ -1271,26 +1291,40 @@ export class ChatView extends ItemView {
 		}
 
 		private shouldUsePackTranscriptRedesign(packTurn: StoredPackTurnData): boolean {
-			return Boolean(packTurn.agentWork && (packTurn.progressSteps?.length ?? 0) > 0);
+			if ((packTurn.progressSteps?.length ?? 0) === 0) return false;
+			return Boolean(
+				packTurn.agentWork ||
+				packTurn.researchMarkdown !== undefined ||
+				packTurn.citations !== undefined ||
+				"retryingStepId" in packTurn,
+			);
 		}
 
 		private renderRedesignedPackTurn(parent: HTMLElement, packTurn: StoredPackTurnData): void {
 			const agentWork = packTurn.agentWork;
-			if (!agentWork) return;
-			const runState = agentWork.run.state;
+			const runState = agentWork?.run.state ?? "running";
 			const researchMarkdown = packTurn.researchMarkdown?.trim() ?? "";
+			const isStopping = runState === "running" && this.stoppingSessions.has(this.deps.sessionStore.getActive().id);
+			const isStopped = runState === "stopped";
 
 			if (runState !== "running") {
-				parent.createEl("div", {
+				const resultSection = parent.createDiv({ cls: "open-agent-pack-result" });
+				resultSection.createEl("div", {
 					cls: "open-agent-pack-section-title",
-					text: researchMarkdown ? "Research result" : "Research result unavailable",
+					text: isStopped ? "Research stopped" : researchMarkdown ? "Research result" : "Research result unavailable",
 				});
-				parent.createEl("div", {
+				resultSection.createEl("div", {
 					cls: "open-agent-pack-result-meta",
 					text: formatDuration(agentWork.run.elapsedMs),
 				});
-				const resultBody = parent.createDiv({ cls: "open-agent-turn-body" });
-				if (researchMarkdown) {
+				const resultBody = resultSection.createDiv({
+					cls: "open-agent-turn-body open-agent-pack-result-body",
+				});
+				if (isStopped) {
+					resultBody.setText(
+						"This run was stopped before it finished. Any completed step output remains available below.",
+					);
+				} else if (researchMarkdown) {
 					this.renderResearchMarkdown(resultBody, researchMarkdown, packTurn.citations ?? []);
 				} else {
 					resultBody.setText(
@@ -1299,6 +1333,16 @@ export class ChatView extends ItemView {
 				}
 			}
 
+			parent.createEl("div", {
+				cls: `open-agent-pack-progress-title${isStopping ? " is-stopping" : ""}`,
+				text: isStopping
+					? "Stopping research..."
+					: isStopped
+						? "Progress before stop"
+						: runState === "running"
+							? "Agent steps"
+							: "How this answer was built",
+			});
 			const progress = parent.createDiv({ cls: "open-agent-pack-progress" });
 			const expandedStepSetters: Array<(open: boolean) => void> = [];
 			let expandedStepId = this.getInitialExpandedPackStep(packTurn, agentWork);
@@ -1308,23 +1352,48 @@ export class ChatView extends ItemView {
 				const details = this.getPackStepDetails(stepId, agentWork);
 				const readyDetails = details?.status === "ready" ? details : null;
 				const expandable = Boolean(details || step.message);
-				const stepEl = progress.createEl(expandable ? "button" : "div", {
+				const stepDuration = formatDuration(agentWork?.run.stepElapsedMs[toPackRunStepId(step.id)]);
+				const showStepDuration = stepDuration !== "Timing unavailable";
+				const isStoppingStep = isStopping && step.state === "running";
+				const isStoppedStep = isStopped && step.message === "Stopped by user.";
+				const stepEl = progress.createDiv({
 					cls: `open-agent-pack-step open-agent-pack-step-${step.state}`,
 				});
+				stepEl.classList.toggle("is-expandable", expandable);
+				stepEl.classList.toggle("is-static", !expandable);
+				stepEl.classList.toggle("is-expanded", expandable && expandedStepId === stepId);
+				stepEl.classList.toggle("is-stopping", isStoppingStep);
+				stepEl.classList.toggle("is-stopped", isStoppedStep);
 				if (expandable) {
-					stepEl.setAttribute("type", "button");
+					stepEl.setAttribute("role", "button");
+					stepEl.setAttribute("tabindex", "0");
 					stepEl.setAttribute("aria-expanded", String(expandedStepId === stepId));
 				}
 
 				const header = stepEl.createDiv({ cls: "open-agent-pack-step-header" });
-				header.createEl("div", {
+				const heading = header.createDiv({ cls: "open-agent-pack-step-heading" });
+				heading.createEl("div", {
 					cls: "open-agent-pack-step-label",
 					text: packStepTitle(step),
 				});
-				header.createEl("div", {
-					cls: "open-agent-pack-step-meta",
-					text: `${packStepStateLabel(step.state)} • ${formatDuration(agentWork.run.stepElapsedMs[toPackRunStepId(step.id)])}`,
+				const meta = header.createDiv({ cls: "open-agent-pack-step-meta" });
+				meta.createEl("span", {
+					cls: `open-agent-pack-step-state open-agent-pack-step-state-${isStoppingStep ? "stopping" : isStoppedStep ? "stopped" : step.state}`,
+					text: isStoppingStep ? "Stopping" : isStoppedStep ? "Stopped" : packStepStateLabel(step.state),
 				});
+				if (showStepDuration) {
+					meta.createEl("span", {
+						cls: "open-agent-pack-step-duration",
+						text: stepDuration,
+					});
+				}
+				let disclosure: HTMLElement | null = null;
+				if (expandable) {
+					disclosure = meta.createEl("span", {
+						cls: "open-agent-pack-step-disclosure",
+						text: expandedStepId === stepId ? "▾" : "▸",
+					});
+				}
 
 				this.renderPackStepSummary(stepEl, stepId, readyDetails);
 				if (packTurn.retryingStepId === step.id) {
@@ -1352,6 +1421,7 @@ export class ChatView extends ItemView {
 					if (expandable) {
 						stepEl.setAttribute("aria-expanded", String(open));
 						stepEl.classList.toggle("is-expanded", open);
+						disclosure?.setText(open ? "▾" : "▸");
 					}
 				};
 				expandedStepSetters.push(setExpanded);
@@ -1365,6 +1435,11 @@ export class ChatView extends ItemView {
 							const targetStep = packTurn.progressSteps?.[index];
 							expandedStepSetters[index]?.(targetStep?.id === expandedStepId);
 						}
+					});
+					stepEl.addEventListener("keydown", (event) => {
+						if (event.key !== "Enter" && event.key !== " ") return;
+						event.preventDefault();
+						stepEl.click();
 					});
 				}
 			}
@@ -1384,10 +1459,13 @@ export class ChatView extends ItemView {
 			}
 		}
 
-		private getInitialExpandedPackStep(packTurn: StoredPackTurnData, agentWork: PackRunTransparency): string | null {
+		private getInitialExpandedPackStep(
+			packTurn: StoredPackTurnData,
+			agentWork: PackRunTransparency | undefined,
+		): string | null {
 			const existing = this.packExpandedStepId.get(packTurn);
 			if (existing !== undefined) return existing;
-			const initial = agentWork.run.state === "failed" ? agentWork.run.failedStepId ?? null : null;
+			const initial = agentWork?.run.state === "failed" ? agentWork.run.failedStepId ?? null : null;
 			this.packExpandedStepId.set(packTurn, initial);
 			return initial;
 		}
@@ -1569,12 +1647,13 @@ export class ChatView extends ItemView {
 
 		private getPackStepDetails(
 			stepId: string,
-			agentWork: PackRunTransparency,
+			agentWork: PackRunTransparency | undefined,
 		):
 			| PackRunTransparency["retriever"]
 			| PackRunTransparency["synthesizer"]
 			| PackRunTransparency["verifier"]
 			| null {
+			if (!agentWork) return null;
 			switch (stepId) {
 				case "retriever":
 					return agentWork.retriever;
@@ -1730,6 +1809,13 @@ function updatePackProgress(
 function markPackFailed(steps: StoredPackProgressStep[]): void {
 	const running = steps.find((step) => step.state === "running");
 	if (running) running.state = "failed";
+}
+
+function markPackStopped(steps: StoredPackProgressStep[]): void {
+	const running = steps.find((step) => step.state === "running");
+	if (!running) return;
+	running.state = "failed";
+	running.message = "Stopped by user.";
 }
 
 function claimStatusLabel(status: StoredPackClaim["status"]): string {

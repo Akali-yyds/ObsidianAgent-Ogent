@@ -45,7 +45,7 @@ human_verification:
 | From | To | Via | Status | Details |
 | --- | --- | --- | --- | --- |
 | `README.md` | `hackathon/README.md` | Markdown link/banner | ✓ WIRED | `README.md:5` links directly to the hackathon package. |
-| `hackathon/README.md` | Local Gemma + MLX defaults | Matching pack JSON endpoints/models | ✓ WIRED | README cites ports 8081/8082/8083 and Gemma models (`hackathon/README.md:27-31`, `47-53`); pack defaults use those exact values in `src/packs/defaults/grounded-research.json:8-23`. |
+| `hackathon/README.md` | Local Gemma + MLX defaults | Matching pack JSON endpoints/models | ✓ WIRED | README cites the shared `127.0.0.1:8000` endpoint and the three MLX model ids (`hackathon/README.md:27-31`, `40-53`); pack defaults use those exact values in `src/packs/defaults/grounded-research.json:8-23`. |
 | `hackathon/README.md` | Eval metrics | Actual harness + report output | ✓ WIRED | Metrics described at `hackathon/README.md:78-91` match `hackathon/eval/results/2026-05-13T11-31-59-627Z.md:3-17`; a fresh `npm run eval` reproduced the same rates. |
 | `hackathon/demo/script.md` | Shipped demoable UI behaviors | `src/view.ts` + pack runtime + tests | ✓ WIRED | Demo scenes correspond to actual send routing, mobile fallback, claim cards, source-note opening, and model footer in `src/view.ts:663-668`, `322-376`, `1210-1282`, plus `tests/view.test.ts:81-201`. |
 | `hackathon/README.md` reviewer flow | Completed manual smoke sign-off | Recorded execution evidence | ? UNCERTAIN | Manual step is documented but no completion artifact exists; state/validation both still call it out as pending. |
@@ -87,13 +87,13 @@ No orphaned Phase 3 requirements were found in `.planning/REQUIREMENTS.md`.
 
 ### 1. Live Obsidian pre-submission smoke pass
 
-**Test:** Follow `hackathon/README.md` reviewer flow step 5 in a real Obsidian vault. Verify Classic mode sends a normal response, Grounded Research shows step progress plus verified/flagged claims, note links open, model attribution renders, a broken pack shows recovery guidance, and unsupported mobile flow hides the pack or offers **Use Classic mode**.  
+**Test:** Follow `hackathon/README.md` reviewer flow step 5 in a real Obsidian vault. Verify Classic mode sends a normal response, Grounded Research shows step progress plus verified/flagged claims, note links open, model attribution renders, a broken pack shows recovery guidance, and unsupported mobile flow hides the pack or offers **Use Classic mode**. Record the outcome with the `Manual smoke sign-off record` template in `hackathon/README.md`.  
 **Expected:** Live plugin behavior matches the docs in `hackathon/README.md` and the narration in `hackathon/demo/script.md`.  
 **Why human:** Requires actual Obsidian desktop/mobile UI interaction and a live vault; the repository contains only documentation of this step, not evidence it was executed.
 
 ### Gaps Summary
 
-No code or documentation blocker was found for the submission package itself: the hackathon README, demo script, repo pointer, eval ignore rules, and automated repo-root gate are all present and wired to real code and outputs. The only unresolved must-have is the final live Obsidian smoke pass. It remains **documented but unverified**, so Phase 3 cannot be marked fully passed until a maintainer runs and records that manual check.
+No code or documentation blocker was found for the submission package itself: the hackathon README, demo script, repo pointer, eval ignore rules, and automated repo-root gate are all present and wired to real code and outputs. The only unresolved must-have is the final live Obsidian smoke pass. It remains **documented but unverified**, so Phase 3 cannot be marked fully passed until a maintainer runs and records that manual check with the README sign-off template.
 
 ---
 

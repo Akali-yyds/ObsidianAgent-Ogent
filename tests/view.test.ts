@@ -380,10 +380,12 @@ describe("ChatView pack UI", () => {
 		const view = new ChatView({ app } as never, deps);
 		const parent = renderPackTurn(view, createAgentWorkTurn());
 
-		expect(parent.children[0]?.textContent).toBe("Research result");
-		expect(parent.children[1]?.textContent).toContain("1m 16s");
-		expect(parent.children[2]?.classList.contains("open-agent-turn-body")).toBe(true);
-		expect(parent.children[3]?.classList.contains("open-agent-pack-progress")).toBe(true);
+		expect(parent.children[0]?.classList.contains("open-agent-pack-result")).toBe(true);
+		expect(textTree(parent.children[0] as HTMLElement)).toContain("Research result");
+		expect(textTree(parent.children[0] as HTMLElement)).toContain("1m 16s");
+		expect(findByClass(parent.children[0] as HTMLElement, "open-agent-pack-result-body")).toHaveLength(1);
+		expect(parent.children[1]?.textContent).toBe("How this answer was built");
+		expect(parent.children[2]?.classList.contains("open-agent-pack-progress")).toBe(true);
 		expect(parent.children.at(-1)?.classList.contains("open-agent-pack-model-footer")).toBe(true);
 	});
 
@@ -418,12 +420,15 @@ describe("ChatView pack UI", () => {
 		const steps = findByClass(parent, "open-agent-pack-step");
 
 		expect(steps).toHaveLength(3);
-		expect(steps[0]?.tagName).toBe("button");
-		expect(steps[1]?.tagName).toBe("button");
-		expect(steps[2]?.tagName).toBe("button");
+		expect(steps[0]?.tagName).toBe("div");
+		expect(steps[1]?.tagName).toBe("div");
+		expect(steps[2]?.tagName).toBe("div");
+		expect(findByClass(steps[0], "open-agent-pack-step-state")[0]?.textContent).toBe("Complete");
+		expect(findByClass(steps[0], "open-agent-pack-step-disclosure")[0]?.textContent).toBe("▸");
 		expect(findByClass(parent, "open-agent-pack-step-details").filter((el) => !el.classList.contains("is-hidden"))).toHaveLength(0);
 
 		steps[0].click();
+		expect(findByClass(steps[0], "open-agent-pack-step-disclosure")[0]?.textContent).toBe("▾");
 		expect(findByClass(parent, "open-agent-pack-step-details").filter((el) => !el.classList.contains("is-hidden"))).toHaveLength(1);
 		expect(textTree(parent)).toContain("notes/source.md");
 
@@ -594,6 +599,132 @@ describe("ChatView pack UI", () => {
 		expect(textTree(failedParent)).toContain("No details captured.");
 	});
 
+	it("shows an immediate stopping state in the live transcript and controls", () => {
+		const app = createMockApp();
+		const { deps } = createDeps({
+			id: "session-a",
+			model: "gpt-4o-mini",
+			selectedPackId: groundedResearchDefault.id,
+			lastClassicModel: "gpt-4o-mini",
+		});
+		const view = new ChatView({ app } as never, deps);
+		(view as unknown as { stoppingSessions: Set<string> }).stoppingSessions.add("session-a");
+
+		const parent = renderPackTurn(view, createAgentWorkTurn({
+			progressSteps: [
+				{ id: "retriever", label: "Retriever", state: "running" },
+				{ id: "synthesizer", label: "Synthesizer", state: "pending" },
+				{ id: "verifier", label: "Verifier", state: "pending" },
+			],
+			agentWork: {
+				retriever: {
+					status: "ready",
+					elapsedMs: 2400,
+					notesFoundCount: 2,
+					topNotePaths: ["notes/source.md", "notes/appendix.md"],
+					brief: "- notes/source.md backs Alpha",
+				},
+				synthesizer: { status: "pending" },
+				verifier: { status: "pending" },
+				run: {
+					state: "running",
+					elapsedMs: 2400,
+					stepElapsedMs: { retriever: 2400 },
+				},
+			},
+			claims: [],
+			verifiedSummary: "",
+		}));
+		expect(textTree(parent)).toContain("Stopping research...");
+		expect(textTree(parent)).toContain("Stopping");
+		expect(findByClass(parent, "open-agent-pack-step")[0]?.classList.contains("is-stopping")).toBe(true);
+
+		const stopBtn = new MockElement("button");
+		const sendBtn = new MockElement("button");
+		const inputEl = new MockElement("textarea");
+		Object.assign(view as unknown as Record<string, unknown>, {
+			stopBtn,
+			sendBtn,
+			inputEl,
+		});
+		(view as unknown as { inFlights: Map<string, AbortController> }).inFlights.set("session-a", new AbortController());
+		(view as unknown as { refreshBusyState(): void }).refreshBusyState();
+		expect(stopBtn.textContent).toBe("Stopping...");
+		expect((stopBtn as unknown as { disabled?: boolean }).disabled).toBe(true);
+	});
+
+	it("renders a stopped run as stopped instead of failed or unavailable", () => {
+		const app = createMockApp();
+		const { deps } = createDeps({
+			id: "session-a",
+			model: "gpt-4o-mini",
+			selectedPackId: groundedResearchDefault.id,
+			lastClassicModel: "gpt-4o-mini",
+		});
+		const view = new ChatView({ app } as never, deps);
+		const parent = renderPackTurn(view, createAgentWorkTurn({
+			progressSteps: [
+				{ id: "retriever", label: "Retriever", state: "complete" },
+				{ id: "synthesizer", label: "Synthesizer", state: "failed", message: "Stopped by user." },
+				{ id: "verifier", label: "Verifier", state: "pending" },
+			],
+			agentWork: {
+				retriever: {
+					status: "ready",
+					elapsedMs: 2400,
+					notesFoundCount: 2,
+					topNotePaths: ["notes/source.md", "notes/appendix.md"],
+					brief: "- notes/source.md backs Alpha",
+				},
+				synthesizer: { status: "absent" },
+				verifier: { status: "pending" },
+				run: {
+					state: "stopped",
+					elapsedMs: 2400,
+					stepElapsedMs: { retriever: 2400, synthesizer: 2400 },
+				},
+			},
+			researchMarkdown: undefined,
+			citations: undefined,
+			claims: [],
+			verifiedSummary: "",
+		}));
+		expect(textTree(parent)).toContain("Research stopped");
+		expect(textTree(parent)).toContain("Progress before stop");
+		expect(textTree(parent)).toContain("Stopped");
+		expect(textTree(parent)).toContain("Stopped by user.");
+		expect(textTree(parent)).not.toContain("Research result unavailable");
+	});
+
+	it("renders live progress rows immediately even before agentWork snapshots arrive", () => {
+		const app = createMockApp();
+		const { deps } = createDeps({
+			id: "session-a",
+			model: "gpt-4o-mini",
+			selectedPackId: groundedResearchDefault.id,
+			lastClassicModel: "gpt-4o-mini",
+		});
+		const view = new ChatView({ app } as never, deps);
+		const parent = renderPackTurn(view, {
+			packId: groundedResearchDefault.id,
+			packName: groundedResearchDefault.name,
+			progressSteps: [
+				{ id: "retriever", label: "Retrieving notes", state: "running" },
+				{ id: "synthesizer", label: "Drafting claims", state: "pending" },
+				{ id: "verifier", label: "Verifying claims", state: "pending" },
+			],
+			retryingStepId: null,
+		});
+
+		const steps = findByClass(parent, "open-agent-pack-step");
+		expect(steps).toHaveLength(3);
+		expect(textTree(parent)).toContain("Retriever");
+		expect(textTree(parent)).toContain("Running");
+		expect(textTree(parent)).toContain("Synthesizer");
+		expect(textTree(parent)).toContain("Pending");
+		expect(textTree(parent)).not.toContain("Research result");
+	});
+
 	it("locks retriever, synthesizer, and verifier detail contracts inside the step rows", () => {
 		const app = createMockApp();
 		const { deps } = createDeps({
@@ -676,11 +807,11 @@ describe("ChatView pack UI", () => {
 				},
 			},
 		}));
-		expect(parent.children[1]?.textContent).toContain("1.5s");
+		expect(textTree(parent.children[0] as HTMLElement)).toContain("1.5s");
 		const steps = findByClass(parent, "open-agent-pack-step");
-		expect(textTree(steps[0])).toContain("Timing unavailable");
+		expect(textTree(steps[0])).not.toContain("Timing unavailable");
 		expect(textTree(steps[1])).toContain("9.8s");
-		expect(textTree(steps[2])).toContain("Timing unavailable");
+		expect(textTree(steps[2])).not.toContain("Timing unavailable");
 		steps[1].click();
 		expect(textTree(steps[1])).toContain("2 draft claims");
 		expect(textTree(steps[1])).not.toContain("Third line should not appear");
@@ -768,6 +899,7 @@ describe("ChatView pack UI", () => {
 		}));
 
 		expect(textTree(parent)).toContain("Research result unavailable");
+		expect(textTree(parent)).toContain("How this answer was built");
 		expect(textTree(parent)).toContain(
 			"This run did not produce a citation-ready research answer. Review the completed steps and claim details below, then rerun research if needed.",
 		);
@@ -776,6 +908,16 @@ describe("ChatView pack UI", () => {
 
 	it("ships transcript-local redesign styles with touch-safe step rows, inline citations, and a capped monospace JSON block", () => {
 		expect(agentWorkStyles).toContain(".open-agent-pack-step");
+		expect(agentWorkStyles).toContain(".open-agent-pack-result");
+		expect(agentWorkStyles).toContain(".open-agent-pack-progress-title");
+		expect(agentWorkStyles).toContain(".open-agent-pack-progress-title.is-stopping");
+		expect(agentWorkStyles).toContain(".open-agent-pack-step-state");
+		expect(agentWorkStyles).toContain(".open-agent-pack-step.is-expandable");
+		expect(agentWorkStyles).toContain("overflow-wrap: anywhere");
+		expect(agentWorkStyles).toContain(".open-agent-pack-step.is-stopping");
+		expect(agentWorkStyles).toContain(".open-agent-pack-step.is-stopped");
+		expect(agentWorkStyles).toContain(".open-agent-pack-step-disclosure");
+		expect(agentWorkStyles).toContain(".open-agent-pack-step.is-expanded");
 		expect(agentWorkStyles).toContain(".open-agent-pack-step-details");
 		expect(agentWorkStyles).toContain(".open-agent-citation-link");
 		expect(agentWorkStyles).toContain("min-height: 44px");

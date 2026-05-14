@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import groundedResearchDefault from "../../src/packs/defaults/grounded-research.json";
-import groundedResearchOpenAiDefault from "../../src/packs/defaults/grounded-research.openai.json";
 import { ensureDefaultPacks, loadPacks, PackValidationError } from "../../src/packs/loader";
 import { createMockApp } from "../setup";
 
@@ -11,9 +10,8 @@ describe("pack loader", () => {
 		await ensureDefaultPacks(app as never, "/plugin");
 
 		expect(app.vault.adapter.mkdir).toHaveBeenCalledWith("/plugin/packs");
-		expect(app.vault.adapter.write).toHaveBeenCalledTimes(2);
-		expect(app.vault.adapter.write).toHaveBeenNthCalledWith(
-			1,
+		expect(app.vault.adapter.write).toHaveBeenCalledOnce();
+		expect(app.vault.adapter.write).toHaveBeenCalledWith(
 			"/plugin/packs/grounded-research.json",
 			JSON.stringify(groundedResearchDefault, null, 2),
 		);
@@ -62,9 +60,12 @@ describe("pack loader", () => {
 	});
 
 	it("loads packs that still have placeholder credentials so runtime can reject them with recovery guidance", async () => {
+		const placeholderPack = structuredClone(groundedResearchDefault);
+		placeholderPack.id = "placeholder-pack";
+		placeholderPack.providers.retriever.apiKey = "replace-me";
 		const app = createMockApp({
 			files: {
-				"/plugin/packs/openai.json": JSON.stringify(groundedResearchOpenAiDefault),
+				"/plugin/packs/placeholder.json": JSON.stringify(placeholderPack),
 			},
 		});
 
