@@ -1,3 +1,5 @@
+import type { PackRunTransparency } from "./packs/runtime";
+
 export interface SessionMeta {
 	id: string;
 	title: string;
@@ -36,12 +38,15 @@ export interface StoredPackTurnData {
 	error?: string;
 	verifiedSummary?: string;
 	claims?: StoredPackClaim[];
+	agentWork?: StoredPackTurnTransparency;
 	modelsUsed?: {
 		retriever: string;
 		synthesizer: string;
 		verifier: string;
 	};
 }
+
+export type StoredPackTurnTransparency = PackRunTransparency;
 
 export interface StoredTurn {
 	role: "user" | "assistant";
@@ -132,7 +137,7 @@ export async function loadStoredTurnsFile({
 		return recoverCorruptTurnsFile(adapter, path, now());
 	}
 
-	return { turns: (parsed as { turns: StoredTurn[] }).turns };
+	return { turns: sanitizeStoredTurns((parsed as { turns: unknown[] }).turns) };
 }
 
 export class SessionStore {
@@ -300,4 +305,243 @@ export class SessionStore {
 			updatedAt: now,
 		};
 	}
+}
+
+function sanitizeStoredTurns(turns: unknown[]): StoredTurn[] {
+	return turns.map((turn) => sanitizeStoredTurn(turn));
+}
+
+function sanitizeStoredTurn(turn: unknown): StoredTurn {
+	if (!turn || typeof turn !== "object") return turn as StoredTurn;
+	const packTurn = (turn as { packTurn?: unknown }).packTurn;
+	if (!packTurn || typeof packTurn !== "object") return turn as StoredTurn;
+	if (!Object.prototype.hasOwnProperty.call(packTurn, "agentWork")) return turn as StoredTurn;
+	const agentWork = sanitizeStoredPackTurnTransparency((packTurn as { agentWork?: unknown }).agentWork);
+	if (agentWork === undefined) {
+		const { agentWork: _discarded, ...restPackTurn } = packTurn as StoredPackTurnData & { agentWork?: unknown };
+		return {
+			...(turn as StoredTurn),
+			packTurn: restPackTurn,
+		};
+	}
+	return {
+		...(turn as StoredTurn),
+		packTurn: {
+			...(packTurn as StoredPackTurnData),
+			agentWork,
+		},
+	};
+}
+
+function sanitizeStoredPackTurnTransparency(value: unknown): StoredPackTurnTransparency | undefined {
+	if (!isRecord(value)) return undefined;
+	const retriever = sanitizeRetrieverTransparency(value.retriever);
+	const synthesizer = sanitizeSynthesizerTransparency(value.synthesizer);
+	const verifier = sanitizeVerifierTransparency(value.verifier);
+	const run = sanitizeRunTransparency(value.run);
+	if (!retriever || !synthesizer || !verifier || !run) return undefined;
+	return { retriever, synthesizer, verifier, run };
+}
+
+function sanitizeRetrieverTransparency(value: unknown): StoredPackTurnTransparency["retriever"] | null {
+	if (!isRecord(value)) return null;
+	const status = sanitizeCardStatus(value.status);
+	if (!status) return null;
+	const elapsedMs = sanitizeOptionalNumber(value.elapsedMs);
+	const notesFoundCount = sanitizeOptionalNumber(value.notesFoundCount);
+	const topNotePaths = sanitizeOptionalStringArray(value.topNotePaths);
+	const brief = sanitizeOptionalString(value.brief);
+	if (value.elapsedMs !== undefined && elapsedMs === undefined) return null;
+	if (value.notesFoundCount !== undefined && notesFoundCount === undefined) return null;
+	if (value.topNotePaths !== undefined && topNotePaths === undefined) return null;
+	if (value.brief !== undefined && brief === undefined) return null;
+	return {
+		status,
+		...(elapsedMs !== undefined ? { elapsedMs } : {}),
+		...(notesFoundCount !== undefined ? { notesFoundCount } : {}),
+		...(topNotePaths !== undefined ? { topNotePaths } : {}),
+		...(brief !== undefined ? { brief } : {}),
+	};
+}
+
+function sanitizeSynthesizerTransparency(value: unknown): StoredPackTurnTransparency["synthesizer"] | null {
+	if (!isRecord(value)) return null;
+	const status = sanitizeCardStatus(value.status);
+	if (!status) return null;
+	const elapsedMs = sanitizeOptionalNumber(value.elapsedMs);
+	const claimCount = sanitizeOptionalNumber(value.claimCount);
+	const summary = sanitizeOptionalString(value.summary);
+	const rawJson = sanitizeOptionalClaims(value.rawJson);
+	if (value.elapsedMs !== undefined && elapsedMs === undefined) return null;
+	if (value.claimCount !== undefined && claimCount === undefined) return null;
+	if (value.summary !== undefined && summary === undefined) return null;
+	if (value.rawJson !== undefined && rawJson === undefined) return null;
+	return {
+		status,
+		...(elapsedMs !== undefined ? { elapsedMs } : {}),
+		...(claimCount !== undefined ? { claimCount } : {}),
+		...(summary !== undefined ? { summary } : {}),
+		...(rawJson !== undefined ? { rawJson } : {}),
+	};
+}
+
+function sanitizeVerifierTransparency(value: unknown): StoredPackTurnTransparency["verifier"] | null {
+	if (!isRecord(value)) return null;
+	const status = sanitizeCardStatus(value.status);
+	if (!status) return null;
+	const elapsedMs = sanitizeOptionalNumber(value.elapsedMs);
+	const counts = sanitizeOptionalVerifierCounts(value.counts);
+	const reasons = sanitizeOptionalVerifierReasons(value.reasons);
+	if (value.elapsedMs !== undefined && elapsedMs === undefined) return null;
+	if (value.counts !== undefined && counts === undefined) return null;
+	if (value.reasons !== undefined && reasons === undefined) return null;
+	return {
+		status,
+		...(elapsedMs !== undefined ? { elapsedMs } : {}),
+		...(counts !== undefined ? { counts } : {}),
+		...(reasons !== undefined ? { reasons } : {}),
+	};
+}
+
+function sanitizeRunTransparency(value: unknown): StoredPackTurnTransparency["run"] | null {
+	if (!isRecord(value)) return null;
+	const state = sanitizeRunState(value.state);
+	const elapsedMs = sanitizeNumber(value.elapsedMs);
+	const stepElapsedMs = sanitizeStepElapsedMs(value.stepElapsedMs);
+	const failedStepId = sanitizeOptionalStepId(value.failedStepId);
+	if (!state || elapsedMs === undefined || !stepElapsedMs) return null;
+	if (value.failedStepId !== undefined && failedStepId === undefined) return null;
+	return {
+		state,
+		elapsedMs,
+		stepElapsedMs,
+		...(failedStepId !== undefined ? { failedStepId } : {}),
+	};
+}
+
+function sanitizeOptionalVerifierCounts(
+	value: unknown,
+): StoredPackTurnTransparency["verifier"]["counts"] | undefined {
+	if (value === undefined) return undefined;
+	if (!isRecord(value)) return undefined;
+	const verified = sanitizeNumber(value.verified);
+	const unsupported = sanitizeNumber(value.unsupported);
+	const quoteMissing = sanitizeNumber(value.quoteMissing);
+	if (verified === undefined || unsupported === undefined || quoteMissing === undefined) return undefined;
+	return { verified, unsupported, quoteMissing };
+}
+
+function sanitizeOptionalVerifierReasons(
+	value: unknown,
+): StoredPackTurnTransparency["verifier"]["reasons"] | undefined {
+	if (value === undefined) return undefined;
+	if (!Array.isArray(value)) return undefined;
+	const reasons = value.map((reason) => {
+		if (!isRecord(reason)) return null;
+		const status = sanitizeClaimStatus(reason.status);
+		if (
+			typeof reason.claimId !== "string" ||
+			typeof reason.claimText !== "string" ||
+			typeof reason.sourceNote !== "string" ||
+			typeof reason.explanation !== "string" ||
+			!status
+		) {
+			return null;
+		}
+		return {
+			claimId: reason.claimId,
+			claimText: reason.claimText,
+			sourceNote: reason.sourceNote,
+			status,
+			explanation: reason.explanation,
+		};
+	});
+	return reasons.every((reason) => reason !== null) ? reasons : undefined;
+}
+
+function sanitizeOptionalClaims(value: unknown): StoredPackTurnTransparency["synthesizer"]["rawJson"] | undefined {
+	if (value === undefined) return undefined;
+	if (!isRecord(value) || typeof value.summary !== "string" || !Array.isArray(value.claims)) return undefined;
+	const claims = value.claims.map((claim) => {
+		if (
+			!isRecord(claim) ||
+			typeof claim.id !== "string" ||
+			typeof claim.text !== "string" ||
+			typeof claim.source_note !== "string" ||
+			typeof claim.source_quote !== "string" ||
+			typeof claim.confidence !== "number" ||
+			!Number.isFinite(claim.confidence)
+		) {
+			return null;
+		}
+		return {
+			id: claim.id,
+			text: claim.text,
+			source_note: claim.source_note,
+			source_quote: claim.source_quote,
+			confidence: claim.confidence,
+		};
+	});
+	return claims.every((claim) => claim !== null)
+		? {
+			summary: value.summary,
+			claims,
+		}
+		: undefined;
+}
+
+function sanitizeStepElapsedMs(value: unknown): StoredPackTurnTransparency["run"]["stepElapsedMs"] | null {
+	if (!isRecord(value)) return null;
+	const retriever = sanitizeOptionalNumber(value.retriever);
+	const synthesizer = sanitizeOptionalNumber(value.synthesizer);
+	const verifier = sanitizeOptionalNumber(value.verifier);
+	if (value.retriever !== undefined && retriever === undefined) return null;
+	if (value.synthesizer !== undefined && synthesizer === undefined) return null;
+	if (value.verifier !== undefined && verifier === undefined) return null;
+	return {
+		...(retriever !== undefined ? { retriever } : {}),
+		...(synthesizer !== undefined ? { synthesizer } : {}),
+		...(verifier !== undefined ? { verifier } : {}),
+	};
+}
+
+function sanitizeCardStatus(value: unknown): StoredPackTurnTransparency["retriever"]["status"] | null {
+	return value === "pending" || value === "ready" || value === "absent" ? value : null;
+}
+
+function sanitizeRunState(value: unknown): StoredPackTurnTransparency["run"]["state"] | null {
+	return value === "running" || value === "completed" || value === "failed" || value === "stopped" ? value : null;
+}
+
+function sanitizeClaimStatus(value: unknown): StoredClaimStatus | null {
+	return value === "verified" || value === "unsupported" || value === "quote-missing" ? value : null;
+}
+
+function sanitizeOptionalStepId(value: unknown): StoredPackTurnTransparency["run"]["failedStepId"] | undefined {
+	if (value === undefined) return undefined;
+	return value === "retriever" || value === "synthesizer" || value === "verifier" ? value : undefined;
+}
+
+function sanitizeOptionalStringArray(value: unknown): string[] | undefined {
+	if (value === undefined) return undefined;
+	if (!Array.isArray(value) || !value.every((entry) => typeof entry === "string")) return undefined;
+	return value;
+}
+
+function sanitizeOptionalString(value: unknown): string | undefined {
+	if (value === undefined) return undefined;
+	return typeof value === "string" ? value : undefined;
+}
+
+function sanitizeNumber(value: unknown): number | undefined {
+	return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
+}
+
+function sanitizeOptionalNumber(value: unknown): number | undefined {
+	if (value === undefined) return undefined;
+	return sanitizeNumber(value);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null;
 }
