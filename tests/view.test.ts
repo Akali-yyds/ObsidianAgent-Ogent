@@ -79,11 +79,31 @@ function createAgentWorkTurn(overrides: Partial<StoredPackTurnData> = {}): Store
 		packId: groundedResearchDefault.id,
 		packName: groundedResearchDefault.name,
 		progressSteps: [
-			{ id: "retriever", label: "Retrieving notes", state: "complete" },
-			{ id: "synthesizer", label: "Drafting claims", state: "complete" },
-			{ id: "verifier", label: "Verifying claims", state: "complete" },
+			{ id: "retriever", label: "Retriever", state: "complete" },
+			{ id: "synthesizer", label: "Synthesizer", state: "complete" },
+			{ id: "verifier", label: "Verifier", state: "complete" },
 		],
 		verifiedSummary: "- Alpha evidence",
+		researchMarkdown:
+			"Alpha is supported by the source note. [1](openagent://citation/1)\n\nBeta needs more support before it can be verified. [2](openagent://citation/2)",
+		citations: [
+			{
+				claimId: "claim-verified",
+				notePath: "notes/source.md",
+				exactPhrase: "Alpha evidence",
+				startOffset: 0,
+				endOffset: "Alpha evidence".length,
+				occurrenceIndex: 0,
+			},
+			{
+				claimId: "claim-missing",
+				notePath: "notes/source.md",
+				exactPhrase: "Beta quote",
+				startOffset: 14,
+				endOffset: 24,
+				occurrenceIndex: 0,
+			},
+		],
 		claims: [
 			{
 				id: "claim-verified",
@@ -94,6 +114,13 @@ function createAgentWorkTurn(overrides: Partial<StoredPackTurnData> = {}): Store
 				supportsClaim: true,
 				supportExplanation: "Directly supported",
 				status: "verified",
+				exactPhraseAnchor: {
+					notePath: "notes/source.md",
+					exactPhrase: "Alpha evidence",
+					startOffset: 0,
+					endOffset: "Alpha evidence".length,
+					occurrenceIndex: 0,
+				},
 			},
 			{
 				id: "claim-missing",
@@ -245,7 +272,7 @@ describe("ChatView pack UI", () => {
 		setMobileMode(false);
 	});
 
-	it("renders collapsible claim cards, source-note navigation, and model attribution for pack turns", () => {
+	it("renders claim cards, source-note navigation, and model attribution for pack turns", () => {
 		const app = createMockApp({
 			files: {
 				"notes/source.md": "Alpha evidence",
@@ -322,14 +349,15 @@ describe("ChatView pack UI", () => {
 		const flaggedDetails = findByClass(cards[1], "open-agent-claim-details")[0];
 		const toggles = findByClass(parent, "open-agent-claim-toggle");
 
-		expect(toggles[0].textContent).toBe("Show details");
+		expect(toggles[0].textContent).toBe("Info");
 		expect(verifiedDetails.classList.contains("is-hidden")).toBe(true);
-		expect(toggles[1].textContent).toBe("Hide details");
+		expect(toggles[1].textContent).toBe("Hide info");
 		expect(flaggedDetails.classList.contains("is-hidden")).toBe(false);
 
 		toggles[0].click();
-		expect(toggles[0].textContent).toBe("Hide details");
+		expect(toggles[0].textContent).toBe("Hide info");
 		expect(verifiedDetails.classList.contains("is-hidden")).toBe(false);
+		expect(textTree(verifiedDetails)).toContain("Directly supported");
 
 		findByClass(cards[0], "open-agent-claim-open")[0].click();
 		expect(openFile).toHaveBeenCalledWith(expect.objectContaining({ path: "notes/source.md" }));
@@ -340,7 +368,7 @@ describe("ChatView pack UI", () => {
 		);
 	});
 
-	it("renders Agent work between the outcome surface and claim cards, keeps successful cards collapsed, and only opens one at a time", () => {
+	it("renders Research result first, then the step stack, then claim cards, then the model footer", () => {
 		const app = createMockApp();
 		const { deps } = createDeps({
 			id: "session-a",
@@ -351,47 +379,97 @@ describe("ChatView pack UI", () => {
 		const view = new ChatView({ app } as never, deps);
 		const parent = renderPackTurn(view, createAgentWorkTurn());
 
-		expect(findByClass(parent, "open-agent-pack-section-title").map((el) => el.textContent)).toEqual([
-			"Verified summary",
-			"Agent work",
-			"Flagged claims",
-		]);
-		expect(findByClass(parent, "open-agent-work-card-title").map((el) => el.textContent)).toEqual([
-			"Retriever",
-			"Synthesizer",
-			"Verifier",
-			"Run metadata",
-		]);
+		expect(parent.children[0]?.textContent).toBe("Research result");
+		expect(parent.children[1]?.textContent).toContain("1m 16s");
+		expect(parent.children[2]?.classList.contains("open-agent-turn-body")).toBe(true);
+		expect(parent.children[3]?.classList.contains("open-agent-pack-progress")).toBe(true);
+		expect(parent.children.at(-1)?.classList.contains("open-agent-pack-model-footer")).toBe(true);
+	});
 
-		const toggles = findByClass(parent, "open-agent-work-toggle");
-		const details = findByClass(parent, "open-agent-work-details");
-		expect(toggles.map((el) => el.textContent)).toEqual([
-			"Show details",
-			"Show details",
-			"Show details",
-			"Show details",
-		]);
-		expect(details.every((el) => el.classList.contains("is-hidden"))).toBe(true);
+	it("does not render Agent work, Run details, or a standalone run metadata node", () => {
+		const app = createMockApp();
+		const { deps } = createDeps({
+			id: "session-a",
+			model: "gpt-4o-mini",
+			selectedPackId: groundedResearchDefault.id,
+			lastClassicModel: "gpt-4o-mini",
+		});
+		const view = new ChatView({ app } as never, deps);
+		const parent = renderPackTurn(view, createAgentWorkTurn());
 
-		toggles[0].click();
-		expect(toggles.map((el) => el.textContent)).toEqual([
-			"Hide details",
-			"Show details",
-			"Show details",
-			"Show details",
-		]);
-		expect(details[0].classList.contains("is-hidden")).toBe(false);
-		expect(details.slice(1).every((el) => el.classList.contains("is-hidden"))).toBe(true);
+		expect(textTree(parent)).not.toContain("Agent work");
+		expect(textTree(parent)).not.toContain("Run details");
+		expect(textTree(parent)).not.toContain("Run metadata");
+		expect(findByClass(parent, "open-agent-pack-info-bar")).toHaveLength(0);
+		expect(findByClass(parent, "open-agent-pack-info-panel")).toHaveLength(0);
+	});
 
-		toggles[2].click();
-		expect(toggles.map((el) => el.textContent)).toEqual([
-			"Show details",
-			"Show details",
-			"Hide details",
-			"Show details",
-		]);
-		expect(details[0].classList.contains("is-hidden")).toBe(true);
-		expect(details[2].classList.contains("is-hidden")).toBe(false);
+	it("uses whole-row step disclosures with one expanded row at a time", () => {
+		const app = createMockApp();
+		const { deps } = createDeps({
+			id: "session-a",
+			model: "gpt-4o-mini",
+			selectedPackId: groundedResearchDefault.id,
+			lastClassicModel: "gpt-4o-mini",
+		});
+		const view = new ChatView({ app } as never, deps);
+		const parent = renderPackTurn(view, createAgentWorkTurn());
+		const steps = findByClass(parent, "open-agent-pack-step");
+
+		expect(steps).toHaveLength(3);
+		expect(steps[0]?.tagName).toBe("button");
+		expect(steps[1]?.tagName).toBe("button");
+		expect(steps[2]?.tagName).toBe("button");
+		expect(findByClass(parent, "open-agent-pack-step-details").filter((el) => !el.classList.contains("is-hidden"))).toHaveLength(0);
+
+		steps[0].click();
+		expect(findByClass(parent, "open-agent-pack-step-details").filter((el) => !el.classList.contains("is-hidden"))).toHaveLength(1);
+		expect(textTree(parent)).toContain("notes/source.md");
+
+		steps[1].click();
+		const openPanels = findByClass(parent, "open-agent-pack-step-details").filter((el) => !el.classList.contains("is-hidden"));
+		expect(openPanels).toHaveLength(1);
+		expect(textTree(openPanels[0])).toContain("Raw JSON");
+	});
+
+	it("auto-expands the failed step on first render", () => {
+		const app = createMockApp();
+		const { deps } = createDeps({
+			id: "session-a",
+			model: "gpt-4o-mini",
+			selectedPackId: groundedResearchDefault.id,
+			lastClassicModel: "gpt-4o-mini",
+		});
+		const view = new ChatView({ app } as never, deps);
+		const parent = renderPackTurn(view, createAgentWorkTurn({
+			progressSteps: [
+				{ id: "retriever", label: "Retriever", state: "complete" },
+				{ id: "synthesizer", label: "Synthesizer", state: "failed", message: "Synthesizer failed" },
+				{ id: "verifier", label: "Verifier", state: "pending" },
+			],
+			agentWork: {
+				retriever: {
+					status: "ready",
+					elapsedMs: 2400,
+					notesFoundCount: 2,
+					topNotePaths: ["notes/source.md", "notes/appendix.md"],
+					brief: "- notes/source.md backs Alpha",
+				},
+				synthesizer: { status: "absent", elapsedMs: 2400 },
+				verifier: { status: "pending" },
+				run: {
+					state: "failed",
+					elapsedMs: 4800,
+					stepElapsedMs: { retriever: 2400, synthesizer: 2400 },
+					failedStepId: "synthesizer",
+				},
+			},
+		}));
+
+		const openPanels = findByClass(parent, "open-agent-pack-step-details").filter((el) => !el.classList.contains("is-hidden"));
+		expect(openPanels).toHaveLength(1);
+		expect(textTree(openPanels[0])).toContain("No details captured.");
+		expect(textTree(parent)).toContain("Synthesizer failed");
 	});
 
 	it("keeps legacy and classic turns unchanged and reuses the existing note-opening path for retriever note chips", () => {
@@ -411,6 +489,7 @@ describe("ChatView pack UI", () => {
 		const view = new ChatView({ app } as never, deps);
 
 		const withWork = renderPackTurn(view, createAgentWorkTurn());
+		findByClass(withWork, "open-agent-pack-step")[0].click();
 		findByClass(withWork, "open-agent-work-note-path")[0].click();
 		expect(openFile).toHaveBeenCalledWith(expect.objectContaining({ path: "notes/source.md" }));
 		expect(openFile.mock.calls[0]?.[0]).toBeInstanceOf(MockTFile);
@@ -421,7 +500,8 @@ describe("ChatView pack UI", () => {
 			progressSteps: [{ id: "retriever", label: "Retrieving notes", state: "complete" }],
 			verifiedSummary: "- Legacy answer",
 		});
-		expect(findByClass(legacyPackTurn, "open-agent-work-section")).toHaveLength(0);
+		expect(textTree(legacyPackTurn)).toContain("Legacy answer");
+		expect(textTree(legacyPackTurn)).not.toContain("Research result");
 
 		const classicView = new ChatView({ app } as never, createDeps({
 			id: "session-classic",
@@ -450,10 +530,10 @@ describe("ChatView pack UI", () => {
 			thinking: false,
 		}];
 		(classicView as unknown as { renderTranscript(): void }).renderTranscript();
-		expect(findByClass(classicRow, "open-agent-work-section")).toHaveLength(0);
+		expect(findByClass(classicRow, "open-agent-pack-step")).toHaveLength(0);
 	});
 
-	it("renders live pending states and failed-run missing cards without hiding completed work", () => {
+	it("renders live pending states and failed-run missing data inside the step rows", () => {
 		const app = createMockApp();
 		const { deps } = createDeps({
 			id: "session-a",
@@ -483,13 +563,9 @@ describe("ChatView pack UI", () => {
 			claims: [],
 			verifiedSummary: "",
 		}));
-		const liveToggles = findByClass(liveParent, "open-agent-work-toggle");
-		const liveDetails = findByClass(liveParent, "open-agent-work-details");
+		const liveSteps = findByClass(liveParent, "open-agent-pack-step");
+		liveSteps[1].click();
 		expect(textTree(liveParent)).toContain("Waiting for step to finish.");
-		liveToggles[0].click();
-		expect(liveDetails[0].classList.contains("is-hidden")).toBe(false);
-		liveToggles[1].click();
-		expect(liveDetails[1].classList.contains("is-hidden")).toBe(true);
 
 		const failedParent = renderPackTurn(view, createAgentWorkTurn({
 			agentWork: {
@@ -512,21 +588,12 @@ describe("ChatView pack UI", () => {
 			claims: [],
 			verifiedSummary: "",
 		}));
-		const failedToggles = findByClass(failedParent, "open-agent-work-toggle");
-		const failedDetails = findByClass(failedParent, "open-agent-work-details");
-		expect(failedToggles.map((el) => el.textContent)).toEqual([
-			"Show details",
-			"Hide details",
-			"Show details",
-			"Show details",
-		]);
-		expect(textTree(failedDetails[1])).toContain("No data captured");
-		failedToggles[0].click();
-		expect(failedDetails[0].classList.contains("is-hidden")).toBe(false);
-		expect(failedDetails[1].classList.contains("is-hidden")).toBe(true);
+		const failedOpenPanels = findByClass(failedParent, "open-agent-pack-step-details").filter((el) => !el.classList.contains("is-hidden"));
+		expect(failedOpenPanels).toHaveLength(1);
+		expect(textTree(failedParent)).toContain("No details captured.");
 	});
 
-	it("preserves retriever ordering, omits raw scores, renders verifier reasons in claim order, and ends run metadata with the final run state", () => {
+	it("locks retriever, synthesizer, and verifier detail contracts inside the step rows", () => {
 		const app = createMockApp();
 		const { deps } = createDeps({
 			id: "session-a",
@@ -536,34 +603,32 @@ describe("ChatView pack UI", () => {
 		});
 		const view = new ChatView({ app } as never, deps);
 		const parent = renderPackTurn(view, createAgentWorkTurn());
-
-		expect(textTree(findByClass(parent, "open-agent-work-card")[0])).toContain("5 notes found");
+		const steps = findByClass(parent, "open-agent-pack-step");
+		steps[0].click();
+		expect(textTree(steps[0])).toContain("5 notes");
 		expect(findByClass(parent, "open-agent-work-note-path").map((el) => el.textContent)).toEqual([
 			"notes/source.md",
 			"notes/appendix.md",
 			"notes/archive.md",
 		]);
-		expect(textTree(findByClass(parent, "open-agent-work-card")[0])).toContain("+2 more");
+		expect(textTree(steps[0])).toContain("+2 more");
+		expect(textTree(steps[0])).toContain("notes/source.md backs Alpha");
+		expect(textTree(steps[0])).not.toContain("0.91");
 
-		findByClass(parent, "open-agent-work-toggle")[0].click();
-		const retrieverDetails = findByClass(parent, "open-agent-work-details")[0];
-		expect(textTree(retrieverDetails)).toContain("notes/source.md backs Alpha");
-		expect(textTree(retrieverDetails)).not.toContain("0.91");
+		steps[1].click();
+		expect(textTree(steps[1])).toContain("2 draft claims");
+		expect(textTree(steps[1])).toContain("Alpha is directly supported by the source note.");
+		expect(textTree(steps[1])).toContain("Raw JSON");
 
-		findByClass(parent, "open-agent-work-toggle")[2].click();
-		const verifierRows = findByClass(parent, "open-agent-work-verifier-row");
-		expect(verifierRows.map((row) => textTree(row))).toEqual([
-			expect.stringContaining("Verified Alpha is supported by the source note and should remain first in order. source.md Direct quote support found."),
-			expect.stringContaining("Quote missing Beta needs more support before it can be considered safe to state confidently. source.md Quote was not found in the live note."),
-		]);
-
-		findByClass(parent, "open-agent-work-toggle")[3].click();
-		const runDetails = findByClass(parent, "open-agent-work-details")[3];
-		const runState = findByClass(runDetails, "open-agent-work-run-state").at(-1);
-		expect(runState?.textContent).toBe("Completed");
+		steps[2].click();
+		expect(textTree(steps[2])).toContain("Verified 1");
+		expect(textTree(steps[2])).toContain("Unsupported 0");
+		expect(textTree(steps[2])).toContain("Quote missing 1");
+		expect(textTree(steps[2])).toContain("source.md");
+		expect(textTree(steps[2])).toContain("Direct quote support found.");
 	});
 
-	it("locks the exact Agent work labels, truncation rules, chip copy, and timing fallbacks from the UI spec", () => {
+	it("shows total timing near the research result and locks per-step timing display rules and fallbacks", () => {
 		const app = createMockApp();
 		const { deps } = createDeps({
 			id: "session-a",
@@ -603,42 +668,27 @@ describe("ChatView pack UI", () => {
 					state: "completed",
 					elapsedMs: 1500,
 					stepElapsedMs: {
+						retriever: undefined,
 						synthesizer: 9800,
+						verifier: undefined,
 					},
 				},
 			},
 		}));
-
-		expect(findByClass(parent, "open-agent-work-toggle").map((el) => el.textContent)).toEqual([
-			"Show details",
-			"Show details",
-			"Show details",
-			"Show details",
-		]);
-		const synthesizerSummary = textTree(findByClass(parent, "open-agent-work-card")[1]);
-		expect(synthesizerSummary).toContain("2 draft claims");
-		expect(synthesizerSummary).not.toContain("Third line should not appear");
-
-		const verifierChips = findByClass(parent, "open-agent-work-card")[2];
-		expect(textTree(verifierChips)).toContain("Verified 1");
-		expect(textTree(verifierChips)).toContain("Unsupported 2");
-		expect(textTree(verifierChips)).toContain("Quote missing 3");
-
-		const runSummary = findByClass(parent, "open-agent-work-card")[3];
-		expect(findByClass(runSummary, "open-agent-work-summary-text").map((el) => el.textContent)).toEqual([
-			"Total 1.5s",
-			"Retriever Timing unavailable",
-			"Synthesizer 9.8s",
-			"Verifier Timing unavailable",
-		]);
-
-		findByClass(parent, "open-agent-work-toggle")[1].click();
-		expect(findByClass(parent, "open-agent-work-raw-json-label")[0]?.textContent).toBe("Raw JSON");
+		expect(parent.children[1]?.textContent).toContain("1.5s");
+		const steps = findByClass(parent, "open-agent-pack-step");
+		expect(textTree(steps[0])).toContain("Timing unavailable");
+		expect(textTree(steps[1])).toContain("9.8s");
+		expect(textTree(steps[2])).toContain("Timing unavailable");
+		steps[1].click();
+		expect(textTree(steps[1])).toContain("2 draft claims");
+		expect(textTree(steps[1])).not.toContain("Third line should not appear");
 	});
 
-	it("ships transcript-local Agent work styles with touch-safe disclosure controls and a capped monospace JSON block", () => {
-		expect(agentWorkStyles).toContain(".open-agent-work-section");
-		expect(agentWorkStyles).toContain(".open-agent-work-toggle");
+	it("ships transcript-local inline info styles with touch-safe disclosure controls and a capped monospace JSON block", () => {
+		expect(agentWorkStyles).toContain(".open-agent-pack-info-bar");
+		expect(agentWorkStyles).toContain(".open-agent-pack-info-toggle");
+		expect(agentWorkStyles).toContain(".open-agent-pack-info-subtoggle");
 		expect(agentWorkStyles).toContain("min-height: 44px");
 		expect(agentWorkStyles).toContain("min-width: 44px");
 		expect(agentWorkStyles).toContain(".open-agent-work-raw-json");
