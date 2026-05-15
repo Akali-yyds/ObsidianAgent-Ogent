@@ -1,6 +1,6 @@
-# Gemma 4 Good Hackathon Submission
+# Gemma 4 Hackathon Project
 
-OpenAgent for Obsidian turns a normal vault into a privacy-first research workspace. The core plugin keeps the existing classic chat flow intact, and the new **Grounded Research** pack adds a retriever -> synthesizer -> verifier pipeline that catches hallucinated citations before they reach the user as verified facts.
+OpenAgent for Obsidian turns a normal vault into a privacy-first research workspace. The core plugin keeps the existing classic chat flow intact, and the new **Grounded Research** pack adds a retriever -> synthesizer -> verifier pipeline that catches hallucinated citations before they reach the user as verified facts. The core impact is that the same local note collection can now support higher-trust, local-only grounded research and agentic workflows without sending vault data to a hosted reasoning stack by default.
 
 ## Problem
 
@@ -10,6 +10,7 @@ Single-agent note assistants are fast, but they are hard to trust when they summ
 - add an opt-in grounded-research mode for higher-trust answers
 - verify every claim against the live note text before surfacing it as verified
 - keep the whole pipeline local-by-default through OpenAI-compatible endpoints that can be served by MLX on Apple silicon
+- orchestrate three Gemma 4 model sizes so local workflows can balance speed, reasoning quality, and verification
 
 ## What shipped
 
@@ -26,9 +27,9 @@ Single-agent note assistants are fast, but they are hard to trust when they summ
 
 | Stage | Default endpoint | Default model | Responsibility |
 | --- | --- | --- | --- |
-| Retriever | `http://127.0.0.1:8000/v1` | `gemma-4-E4B-it-MLX-8bit` | Pull likely notes and summarize the strongest evidence. |
-| Synthesizer | `http://127.0.0.1:8000/v1` | `gemma-4-31B-it-MLX-8bit` | Produce `claims-v1` JSON grounded in the retrieved notes. |
-| Verifier | `http://127.0.0.1:8000/v1` | `gemma-4-26B-A4B-it-MLX-8bit` | Check whether each cited quote actually supports the claim. |
+| Retriever | `http://127.0.0.1:8000/v1` | `gemma-4-E4B-it-MLX-8bit` | Pull likely notes and summarize the strongest evidence with a smaller fast local model. |
+| Synthesizer | `http://127.0.0.1:8000/v1` | `gemma-4-31B-it-MLX-8bit` | Produce `claims-v1` JSON grounded in the retrieved notes with the strongest reasoning model in the stack. |
+| Verifier | `http://127.0.0.1:8000/v1` | `gemma-4-26B-A4B-it-MLX-8bit` | Check whether each cited quote actually supports the claim before it is shown as verified. |
 
 Key code paths:
 
@@ -119,7 +120,7 @@ The latest full 24-query live-corpus run is:
 | Total flagged claims | 7 |
 | Claim buckets | 41 verified / 0 unsupported / 7 quote-missing |
 
-This run reflects the benchmark cleanup plus retrieval tuning done during the hackathon push. It is the best full-corpus snapshot for the application package today.
+This run reflects the benchmark cleanup plus retrieval tuning done during the hackathon push. It is the best full-corpus snapshot for the submission package today.
 
 ### Latest live Nobel quick-run artifact
 
@@ -130,12 +131,12 @@ The latest quick-slice smoke artifact remains:
 
 Use the quick benchmark when you want a faster local sanity check. Use the full live artifact above when you want the strongest real-dataset result for the hackathon submission.
 
-## Reviewer flow
+## Submission review flow
 
-Use this order when reviewing the submission from the repo:
+Use this order when reviewing the submission package from the repo:
 
 1. Read `README.md` for the plugin overview and the hackathon banner.
-2. Read this file for the hackathon-specific story and setup.
+2. Read this file for the submission story, setup, and evaluation context.
 3. Review `hackathon/demo/script.md` for the demo narrative.
 4. Run the automated gate:
 
