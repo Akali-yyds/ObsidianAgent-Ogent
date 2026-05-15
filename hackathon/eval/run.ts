@@ -5,12 +5,14 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { normalizeWhitespace, quotePresent } from "../../src/agents/quote-match";
 import type { ClaimVerificationStatus } from "../../src/agents/verifier";
 import type { ClaimsV1 } from "../../src/agents/schemas/claims-v1";
+import type { OpenAICompatibleConfig } from "../../src/provider-config";
 import groundedResearchDefault from "../../src/packs/defaults/grounded-research.json";
 import { runPackForEval, type PackRunResult } from "../../src/packs/runtime";
 import type { AgentPack } from "../../src/packs/types";
 import type { VaultAdapter } from "../../src/packs/vault-adapter";
 import type { ChatMessage, ModelProvider, StreamEvent } from "../../src/types";
-import { createFixtureVaultAdapter } from "./fixture-vault";
+import { createMarkdownVaultAdapter } from "./fixture-vault";
+import { createNodeEvalProvider } from "./live-provider";
 
 type FixtureCategory = "single-fact" | "multi-note" | "conflict" | "no-support" | "adversarial";
 type FixtureOutcome = "supported" | "mixed" | "unsupported";
@@ -45,6 +47,30 @@ interface EvalQueryFixture {
 interface EvalFixtures {
 	packId: string;
 	queries: EvalQueryFixture[];
+}
+
+interface LiveEvalExpectedClaim {
+	source_note: string;
+	source_quote: string;
+	required_phrases: string[];
+	forbidden_phrases?: string[];
+}
+
+interface LiveEvalQueryFixture {
+	id: string;
+	category: FixtureCategory;
+	query: string;
+	notesExpected: string[];
+	expectedCitations: string[];
+	expectedOutcome: FixtureOutcome;
+	expectedClaims: LiveEvalExpectedClaim[];
+}
+
+interface LiveEvalBenchmark {
+	packId: string;
+	datasetId: string;
+	datasetName: string;
+	queries: LiveEvalQueryFixture[];
 }
 
 interface ClaimBuckets {
@@ -93,6 +119,12 @@ export interface EvalReport {
 	runId: string;
 	timestamp: string;
 	packId: string;
+	mode?: "fixture" | "live";
+	dataset?: {
+		id: string;
+		name: string;
+		benchmarkPath: string;
+	};
 	fixture: {
 		rootDir: string;
 		queryCount: number;
@@ -116,6 +148,14 @@ export interface EvalRunResult {
 	jsonPath: string;
 	markdownPath: string;
 }
+
+interface EvalClaimLike {
+	text: string;
+	sourceNote: string;
+	sourceQuote: string;
+}
+
+type EvalProviderFactory = (config: OpenAICompatibleConfig, agentId: string, pack: AgentPack) => ModelProvider;
 
 const ajv = new Ajv({ allErrors: true, strict: false });
 const fixtureValidator = ajv.compile<EvalFixtures>({
@@ -196,6 +236,73 @@ const fixtureValidator = ajv.compile<EvalFixtures>({
 		},
 	},
 	required: ["packId", "queries"],
+	additionalProperties: false,
+});
+
+const liveBenchmarkValidator = ajv.compile<LiveEvalBenchmark>({
+	type: "object",
+	properties: {
+		packId: { type: "string", minLength: 1 },
+		datasetId: { type: "string", minLength: 1 },
+		datasetName: { type: "string", minLength: 1 },
+		queries: {
+			type: "array",
+			minItems: 1,
+			items: {
+				type: "object",
+				properties: {
+					id: { type: "string", minLength: 1 },
+					category: {
+						type: "string",
+						enum: ["single-fact", "multi-note", "conflict", "no-support", "adversarial"],
+					},
+					query: { type: "string", minLength: 1 },
+					notesExpected: {
+						type: "array",
+						items: { type: "string", minLength: 1 },
+					},
+					expectedCitations: {
+						type: "array",
+						items: { type: "string", minLength: 1 },
+					},
+					expectedOutcome: { type: "string", enum: ["supported", "mixed", "unsupported"] },
+					expectedClaims: {
+						type: "array",
+						minItems: 1,
+						items: {
+							type: "object",
+							properties: {
+								source_note: { type: "string", minLength: 1 },
+								source_quote: { type: "string", minLength: 1 },
+								required_phrases: {
+									type: "array",
+									minItems: 1,
+									items: { type: "string", minLength: 1 },
+								},
+								forbidden_phrases: {
+									type: "array",
+									items: { type: "string", minLength: 1 },
+								},
+							},
+							required: ["source_note", "source_quote", "required_phrases"],
+							additionalProperties: false,
+						},
+					},
+				},
+				required: [
+					"id",
+					"category",
+					"query",
+					"notesExpected",
+					"expectedCitations",
+					"expectedOutcome",
+					"expectedClaims",
+				],
+				additionalProperties: false,
+			},
+		},
+	},
+	required: ["packId", "datasetId", "datasetName", "queries"],
 	additionalProperties: false,
 });
 
@@ -312,11 +419,29 @@ const reportValidator = ajv.compile<EvalReport>({
 
 export async function runEvalHarness(options: {
 	pack?: AgentPack;
+	packPath?: string;
 	fixturesDir?: string;
 	resultsDir?: string;
+	live?: boolean;
+	benchmarkPath?: string;
+	vaultDir?: string;
+	providerFactory?: EvalProviderFactory;
+} = {}): Promise<EvalRunResult> {
+	if (options.live || options.benchmarkPath || options.vaultDir) {
+		return runLiveEvalHarness(options);
+	}
+	return runFixtureEvalHarness(options);
+}
+
+async function runFixtureEvalHarness(options: {
+	pack?: AgentPack;
+	packPath?: string;
+	fixturesDir?: string;
+	resultsDir?: string;
+	providerFactory?: EvalProviderFactory;
 } = {}): Promise<EvalRunResult> {
 	const scriptDir = path.dirname(fileURLToPath(import.meta.url));
-	const pack = options.pack ?? (groundedResearchDefault as AgentPack);
+	const pack = options.pack ?? (options.packPath ? await loadPackFile(options.packPath) : (groundedResearchDefault as AgentPack));
 	const fixturesDir = options.fixturesDir ?? path.join(scriptDir, "fixtures");
 	const resultsDir = options.resultsDir ?? path.join(scriptDir, "results");
 	const queryPath = path.join(fixturesDir, "queries.json");
@@ -330,9 +455,9 @@ export async function runEvalHarness(options: {
 		throw new Error(`Fixture packId ${fixtures.packId} does not match pack ${pack.id}`);
 	}
 
-	const vault = await createFixtureVaultAdapter(vaultDir);
+	const vault = await createMarkdownVaultAdapter(vaultDir);
 	const timestamp = new Date().toISOString();
-	const runId = timestamp.replace(/[:.]/g, "-");
+	const runId = `fixture-${timestamp.replace(/[:.]/g, "-")}`;
 
 	const claimBuckets = emptyBuckets();
 	const baselineClaimBuckets = emptyBuckets();
@@ -345,7 +470,7 @@ export async function runEvalHarness(options: {
 	let verifiedEscapedHallucinations = 0;
 
 	for (const queryFixture of fixtures.queries) {
-		const providerFactory = createFixtureProviderFactory(queryFixture);
+		const providerFactory = options.providerFactory ?? createFixtureProviderFactory(queryFixture);
 		const baseline = await runPackForEval({
 			pack,
 			query: queryFixture.query,
@@ -380,10 +505,124 @@ export async function runEvalHarness(options: {
 		runId,
 		timestamp,
 		packId: pack.id,
+		mode: "fixture",
 		fixture: {
 			rootDir: fixturesDir,
 			queryCount: fixtures.queries.length,
 			categories: countCategories(fixtures.queries),
+		},
+		baselineHallucinationRate,
+		verifiedHallucinationRate,
+		hallucinationRateDelta: toDelta(baselineHallucinationRate, verifiedHallucinationRate),
+		totalClaims,
+		totalFlaggedClaims,
+		claimBuckets,
+		baselineTotalClaims,
+		baselineFlaggedClaims,
+		baselineClaimBuckets,
+		verifiedSurfacedClaims,
+		perQuery,
+	};
+
+	if (!reportValidator(report)) {
+		throw new Error(`Eval report failed validation: ${formatAjvErrors(reportValidator.errors)}`);
+	}
+
+	const jsonPath = path.join(resultsDir, `${runId}.json`);
+	const markdownPath = path.join(resultsDir, `${runId}.md`);
+	await Promise.all([
+		fs.writeFile(jsonPath, `${JSON.stringify(report, null, 2)}\n`, "utf8"),
+		fs.writeFile(markdownPath, `${renderMarkdownReport(report)}\n`, "utf8"),
+	]);
+
+	return { report, jsonPath, markdownPath };
+}
+
+async function runLiveEvalHarness(options: {
+	pack?: AgentPack;
+	packPath?: string;
+	resultsDir?: string;
+	benchmarkPath?: string;
+	vaultDir?: string;
+	providerFactory?: EvalProviderFactory;
+} = {}): Promise<EvalRunResult> {
+	const scriptDir = path.dirname(fileURLToPath(import.meta.url));
+	const pack = options.pack ?? (options.packPath ? await loadPackFile(options.packPath) : (groundedResearchDefault as AgentPack));
+	const benchmarkPath =
+		options.benchmarkPath ?? path.join(scriptDir, "..", "data", "nobel_physics", "benchmark.json");
+	const vaultDir = options.vaultDir ?? path.join(scriptDir, "..", "data", "nobel_physics");
+	const resultsDir = options.resultsDir ?? path.join(scriptDir, "results");
+
+	await ensureDirectory(vaultDir, "live eval vault");
+	await ensureDirectory(resultsDir, "eval results");
+
+	const benchmark = await loadLiveBenchmark(benchmarkPath);
+	if (!isCompatiblePackId(benchmark.packId, pack.id)) {
+		throw new Error(`Benchmark packId ${benchmark.packId} does not match pack ${pack.id}`);
+	}
+
+	const vault = await createMarkdownVaultAdapter(vaultDir);
+	const timestamp = new Date().toISOString();
+	const runId = `live-${benchmark.datasetId}-${timestamp.replace(/[:.]/g, "-")}`;
+
+	const claimBuckets = emptyBuckets();
+	const baselineClaimBuckets = emptyBuckets();
+	const perQuery: PerQueryReport[] = [];
+	let totalClaims = 0;
+	let totalFlaggedClaims = 0;
+	let baselineTotalClaims = 0;
+	let baselineFlaggedClaims = 0;
+	let verifiedSurfacedClaims = 0;
+	let verifiedEscapedHallucinations = 0;
+	const providerFactory =
+		options.providerFactory ??
+		((config: OpenAICompatibleConfig) => createNodeEvalProvider(config));
+
+	for (const queryFixture of benchmark.queries) {
+		const baseline = await runPackForEval({
+			pack,
+			query: queryFixture.query,
+			vault,
+			verifierEnabled: false,
+			providerFactory,
+		});
+		const verified = await runPackForEval({
+			pack,
+			query: queryFixture.query,
+			vault,
+			verifierEnabled: true,
+			providerFactory,
+		});
+
+		const queryReport = await buildLivePerQueryReport(queryFixture, vault, baseline, verified);
+		perQuery.push(queryReport);
+
+		totalClaims += queryReport.verifiedClaimCount;
+		totalFlaggedClaims += queryReport.verifiedFlaggedClaims;
+		baselineTotalClaims += queryReport.baselineClaimCount;
+		baselineFlaggedClaims += queryReport.baselineFlaggedClaims;
+		verifiedSurfacedClaims += queryReport.verifiedSurfacedClaimCount;
+		verifiedEscapedHallucinations += await countLiveEscapedHallucinations(queryFixture, vault, verified.claims);
+		mergeBuckets(claimBuckets, queryReport.verifiedClaimBuckets);
+		mergeBuckets(baselineClaimBuckets, queryReport.baselineClaimBuckets);
+	}
+
+	const baselineHallucinationRate = toRate(baselineFlaggedClaims, baselineTotalClaims);
+	const verifiedHallucinationRate = toRate(verifiedEscapedHallucinations, verifiedSurfacedClaims);
+	const report: EvalReport = {
+		runId,
+		timestamp,
+		packId: pack.id,
+		mode: "live",
+		dataset: {
+			id: benchmark.datasetId,
+			name: benchmark.datasetName,
+			benchmarkPath,
+		},
+		fixture: {
+			rootDir: vaultDir,
+			queryCount: benchmark.queries.length,
+			categories: countCategories(benchmark.queries),
 		},
 		baselineHallucinationRate,
 		verifiedHallucinationRate,
@@ -424,6 +663,30 @@ async function loadFixtures(queryPath: string): Promise<EvalFixtures> {
 		throw new Error(`Eval fixtures failed validation: ${formatAjvErrors(fixtureValidator.errors)}`);
 	}
 	return parsed;
+}
+
+async function loadLiveBenchmark(benchmarkPath: string): Promise<LiveEvalBenchmark> {
+	const raw = await fs.readFile(benchmarkPath, "utf8").catch((error: NodeJS.ErrnoException) => {
+		if (error.code === "ENOENT") {
+			throw new Error(`Missing live eval benchmark at ${benchmarkPath}`);
+		}
+		throw error;
+	});
+	const parsed = JSON.parse(raw) as unknown;
+	if (!liveBenchmarkValidator(parsed)) {
+		throw new Error(`Live eval benchmark failed validation: ${formatAjvErrors(liveBenchmarkValidator.errors)}`);
+	}
+	return parsed;
+}
+
+async function loadPackFile(packPath: string): Promise<AgentPack> {
+	const raw = await fs.readFile(packPath, "utf8").catch((error: NodeJS.ErrnoException) => {
+		if (error.code === "ENOENT") {
+			throw new Error(`Missing pack file at ${packPath}`);
+		}
+		throw error;
+	});
+	return JSON.parse(raw) as AgentPack;
 }
 
 async function buildPerQueryReport(
@@ -482,6 +745,66 @@ async function buildPerQueryReport(
 	};
 }
 
+async function buildLivePerQueryReport(
+	queryFixture: LiveEvalQueryFixture,
+	vault: VaultAdapter,
+	baseline: PackRunResult,
+	verified: PackRunResult,
+): Promise<PerQueryReport> {
+	const baselineDraft = baseline.artifacts.draftClaims?.claims ?? [];
+	const baselineClaims = await Promise.all(
+		baselineDraft.map(async (claim) => ({
+			id: claim.id,
+			text: claim.text,
+			sourceNote: claim.source_note,
+			sourceQuote: claim.source_quote,
+			status: await classifyLiveClaim(queryFixture, vault, {
+				text: claim.text,
+				sourceNote: claim.source_note,
+				sourceQuote: claim.source_quote,
+			}),
+		})),
+	);
+	const baselineClaimBuckets = countBuckets(baselineClaims.map((claim) => claim.status));
+	const baselineFlaggedClaims = baselineClaims.filter((claim) => claim.status !== "verified").length;
+	const retrievedPaths = uniqueSorted((verified.artifacts.retrieval?.notes ?? []).map((note) => note.path));
+	const actualCitations = uniqueSorted(verified.claims.map((claim) => claim.sourceNote));
+	const verifiedClaimBuckets = countBuckets(verified.claims.map((claim) => claim.status));
+	const verifiedSurfacedClaims = verified.claims.filter((claim) => claim.status === "verified");
+	const verifiedEscapedHallucinations = await countLiveEscapedHallucinations(queryFixture, vault, verified.claims);
+
+	return {
+		id: queryFixture.id,
+		category: queryFixture.category,
+		query: queryFixture.query,
+		expectedOutcome: queryFixture.expectedOutcome,
+		retrievedPaths,
+		notesExpected: [...queryFixture.notesExpected],
+		notesExpectedSatisfied: queryFixture.notesExpected.every((note) => retrievedPaths.includes(note)),
+		expectedCitations: [...queryFixture.expectedCitations],
+		actualCitations,
+		expectedCitationsSatisfied: queryFixture.expectedCitations.every((citation) => actualCitations.includes(citation)),
+		baselineSummary: baseline.verifiedSummary,
+		verifiedSummary: verified.verifiedSummary,
+		baselineClaimCount: baselineClaims.length,
+		baselineFlaggedClaims,
+		baselineHallucinationRate: toRate(baselineFlaggedClaims, baselineClaims.length),
+		baselineClaimBuckets,
+		verifiedClaimCount: verified.claims.length,
+		verifiedSurfacedClaimCount: verifiedSurfacedClaims.length,
+		verifiedFlaggedClaims: verified.claims.filter((claim) => claim.status !== "verified").length,
+		verifiedHallucinationRate: toRate(verifiedEscapedHallucinations, verifiedSurfacedClaims.length),
+		verifiedClaimBuckets,
+		hallucinationRateDelta: toDelta(
+			toRate(baselineFlaggedClaims, baselineClaims.length),
+			toRate(verifiedEscapedHallucinations, verifiedSurfacedClaims.length),
+		),
+		baselineClaims,
+		verifiedClaims: verified.claims,
+		expectedStatuses: [],
+	};
+}
+
 function createFixtureProviderFactory(queryFixture: EvalQueryFixture) {
 	const expectedByText = new Map(
 		queryFixture.expectedSupport.map((expectation) => [normalizeWhitespace(expectation.text), expectation.status] as const),
@@ -526,6 +849,22 @@ function renderFixtureResponse(
 	throw new Error(`Unsupported eval agent ${agentId}`);
 }
 
+async function classifyLiveClaim(
+	queryFixture: LiveEvalQueryFixture,
+	vault: VaultAdapter,
+	claim: EvalClaimLike,
+): Promise<ClaimVerificationStatus> {
+	const sourceFile = vault.getFile(claim.sourceNote);
+	if (!sourceFile) return "quote-missing";
+
+	const body = await vault.read(sourceFile);
+	if (!quotePresent(body, claim.sourceQuote)) return "quote-missing";
+
+	return queryFixture.expectedClaims.some((expected) => matchesExpectedLiveClaim(claim, expected))
+		? "verified"
+		: "unsupported";
+}
+
 function extractClaimText(prompt: string): string {
 	const match = prompt.match(/Claim:\s*([\s\S]*?)\n\nQuoted text:/);
 	return match?.[1]?.trim() ?? "";
@@ -564,6 +903,47 @@ function findExpectedStatus(queryFixture: EvalQueryFixture, text: string): Claim
 		return "unsupported";
 	}
 	return null;
+}
+
+async function countLiveEscapedHallucinations(
+	queryFixture: LiveEvalQueryFixture,
+	vault: VaultAdapter,
+	claims: Array<{ text: string; sourceNote: string; sourceQuote: string; status: ClaimVerificationStatus }>,
+): Promise<number> {
+	const surfaced = claims.filter((claim) => claim.status === "verified");
+	const statuses = await Promise.all(
+		surfaced.map((claim) =>
+			classifyLiveClaim(queryFixture, vault, {
+				text: claim.text,
+				sourceNote: claim.sourceNote,
+				sourceQuote: claim.sourceQuote,
+			}),
+		),
+	);
+	return statuses.filter((status) => status !== "verified").length;
+}
+
+function matchesExpectedLiveClaim(claim: EvalClaimLike, expected: LiveEvalExpectedClaim): boolean {
+	if (claim.sourceNote !== expected.source_note) return false;
+
+	const normalizedText = normalizeWhitespace(claim.text).toLowerCase();
+	if (expected.required_phrases.some((phrase) => !normalizedText.includes(normalizeWhitespace(phrase).toLowerCase()))) {
+		return false;
+	}
+	if (
+		expected.forbidden_phrases?.some((phrase) =>
+			normalizedText.includes(normalizeWhitespace(phrase).toLowerCase()),
+		)
+	) {
+		return false;
+	}
+
+	const normalizedClaimQuote = normalizeWhitespace(claim.sourceQuote);
+	const normalizedExpectedQuote = normalizeWhitespace(expected.source_quote);
+	return (
+		normalizedExpectedQuote.includes(normalizedClaimQuote) ||
+		normalizedClaimQuote.includes(normalizedExpectedQuote)
+	);
 }
 
 function countCategories(queries: EvalQueryFixture[]): Record<FixtureCategory, number> {
@@ -635,6 +1015,8 @@ function renderMarkdownReport(report: EvalReport): string {
 	const lines = [
 		`# Eval report ${report.runId}`,
 		"",
+		...(report.mode ? [`- **Mode:** ${report.mode}`] : []),
+		...(report.dataset ? [`- **Dataset:** ${report.dataset.name}`] : []),
 		`- **Pack:** ${report.packId}`,
 		`- **Queries:** ${report.fixture.queryCount}`,
 		`- **Baseline hallucination rate:** ${formatRate(report.baselineHallucinationRate)}`,
@@ -675,16 +1057,79 @@ function formatRate(rate: number): string {
 	return `${(rate * 100).toFixed(1)}%`;
 }
 
+function isCompatiblePackId(expectedPackId: string, actualPackId: string): boolean {
+	return (
+		expectedPackId === actualPackId ||
+		actualPackId.startsWith(`${expectedPackId}.`) ||
+		expectedPackId.startsWith(`${actualPackId}.`)
+	);
+}
+
 async function main(): Promise<void> {
-	const { report, jsonPath, markdownPath } = await runEvalHarness();
+	const args = parseCliArgs(process.argv.slice(2));
+	const { report, jsonPath, markdownPath } = await runEvalHarness(args);
 	console.log(
 		[
 			`Created ${path.relative(process.cwd(), jsonPath)}`,
 			`Created ${path.relative(process.cwd(), markdownPath)}`,
+			...(report.dataset ? [`Dataset: ${report.dataset.name}`] : []),
 			`Baseline hallucination rate: ${formatRate(report.baselineHallucinationRate)}`,
 			`Verified hallucination rate: ${formatRate(report.verifiedHallucinationRate)}`,
 		].join("\n"),
 	);
+}
+
+function parseCliArgs(args: string[]): {
+	packPath?: string;
+	live?: boolean;
+	benchmarkPath?: string;
+	vaultDir?: string;
+	resultsDir?: string;
+} {
+	const options: {
+		packPath?: string;
+		live?: boolean;
+		benchmarkPath?: string;
+		vaultDir?: string;
+		resultsDir?: string;
+	} = {};
+	for (let index = 0; index < args.length; index += 1) {
+		const arg = args[index];
+		if (arg === "--live") {
+			options.live = true;
+			continue;
+		}
+		if (arg === "--benchmark") {
+			const value = args[index + 1];
+			if (!value) throw new Error("Missing value after --benchmark");
+			options.benchmarkPath = path.resolve(value);
+			index += 1;
+			continue;
+		}
+		if (arg === "--pack") {
+			const value = args[index + 1];
+			if (!value) throw new Error("Missing value after --pack");
+			options.packPath = path.resolve(value);
+			index += 1;
+			continue;
+		}
+		if (arg === "--vault") {
+			const value = args[index + 1];
+			if (!value) throw new Error("Missing value after --vault");
+			options.vaultDir = path.resolve(value);
+			index += 1;
+			continue;
+		}
+		if (arg === "--results") {
+			const value = args[index + 1];
+			if (!value) throw new Error("Missing value after --results");
+			options.resultsDir = path.resolve(value);
+			index += 1;
+			continue;
+		}
+		throw new Error(`Unknown eval argument: ${arg}`);
+	}
+	return options;
 }
 
 function isMainModule(): boolean {

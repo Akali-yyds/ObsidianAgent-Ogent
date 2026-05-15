@@ -2,7 +2,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import type { VaultAdapter, VaultFile, VaultFileCache } from "../../src/packs/vault-adapter";
 
-export async function createFixtureVaultAdapter(rootDir: string): Promise<VaultAdapter> {
+export async function createMarkdownVaultAdapter(rootDir: string): Promise<VaultAdapter> {
 	const fileEntries = await collectMarkdownFiles(rootDir);
 	const files = new Map<string, VaultFile>();
 	const contents = new Map<string, string>();
@@ -36,6 +36,8 @@ export async function createFixtureVaultAdapter(rootDir: string): Promise<VaultA
 		getFileCache: (file) => caches.get(file.path) ?? null,
 	};
 }
+
+export const createFixtureVaultAdapter = createMarkdownVaultAdapter;
 
 async function collectMarkdownFiles(
 	rootDir: string,

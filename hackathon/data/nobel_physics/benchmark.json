@@ -1,0 +1,152 @@
+{
+  "packId": "grounded-research",
+  "datasetId": "nobel-physics",
+  "datasetName": "Nobel Prize in Physics corpus",
+  "queries": [
+    {
+      "id": "nobel-einstein-photoelectric",
+      "category": "single-fact",
+      "query": "What specific discovery did Albert Einstein's 1921 Nobel Prize in Physics especially recognize?",
+      "notesExpected": ["laureates/albert-einstein.md"],
+      "expectedCitations": ["laureates/albert-einstein.md"],
+      "expectedOutcome": "supported",
+      "expectedClaims": [
+        {
+          "source_note": "laureates/albert-einstein.md",
+          "source_quote": "He received the 1921 Nobel Prize in Physics for \"his services to theoretical physics, and especially for his discovery of the law of the photoelectric effect\"",
+          "required_phrases": ["Einstein", "1921", "photoelectric effect"]
+        }
+      ]
+    },
+    {
+      "id": "nobel-heisenberg-uncertainty",
+      "category": "single-fact",
+      "query": "What principle did Werner Heisenberg develop in Copenhagen in 1927?",
+      "notesExpected": ["laureates/werner-heisenberg.md"],
+      "expectedCitations": ["laureates/werner-heisenberg.md"],
+      "expectedOutcome": "supported",
+      "expectedClaims": [
+        {
+          "source_note": "laureates/werner-heisenberg.md",
+          "source_quote": "It was in Copenhagen, in 1927, that Heisenberg developed his uncertainty principle, while working on the mathematical foundations of quantum mechanics.",
+          "required_phrases": ["Heisenberg", "uncertainty principle", "1927"]
+        },
+        {
+          "source_note": "laureates/werner-heisenberg.md",
+          "source_quote": "He is known for the uncertainty principle, which he published in 1927.",
+          "required_phrases": ["Heisenberg", "uncertainty principle", "1927"]
+        }
+      ]
+    },
+    {
+      "id": "nobel-dirac-antimatter",
+      "category": "single-fact",
+      "query": "What did Paul Dirac's 1928 Dirac equation connect, and what did it predict?",
+      "notesExpected": ["laureates/paul-dirac.md"],
+      "expectedCitations": ["laureates/paul-dirac.md"],
+      "expectedOutcome": "supported",
+      "expectedClaims": [
+        {
+          "source_note": "laureates/paul-dirac.md",
+          "source_quote": "He formulated the Dirac equation, one of the most important results in physics, in 1928. It connected special relativity and quantum mechanics and predicted the existence of antimatter.",
+          "required_phrases": ["Dirac equation", "1928", "special relativity", "quantum mechanics"]
+        },
+        {
+          "source_note": "laureates/paul-dirac.md",
+          "source_quote": "He formulated the Dirac equation, one of the most important results in physics, in 1928. It connected special relativity and quantum mechanics and predicted the existence of antimatter.",
+          "required_phrases": ["Dirac", "1928", "Dirac equation", "antimatter"]
+        }
+      ]
+    },
+    {
+      "id": "nobel-planck-energy-quanta",
+      "category": "single-fact",
+      "query": "What did Max Planck win the 1918 Nobel Prize in Physics for?",
+      "notesExpected": ["laureates/max-planck.md"],
+      "expectedCitations": ["laureates/max-planck.md"],
+      "expectedOutcome": "supported",
+      "expectedClaims": [
+        {
+          "source_note": "laureates/max-planck.md",
+          "source_quote": "He won the 1918 Nobel Prize in Physics \"for the services he rendered to the advancement of physics by his discovery of energy quanta.\"",
+          "required_phrases": ["Planck", "1918", "energy quanta"]
+        }
+      ]
+    },
+    {
+      "id": "nobel-cooper-pairs",
+      "category": "single-fact",
+      "query": "What idea did Leon Cooper develop that became known as the Cooper pair concept?",
+      "notesExpected": ["laureates/leon-cooper.md"],
+      "expectedCitations": ["laureates/leon-cooper.md"],
+      "expectedOutcome": "supported",
+      "expectedClaims": [
+        {
+          "source_note": "laureates/leon-cooper.md",
+          "source_quote": "After a year of theoretical investigation, Cooper developed the idea of a quasiparticle composed of two bound electrons, now known as a Cooper pair.",
+          "required_phrases": ["Cooper", "Cooper pair", "two bound electrons"]
+        }
+      ]
+    },
+    {
+      "id": "nobel-marconi-braun",
+      "category": "single-fact",
+      "query": "With whom did Guglielmo Marconi share the 1909 Nobel Prize in Physics, and for what?",
+      "notesExpected": ["laureates/guglielmo-marconi.md"],
+      "expectedCitations": ["laureates/guglielmo-marconi.md"],
+      "expectedOutcome": "supported",
+      "expectedClaims": [
+        {
+          "source_note": "laureates/guglielmo-marconi.md",
+          "source_quote": "This led to his being largely credited as the inventor of radio and sharing the 1909 Nobel Prize in Physics with Ferdinand Braun \"in recognition of their contributions to the development of wireless telegraphy.\"",
+          "required_phrases": ["Marconi", "1909", "Ferdinand Braun", "wireless telegraphy"]
+        }
+      ]
+    },
+    {
+      "id": "nobel-einstein-relativity",
+      "category": "conflict",
+      "query": "Did Albert Einstein win the Nobel Prize for relativity?",
+      "notesExpected": ["laureates/albert-einstein.md"],
+      "expectedCitations": ["laureates/albert-einstein.md"],
+      "expectedOutcome": "supported",
+      "expectedClaims": [
+        {
+          "source_note": "laureates/albert-einstein.md",
+          "source_quote": "He received the 1921 Nobel Prize in Physics for \"his services to theoretical physics, and especially for his discovery of the law of the photoelectric effect\"",
+          "required_phrases": ["Einstein", "1921", "photoelectric effect"]
+        }
+      ]
+    },
+    {
+      "id": "nobel-marconi-confirmation",
+      "category": "conflict",
+      "query": "Was Marconi's 1901 transatlantic reception independently confirmed?",
+      "notesExpected": ["laureates/guglielmo-marconi.md"],
+      "expectedCitations": ["laureates/guglielmo-marconi.md"],
+      "expectedOutcome": "supported",
+      "expectedClaims": [
+        {
+          "source_note": "laureates/guglielmo-marconi.md",
+          "source_quote": "There was no independent confirmation of the reported reception, and the transmissions were difficult to distinguish from atmospheric noise.",
+          "required_phrases": ["Marconi", "no independent confirmation"]
+        }
+      ]
+    },
+    {
+      "id": "nobel-heisenberg-1932",
+      "category": "single-fact",
+      "query": "What did Werner Heisenberg win the 1932 Nobel Prize in Physics for?",
+      "notesExpected": ["laureates/werner-heisenberg.md"],
+      "expectedCitations": ["laureates/werner-heisenberg.md"],
+      "expectedOutcome": "supported",
+      "expectedClaims": [
+        {
+          "source_note": "laureates/werner-heisenberg.md",
+          "source_quote": "It was at that time announced that Heisenberg had won the Prize for 1932 \"for the creation of quantum mechanics, the application of which has, inter alia, led to the discovery of the allotropic forms of hydrogen\".",
+          "required_phrases": ["Heisenberg", "1932", "creation of quantum mechanics"]
+        }
+      ]
+    }
+  ]
+}

@@ -72,6 +72,21 @@ npm run eval
 
 This command reads `hackathon/eval/fixtures/queries.json`, runs the committed fixture vault through the shared pack runtime twice (baseline and verified), and writes fresh timestamped JSON plus markdown reports under `hackathon/eval/results/`.
 
+## Running the live Nobel benchmark
+
+Use the live mode when you want a real-corpus spot check instead of the synthetic fixture harness.
+
+```bash
+npm run eval:live -- --pack <path-to-working-pack.json> --benchmark hackathon/data/nobel_physics/benchmark.quick.json
+```
+
+Notes:
+
+- `--pack` should point at a grounded-research pack JSON with working provider credentials. The runner accepts pack-id variants such as `grounded-research.openai`.
+- `hackathon/data/nobel_physics/benchmark.quick.json` is a compact 4-query same-day slice for fast reruns.
+- `hackathon/data/nobel_physics/benchmark.json` is the broader labeled benchmark for deeper follow-up.
+- Live mode writes the same timestamped JSON plus markdown reports under `hackathon/eval/results/`.
+
 ### Latest local metrics
 
 The latest run against the committed 20-query corpus produced:
@@ -86,6 +101,15 @@ The latest run against the committed 20-query corpus produced:
 | Claim buckets | 17 verified / 6 unsupported / 4 quote-missing |
 
 The fixture set is balanced across 5 single-fact, 5 multi-note, 4 conflict, 3 no-support, and 3 adversarial queries.
+
+### Latest live Nobel quick-run artifact
+
+The latest reproducible live-corpus run is:
+
+- `hackathon/eval/results/live-nobel-physics-quick-2026-05-15T06-55-05-480Z.json`
+- `hackathon/eval/results/live-nobel-physics-quick-2026-05-15T06-55-05-480Z.md`
+
+This quick slice is intended as a real-dataset smoke benchmark, not as the headline metric for the submission. The local single-model run is useful for checking retrieval/citation behavior on the Nobel corpus, while the committed synthetic 20-query fixture harness remains the stable primary comparison artifact.
 
 ## Reviewer flow
 
@@ -132,4 +156,5 @@ Mark each line as `pass`, `fail`, or `n/a`, and use `Notes` for anything that ne
 - Demo script: `hackathon/demo/script.md`
 - Evaluation harness: `hackathon/eval/run.ts`
 - Fixture corpus: `hackathon/eval/fixtures/`
+- Live Nobel benchmarks: `hackathon/data/nobel_physics/benchmark.quick.json`, `hackathon/data/nobel_physics/benchmark.json`
 - Hackathon spec: `hackathon/spec.md`

@@ -11,7 +11,8 @@
     "test": "vitest",
     "test:watch": "vitest watch",
     "test:coverage": "vitest run --coverage",
-    "eval": "tsx hackathon/eval/run.ts"
+    "eval": "tsx hackathon/eval/run.ts",
+    "eval:live": "tsx hackathon/eval/run.ts --live"
   },
   "keywords": [
     "obsidian-plugin",
