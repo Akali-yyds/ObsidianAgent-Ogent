@@ -84,19 +84,18 @@ describe("verifyClaims", () => {
 	});
 
 	it("maps verifier decisions into verified and unsupported claims while preserving trace data", async () => {
-		runStructuredStepMock
-			.mockResolvedValueOnce({
-				ok: true,
-				attempts: 1,
-				rawText: '{"supports_claim":true,"explanation":"Directly supported"}',
-				value: { supports_claim: true, explanation: "Directly supported" },
-			})
-			.mockResolvedValueOnce({
-				ok: true,
-				attempts: 1,
-				rawText: '{"supports_claim":false,"explanation":"The quote does not support the claim"}',
-				value: { supports_claim: false, explanation: "The quote does not support the claim" },
-			});
+		runStructuredStepMock.mockResolvedValueOnce({
+			ok: true,
+			attempts: 1,
+			rawText:
+				'{"decisions":[{"claim_id":"claim-1","supports_claim":true,"explanation":"Directly supported"},{"claim_id":"claim-2","supports_claim":false,"explanation":"The quote does not support the claim"}]}',
+			value: {
+				decisions: [
+					{ claim_id: "claim-1", supports_claim: true, explanation: "Directly supported" },
+					{ claim_id: "claim-2", supports_claim: false, explanation: "The quote does not support the claim" },
+				],
+			},
+		});
 
 		const claims: ClaimsV1 = {
 			summary: "Summary",
@@ -125,15 +124,15 @@ describe("verifyClaims", () => {
 			provider,
 		});
 
-		expect(runStructuredStepMock).toHaveBeenCalledTimes(2);
+		expect(runStructuredStepMock).toHaveBeenCalledTimes(1);
 		expect(runStructuredStepMock.mock.calls[0]?.[0]).toEqual(
 			expect.objectContaining({
 				provider,
-				schema: expect.objectContaining({ name: "verifier-support-v1" }),
+				schema: expect.objectContaining({ name: "verifier-support-batch-v1" }),
 				messages: [
 					{
 						role: "user",
-						content: expect.stringContaining("Claim: Alpha is true"),
+						content: expect.stringContaining('"claim_id": "claim-1"'),
 					},
 				],
 			}),
@@ -180,8 +179,12 @@ describe("verifyClaims", () => {
 		runStructuredStepMock.mockResolvedValueOnce({
 			ok: true,
 			attempts: 1,
-			rawText: '{"supports_claim":true,"explanation":"Supported despite punctuation drift"}',
-			value: { supports_claim: true, explanation: "Supported despite punctuation drift" },
+			rawText: '{"decisions":[{"claim_id":"claim-1","supports_claim":true,"explanation":"Supported despite punctuation drift"}]}',
+			value: {
+				decisions: [
+					{ claim_id: "claim-1", supports_claim: true, explanation: "Supported despite punctuation drift" },
+				],
+			},
 		});
 
 		const results = await verifyClaims({

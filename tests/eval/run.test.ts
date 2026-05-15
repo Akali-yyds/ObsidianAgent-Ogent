@@ -150,8 +150,13 @@ describe("runEvalHarness", () => {
 				yield {
 					kind: "text",
 					text: JSON.stringify({
-						supports_claim: prompt.includes("photoelectric effect"),
-						explanation: "The cited quote directly supports the benchmark claim.",
+						decisions: [
+							{
+								claim_id: prompt.includes('"claim_id": "c1"') ? "c1" : "unknown",
+								supports_claim: prompt.includes("photoelectric effect"),
+								explanation: "The cited quote directly supports the benchmark claim.",
+							},
+						],
 					}),
 				};
 				yield { kind: "done", finishReason: "stop" };
@@ -179,6 +184,159 @@ describe("runEvalHarness", () => {
 		expect(outputFiles.filter((file) => file.endsWith(".md"))).toHaveLength(1);
 		expect(markdown).toContain("- **Mode:** live");
 		expect(markdown).toContain("- **Dataset:** Mini Nobel benchmark");
+	});
+
+	it("batches live benchmark execution by stage across queries", async () => {
+		const workspaceDir = await mkdtemp(path.join(tmpdir(), "open-agent-live-eval-batched-"));
+		tempDirs.push(workspaceDir);
+
+		const vaultDir = path.join(workspaceDir, "vault");
+		const resultsDir = path.join(workspaceDir, "results");
+		const benchmarkPath = path.join(workspaceDir, "benchmark.json");
+		await mkdir(path.join(vaultDir, "laureates"), { recursive: true });
+		await mkdir(resultsDir, { recursive: true });
+
+		await writeFile(
+			path.join(vaultDir, "laureates", "albert-einstein.md"),
+			'Albert Einstein received the 1921 Nobel Prize in Physics for "his services to theoretical physics, and especially for his discovery of the law of the photoelectric effect".\n',
+			"utf8",
+		);
+		await writeFile(
+			path.join(vaultDir, "laureates", "max-planck.md"),
+			'He won the 1918 Nobel Prize in Physics "for the services he rendered to the advancement of physics by his discovery of energy quanta."\n',
+			"utf8",
+		);
+		await writeFile(
+			benchmarkPath,
+			`${JSON.stringify(
+				{
+					packId: "grounded-research",
+					datasetId: "mini-nobel-batched",
+					datasetName: "Mini Nobel batched benchmark",
+					queries: [
+						{
+							id: "einstein-photoelectric",
+							category: "single-fact",
+							query: "What discovery was Einstein's 1921 Physics Nobel for?",
+							notesExpected: ["laureates/albert-einstein.md"],
+							expectedCitations: ["laureates/albert-einstein.md"],
+							expectedOutcome: "supported",
+							expectedClaims: [
+								{
+									source_note: "laureates/albert-einstein.md",
+									source_quote:
+										'Albert Einstein received the 1921 Nobel Prize in Physics for "his services to theoretical physics, and especially for his discovery of the law of the photoelectric effect".',
+									required_phrases: ["Einstein", "1921", "photoelectric effect"],
+								},
+							],
+						},
+						{
+							id: "planck-energy-quanta",
+							category: "single-fact",
+							query: "What did Max Planck win the 1918 Nobel Prize in Physics for?",
+							notesExpected: ["laureates/max-planck.md"],
+							expectedCitations: ["laureates/max-planck.md"],
+							expectedOutcome: "supported",
+							expectedClaims: [
+								{
+									source_note: "laureates/max-planck.md",
+									source_quote:
+										'He won the 1918 Nobel Prize in Physics "for the services he rendered to the advancement of physics by his discovery of energy quanta."',
+									required_phrases: ["Planck", "1918", "energy quanta"],
+								},
+							],
+						},
+					],
+				},
+				null,
+				2,
+			)}\n`,
+			"utf8",
+		);
+
+		const stageOrder: string[] = [];
+		const providerFactory = (_config: unknown, agentId: string): ModelProvider => ({
+			async *stream(messages: ChatMessage[]): AsyncIterable<StreamEvent> {
+				stageOrder.push(agentId);
+				const prompt = messages.at(-1)?.content ?? "";
+				if (agentId === "retriever") {
+					yield {
+						kind: "text",
+						text: prompt.includes("Einstein")
+							? '- laureates/albert-einstein.md: Albert Einstein received the 1921 Nobel Prize in Physics for "his services to theoretical physics, and especially for his discovery of the law of the photoelectric effect".'
+							: '- laureates/max-planck.md: He won the 1918 Nobel Prize in Physics "for the services he rendered to the advancement of physics by his discovery of energy quanta."',
+					};
+					yield { kind: "done", finishReason: "stop" };
+					return;
+				}
+				if (agentId === "synthesizer") {
+					yield {
+						kind: "text",
+						text: prompt.includes("Einstein")
+							? JSON.stringify({
+									summary: "Einstein won for the photoelectric effect.",
+									claims: [
+										{
+											id: "c1",
+											text: "Albert Einstein's 1921 Nobel Prize in Physics recognized the photoelectric effect.",
+											source_note: "laureates/albert-einstein.md",
+											source_quote:
+												'Albert Einstein received the 1921 Nobel Prize in Physics for "his services to theoretical physics, and especially for his discovery of the law of the photoelectric effect".',
+											confidence: 0.98,
+										},
+									],
+								})
+							: JSON.stringify({
+									summary: "Planck won for energy quanta.",
+									claims: [
+										{
+											id: "c2",
+											text: "Max Planck won the 1918 Nobel Prize in Physics for discovering energy quanta.",
+											source_note: "laureates/max-planck.md",
+											source_quote:
+												'He won the 1918 Nobel Prize in Physics "for the services he rendered to the advancement of physics by his discovery of energy quanta."',
+											confidence: 0.97,
+										},
+									],
+								}),
+					};
+					yield { kind: "done", finishReason: "stop" };
+					return;
+				}
+
+				yield {
+					kind: "text",
+					text: JSON.stringify({
+						decisions: [
+							{
+								claim_id: prompt.includes('"claim_id": "c1"') ? "c1" : "c2",
+								supports_claim: true,
+								explanation: "The quote supports the claim.",
+							},
+						],
+					}),
+				};
+				yield { kind: "done", finishReason: "stop" };
+			},
+		});
+
+		const run = await runEvalHarness({
+			live: true,
+			benchmarkPath,
+			vaultDir,
+			resultsDir,
+			providerFactory,
+		});
+
+		expect(run.report.perQuery).toHaveLength(2);
+		expect(stageOrder).toEqual([
+			"retriever",
+			"retriever",
+			"synthesizer",
+			"synthesizer",
+			"verifier",
+			"verifier",
+		]);
 	});
 
 	it("treats unsupported live queries as passing when verifier flags all synthesized claims", async () => {
@@ -253,8 +411,13 @@ describe("runEvalHarness", () => {
 				yield {
 					kind: "text",
 					text: JSON.stringify({
-						supports_claim: false,
-						explanation: "The claim should be rejected.",
+						decisions: [
+							{
+								claim_id: "c1",
+								supports_claim: false,
+								explanation: "The claim should be rejected.",
+							},
+						],
 					}),
 				};
 				yield { kind: "done", finishReason: "stop" };

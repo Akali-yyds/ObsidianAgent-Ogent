@@ -7,7 +7,15 @@ import type { ClaimVerificationStatus } from "../../src/agents/verifier";
 import type { ClaimsV1 } from "../../src/agents/schemas/claims-v1";
 import type { OpenAICompatibleConfig } from "../../src/provider-config";
 import groundedResearchDefault from "../../src/packs/defaults/grounded-research.json";
-import { runPackForEval, type PackRunResult } from "../../src/packs/runtime";
+import {
+	preparePackExecution,
+	runPackForEval,
+	runPackRetrievalStep,
+	runPackSynthesisStep,
+	runPackVerificationStep,
+	type PackRetrievalOutput,
+	type PackRunResult,
+} from "../../src/packs/runtime";
 import type { AgentPack } from "../../src/packs/types";
 import type { VaultAdapter } from "../../src/packs/vault-adapter";
 import type { ChatMessage, ModelProvider, StreamEvent } from "../../src/types";
@@ -153,6 +161,12 @@ interface EvalClaimLike {
 	text: string;
 	sourceNote: string;
 	sourceQuote: string;
+}
+
+interface LiveQueryRun {
+	retrieval: PackRetrievalOutput;
+	draftClaims: ClaimsV1;
+	verifications: PackRunResult["claims"];
 }
 
 type EvalProviderFactory = (config: OpenAICompatibleConfig, agentId: string, pack: AgentPack) => ModelProvider;
@@ -577,23 +591,45 @@ async function runLiveEvalHarness(options: {
 		options.providerFactory ??
 		((config: OpenAICompatibleConfig) => createNodeEvalProvider(config));
 
-	for (const queryFixture of benchmark.queries) {
-		const baseline = await runPackForEval({
-			pack,
-			query: queryFixture.query,
-			vault,
-			verifierEnabled: false,
-			providerFactory,
-		});
-		const verified = await runPackForEval({
-			pack,
-			query: queryFixture.query,
-			vault,
-			verifierEnabled: true,
-			providerFactory,
-		});
+	const prepared = await preparePackExecution(pack, providerFactory);
+	const liveRuns = new Map<string, LiveQueryRun>();
 
-		const queryReport = await buildLivePerQueryReport(queryFixture, vault, baseline, verified);
+	for (const queryFixture of benchmark.queries) {
+		const retrieval = await runPackRetrievalStep(prepared, {
+			vault,
+			query: queryFixture.query,
+		});
+		liveRuns.set(queryFixture.id, {
+			retrieval,
+			draftClaims: { summary: "", claims: [] },
+			verifications: [],
+		});
+	}
+
+	for (const queryFixture of benchmark.queries) {
+		const existing = liveRuns.get(queryFixture.id);
+		if (!existing) continue;
+		existing.draftClaims = await runPackSynthesisStep(prepared, {
+			query: queryFixture.query,
+			retrieval: existing.retrieval,
+		});
+	}
+
+	for (const queryFixture of benchmark.queries) {
+		const existing = liveRuns.get(queryFixture.id);
+		if (!existing) continue;
+		existing.verifications = await runPackVerificationStep(prepared, {
+			vault,
+			claims: existing.draftClaims,
+		});
+	}
+
+	for (const queryFixture of benchmark.queries) {
+		const run = liveRuns.get(queryFixture.id);
+		if (!run) {
+			throw new Error(`Missing live run state for query ${queryFixture.id}`);
+		}
+		const queryReport = await buildLivePerQueryReport(queryFixture, vault, run);
 		perQuery.push(queryReport);
 
 		totalClaims += queryReport.verifiedClaimCount;
@@ -601,7 +637,7 @@ async function runLiveEvalHarness(options: {
 		baselineTotalClaims += queryReport.baselineClaimCount;
 		baselineFlaggedClaims += queryReport.baselineFlaggedClaims;
 		verifiedSurfacedClaims += queryReport.verifiedSurfacedClaimCount;
-		verifiedEscapedHallucinations += await countLiveEscapedHallucinations(queryFixture, vault, verified.claims);
+		verifiedEscapedHallucinations += await countLiveEscapedHallucinations(queryFixture, vault, run.verifications);
 		mergeBuckets(claimBuckets, queryReport.verifiedClaimBuckets);
 		mergeBuckets(baselineClaimBuckets, queryReport.baselineClaimBuckets);
 	}
@@ -747,10 +783,9 @@ async function buildPerQueryReport(
 async function buildLivePerQueryReport(
 	queryFixture: LiveEvalQueryFixture,
 	vault: VaultAdapter,
-	baseline: PackRunResult,
-	verified: PackRunResult,
+	run: LiveQueryRun,
 ): Promise<PerQueryReport> {
-	const baselineDraft = baseline.artifacts.draftClaims?.claims ?? [];
+	const baselineDraft = run.draftClaims.claims ?? [];
 	const baselineClaims = await Promise.all(
 		baselineDraft.map(async (claim) => ({
 			id: claim.id,
@@ -766,11 +801,11 @@ async function buildLivePerQueryReport(
 	);
 	const baselineClaimBuckets = countBuckets(baselineClaims.map((claim) => claim.status));
 	const baselineFlaggedClaims = baselineClaims.filter((claim) => claim.status !== "verified").length;
-	const retrievedPaths = uniqueSorted((verified.artifacts.retrieval?.notes ?? []).map((note) => note.path));
-	const actualCitations = uniqueSorted(verified.claims.map((claim) => claim.sourceNote));
-	const verifiedClaimBuckets = countBuckets(verified.claims.map((claim) => claim.status));
-	const verifiedSurfacedClaims = verified.claims.filter((claim) => claim.status === "verified");
-	const verifiedEscapedHallucinations = await countLiveEscapedHallucinations(queryFixture, vault, verified.claims);
+	const retrievedPaths = uniqueSorted(run.retrieval.notes.map((note) => note.path));
+	const actualCitations = uniqueSorted(run.verifications.map((claim) => claim.sourceNote));
+	const verifiedClaimBuckets = countBuckets(run.verifications.map((claim) => claim.status));
+	const verifiedSurfacedClaims = run.verifications.filter((claim) => claim.status === "verified");
+	const verifiedEscapedHallucinations = await countLiveEscapedHallucinations(queryFixture, vault, run.verifications);
 	const baselineHallucinationRate = toRate(baselineFlaggedClaims, baselineClaims.length);
 	const verifiedHallucinationRate = toRate(verifiedEscapedHallucinations, verifiedSurfacedClaims.length);
 
@@ -785,20 +820,20 @@ async function buildLivePerQueryReport(
 		expectedCitations: [...queryFixture.expectedCitations],
 		actualCitations,
 		expectedCitationsSatisfied: queryFixture.expectedCitations.every((citation) => actualCitations.includes(citation)),
-		baselineSummary: baseline.verifiedSummary,
-		verifiedSummary: verified.verifiedSummary,
+		baselineSummary: run.draftClaims.summary,
+		verifiedSummary: verifiedSurfacedClaims.map((claim) => `- ${claim.text}`).join("\n"),
 		baselineClaimCount: baselineClaims.length,
 		baselineFlaggedClaims,
 		baselineHallucinationRate,
 		baselineClaimBuckets,
-		verifiedClaimCount: verified.claims.length,
+		verifiedClaimCount: run.verifications.length,
 		verifiedSurfacedClaimCount: verifiedSurfacedClaims.length,
-		verifiedFlaggedClaims: verified.claims.filter((claim) => claim.status !== "verified").length,
+		verifiedFlaggedClaims: run.verifications.filter((claim) => claim.status !== "verified").length,
 		verifiedHallucinationRate,
 		verifiedClaimBuckets,
 		hallucinationRateDelta: toDelta(baselineHallucinationRate, verifiedHallucinationRate),
 		baselineClaims,
-		verifiedClaims: verified.claims,
+		verifiedClaims: run.verifications,
 		expectedStatuses: [],
 	};
 }
@@ -834,14 +869,18 @@ function renderFixtureResponse(
 	}
 	if (agentId === "verifier") {
 		const prompt = [...messages].reverse().find((message) => message.role === "user")?.content ?? "";
-		const claimText = extractClaimText(prompt);
-		const status = expectedByText.get(normalizeWhitespace(claimText)) ?? "unsupported";
 		return JSON.stringify({
-			supports_claim: status === "verified",
-			explanation:
-				status === "verified"
-					? "Fixture ground truth marks this claim as supported by the cited note."
-					: "Fixture ground truth marks this claim as not supported by the cited note.",
+			decisions: extractVerifierClaims(prompt).map(({ claim_id, claim }) => {
+				const status = expectedByText.get(normalizeWhitespace(claim)) ?? "unsupported";
+				return {
+					claim_id,
+					supports_claim: status === "verified",
+					explanation:
+						status === "verified"
+							? "Fixture ground truth marks this claim as supported by the cited note."
+							: "Fixture ground truth marks this claim as not supported by the cited note.",
+				};
+			}),
 		});
 	}
 	throw new Error(`Unsupported eval agent ${agentId}`);
@@ -863,9 +902,20 @@ async function classifyLiveClaim(
 		: "unsupported";
 }
 
-function extractClaimText(prompt: string): string {
-	const match = prompt.match(/Claim:\s*([\s\S]*?)\n\nQuoted text:/);
-	return match?.[1]?.trim() ?? "";
+function extractVerifierClaims(prompt: string): Array<{ claim_id: string; claim: string }> {
+	const match = prompt.match(/Claims:\s*([\s\S]*)$/);
+	if (!match) return [];
+	try {
+		const parsed = JSON.parse(match[1]) as Array<{ claim_id?: string; claim?: string }>;
+		return parsed
+			.filter(
+				(item): item is { claim_id: string; claim: string } =>
+					typeof item?.claim_id === "string" && typeof item?.claim === "string",
+			)
+			.map((item) => ({ claim_id: item.claim_id, claim: item.claim }));
+	} catch {
+		return [];
+	}
 }
 
 async function classifyDraftClaim(

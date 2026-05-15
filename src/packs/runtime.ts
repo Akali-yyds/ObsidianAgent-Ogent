@@ -2,6 +2,7 @@ import type { App } from "obsidian";
 import { Agent, runPipeline } from "../agents";
 import { claimsV1Schema, type ClaimsV1 } from "../agents/schemas/claims-v1";
 import { formatRetrievedNotes, retrieveEvidence, type RetrievedNote } from "../agents/retrieval";
+import { runStructuredStep, type StructuredOutputAttemptFailure } from "../agents/structured-output";
 import { verifyClaims, type ClaimVerification, type ExactPhraseAnchor } from "../agents/verifier";
 import { composeResearchResult } from "../citations";
 import type { OpenAICompatibleConfig } from "../provider-config";
@@ -161,29 +162,32 @@ interface GroundedResearchContext {
 	verifications?: ClaimVerification[];
 }
 
+export interface PreparedPackExecution {
+	pack: AgentPack;
+	retrieverStep: AgentPack["steps"][number];
+	synthesizerStep: AgentPack["steps"][number];
+	verifierStep: AgentPack["steps"][number];
+	retrieverAgent: Agent;
+	synthesizerAgent: Agent;
+	verifierAgent: Agent;
+	providers: Record<string, { config: { model: string }; provider: ModelProvider }>;
+	modelsUsed: PackModelsUsed;
+}
+
+export interface PackRetrievalOutput {
+	notes: RetrievedNote[];
+	brief: string;
+}
+
 export async function runPack(opts: PackRunOptions): Promise<PackRunResult> {
 	return runPackForEval({ ...opts, verifierEnabled: true });
 }
 
 export async function runPackForEval(opts: PackRunOptions): Promise<PackRunResult> {
-	const providers = await buildProviders(opts.pack, opts.providerFactory);
+	const prepared = await preparePackExecution(opts.pack, opts.providerFactory);
 	const vault = resolveVault(opts);
 	const verifierEnabled = opts.verifierEnabled ?? true;
-	const retrieverStep = opts.pack.steps.find((step) => step.id === "retriever");
-	const synthesizerStep = opts.pack.steps.find((step) => step.id === "synthesizer");
-	const verifierStep = opts.pack.steps.find((step) => step.id === "verifier");
-	if (!retrieverStep || !synthesizerStep || !verifierStep) {
-		throw new PackConfigError(`Pack ${opts.pack.id} must declare retriever, synthesizer, and verifier steps`);
-	}
-
-	const retrieverAgent = buildAgent(opts.pack, retrieverStep.agent);
-	const synthesizerAgent = buildAgent(opts.pack, synthesizerStep.agent);
-	const verifierAgent = buildAgent(opts.pack, verifierStep.agent);
-	const modelsUsed: PackModelsUsed = {
-		retriever: providers[retrieverStep.agent].config.model,
-		synthesizer: providers[synthesizerStep.agent].config.model,
-		verifier: providers[verifierStep.agent].config.model,
-	};
+	const { retrieverStep, synthesizerStep, verifierStep, modelsUsed } = prepared;
 	let latestContext: GroundedResearchContext = {
 		query: opts.query,
 		activeFilePath: opts.activeFilePath,
@@ -201,15 +205,12 @@ export async function runPackForEval(opts: PackRunOptions): Promise<PackRunResul
 			id: retrieverStep.id,
 			label: retrieverStep.label,
 			run: async (context: GroundedResearchContext) => {
-				const retrieval = await retrieveEvidence(vault, context.query, context.activeFilePath);
-				const brief = await collectBrief(
-					retrieverAgent,
-					providers[retrieverStep.agent],
-					context.query,
-					retrieval.notes,
-					opts.signal,
-				);
-				return { notes: retrieval.notes, brief };
+				return runPackRetrievalStep(prepared, {
+					vault,
+					query: context.query,
+					activeFilePath: context.activeFilePath,
+					signal: opts.signal,
+				});
 			},
 			apply: async (context: GroundedResearchContext, output: unknown) => {
 				const nextContext = {
@@ -223,26 +224,22 @@ export async function runPackForEval(opts: PackRunOptions): Promise<PackRunResul
 		{
 			id: synthesizerStep.id,
 			label: synthesizerStep.label,
-			kind: "structured" as const,
-			prepare: async (context: GroundedResearchContext) => {
+			run: async (context: GroundedResearchContext) => {
 				if (!context.retrieval) throw new PackConfigError("Retriever step did not produce evidence");
-				return {
-					agent: synthesizerAgent,
-					provider: providers[synthesizerStep.agent].provider,
+				return runPackSynthesisStep(prepared, {
+					query: context.query,
+					retrieval: context.retrieval,
 					signal: opts.signal,
-					schema: claimsV1Schema,
-					messages: [
-						{
-							role: "user" as const,
-							content:
-								"Answer the research question using only the retrieved Obsidian notes.\n" +
-								"Return JSON matching the requested schema.\n\n" +
-								`Question: ${context.query}\n\n` +
-								`Retriever brief:\n${context.retrieval.brief}\n\n` +
-								`Retrieved notes:\n${formatRetrievedNotes(context.retrieval.notes)}`,
-						},
-					],
-				};
+					onRetry: async (failure) => {
+						await opts.onEvent?.({
+							kind: "structured_retry",
+							stepId: synthesizerStep.id,
+							attempt: failure.attempt + 1,
+							maxAttempts: 2,
+							reason: failure.reason,
+						});
+					},
+				});
 			},
 			apply: async (context: GroundedResearchContext, output: unknown) => {
 				const nextContext = {
@@ -260,11 +257,9 @@ export async function runPackForEval(opts: PackRunOptions): Promise<PackRunResul
 					label: verifierStep.label,
 					run: async (context: GroundedResearchContext) => {
 						if (!context.claims) throw new PackConfigError("Synthesizer step did not produce claims");
-						return verifyClaims({
+						return runPackVerificationStep(prepared, {
 							vault,
 							claims: context.claims,
-							agent: verifierAgent,
-							provider: providers[verifierStep.agent].provider,
 							signal: opts.signal,
 						});
 					},
@@ -392,6 +387,96 @@ export async function runPackForEval(opts: PackRunOptions): Promise<PackRunResul
 		artifacts: buildArtifacts(),
 		transparency: buildTransparency("completed", terminalAt ?? Date.now()),
 	};
+}
+
+export async function preparePackExecution(
+	pack: AgentPack,
+	providerFactory?: (config: OpenAICompatibleConfig, agentId: string, pack: AgentPack) => ModelProvider,
+): Promise<PreparedPackExecution> {
+	const providers = await buildProviders(pack, providerFactory);
+	const retrieverStep = pack.steps.find((step) => step.id === "retriever");
+	const synthesizerStep = pack.steps.find((step) => step.id === "synthesizer");
+	const verifierStep = pack.steps.find((step) => step.id === "verifier");
+	if (!retrieverStep || !synthesizerStep || !verifierStep) {
+		throw new PackConfigError(`Pack ${pack.id} must declare retriever, synthesizer, and verifier steps`);
+	}
+
+	return {
+		pack,
+		retrieverStep,
+		synthesizerStep,
+		verifierStep,
+		retrieverAgent: buildAgent(pack, retrieverStep.agent),
+		synthesizerAgent: buildAgent(pack, synthesizerStep.agent),
+		verifierAgent: buildAgent(pack, verifierStep.agent),
+		providers,
+		modelsUsed: {
+			retriever: providers[retrieverStep.agent].config.model,
+			synthesizer: providers[synthesizerStep.agent].config.model,
+			verifier: providers[verifierStep.agent].config.model,
+		},
+	};
+}
+
+export async function runPackRetrievalStep(
+	prepared: PreparedPackExecution,
+	opts: { vault: VaultAdapter; query: string; activeFilePath?: string | null; signal?: AbortSignal },
+): Promise<PackRetrievalOutput> {
+	const retrieval = await retrieveEvidence(opts.vault, opts.query, opts.activeFilePath);
+	const brief = await collectBrief(
+		prepared.retrieverAgent,
+		prepared.providers[prepared.retrieverStep.agent],
+		opts.query,
+		retrieval.notes,
+		opts.signal,
+	);
+	return { notes: retrieval.notes, brief };
+}
+
+export async function runPackSynthesisStep(
+	prepared: PreparedPackExecution,
+	opts: {
+		query: string;
+		retrieval: PackRetrievalOutput;
+		signal?: AbortSignal;
+		onRetry?: (failure: StructuredOutputAttemptFailure) => void | Promise<void>;
+	},
+): Promise<ClaimsV1> {
+	const result = await runStructuredStep<ClaimsV1>({
+		agent: prepared.synthesizerAgent,
+		provider: prepared.providers[prepared.synthesizerStep.agent].provider,
+		signal: opts.signal,
+		schema: claimsV1Schema,
+		onRetry: opts.onRetry,
+		messages: [
+			{
+				role: "user" as const,
+				content:
+					"Answer the research question using only the retrieved Obsidian notes.\n" +
+					"Return JSON matching the requested schema.\n\n" +
+					`Question: ${opts.query}\n\n` +
+					`Retriever brief:\n${opts.retrieval.brief}\n\n` +
+					`Retrieved notes:\n${formatRetrievedNotes(opts.retrieval.notes)}`,
+			},
+		],
+	});
+	if (!result.ok) {
+		throw new Error(`Synthesizer failed: ${result.reason}`);
+	}
+	return result.value;
+}
+
+export async function runPackVerificationStep(
+	prepared: PreparedPackExecution,
+	opts: { vault: VaultAdapter; claims: ClaimsV1; signal?: AbortSignal },
+): Promise<ClaimVerification[]> {
+	return verifyClaims({
+		vault: opts.vault,
+		claims: opts.claims,
+		agent: prepared.verifierAgent,
+		provider: prepared.providers[prepared.verifierStep.agent].provider,
+		signal: opts.signal,
+	});
 }
 
 async function buildProviders(
