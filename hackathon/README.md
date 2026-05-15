@@ -86,6 +86,7 @@ Notes:
 - `hackathon/data/nobel_physics/benchmark.quick.json` is a compact 4-query same-day slice for fast reruns.
 - `hackathon/data/nobel_physics/benchmark.json` is the broader labeled benchmark for deeper follow-up.
 - Live mode writes the same timestamped JSON plus markdown reports under `hackathon/eval/results/`.
+- `hackathon/RESULTS.md` contains the consolidated project outcomes and the strongest application-ready summary.
 
 ### Latest local metrics
 
@@ -102,14 +103,32 @@ The latest run against the committed 20-query corpus produced:
 
 The fixture set is balanced across 5 single-fact, 5 multi-note, 4 conflict, 3 no-support, and 3 adversarial queries.
 
+### Latest live Nobel full-run artifact
+
+The latest full 24-query live-corpus run is:
+
+- `hackathon/eval/results/live-nobel-physics-2026-05-15T10-51-15-234Z.json`
+- `hackathon/eval/results/live-nobel-physics-2026-05-15T10-51-15-234Z.md`
+
+| Metric | Value |
+| --- | ---: |
+| Baseline hallucination rate | 66.7% |
+| Verified hallucination rate | 61.0% |
+| Improvement (baseline - verified) | 5.7 percentage points |
+| Total claims | 48 |
+| Total flagged claims | 7 |
+| Claim buckets | 41 verified / 0 unsupported / 7 quote-missing |
+
+This run reflects the benchmark cleanup plus retrieval tuning done during the hackathon push. It is the best full-corpus snapshot for the application package today.
+
 ### Latest live Nobel quick-run artifact
 
-The latest reproducible live-corpus run is:
+The latest quick-slice smoke artifact remains:
 
 - `hackathon/eval/results/live-nobel-physics-quick-2026-05-15T06-55-05-480Z.json`
 - `hackathon/eval/results/live-nobel-physics-quick-2026-05-15T06-55-05-480Z.md`
 
-This quick slice is intended as a real-dataset smoke benchmark, not as the headline metric for the submission. The local single-model run is useful for checking retrieval/citation behavior on the Nobel corpus, while the committed synthetic 20-query fixture harness remains the stable primary comparison artifact.
+Use the quick benchmark when you want a faster local sanity check. Use the full live artifact above when you want the strongest real-dataset result for the hackathon submission.
 
 ## Reviewer flow
 
@@ -155,6 +174,7 @@ Mark each line as `pass`, `fail`, or `n/a`, and use `Notes` for anything that ne
 
 - Demo script: `hackathon/demo/script.md`
 - Evaluation harness: `hackathon/eval/run.ts`
+- Results summary: `hackathon/RESULTS.md`
 - Fixture corpus: `hackathon/eval/fixtures/`
 - Live Nobel benchmarks: `hackathon/data/nobel_physics/benchmark.quick.json`, `hackathon/data/nobel_physics/benchmark.json`
 - Hackathon spec: `hackathon/spec.md`

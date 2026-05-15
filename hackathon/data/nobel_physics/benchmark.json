@@ -198,41 +198,41 @@
         "laureates/marie-curie.md",
         "laureates/maria-goeppert-mayer.md",
         "laureates/donna-strickland.md",
-        "laureates/andrea-ghez.md",
+        "laureates/andrea-m-ghez.md",
         "laureates/anne-lhuillier.md"
       ],
       "expectedCitations": [
         "laureates/marie-curie.md",
         "laureates/maria-goeppert-mayer.md",
         "laureates/donna-strickland.md",
-        "laureates/andrea-ghez.md",
+        "laureates/andrea-m-ghez.md",
         "laureates/anne-lhuillier.md"
       ],
       "expectedOutcome": "supported",
       "expectedClaims": [
         {
           "source_note": "laureates/marie-curie.md",
-          "source_quote": "TODO_PASTE_QUOTE: open laureates/marie-curie.md and paste the exact sentence stating she won the 1903 Physics Nobel with Pierre Curie and Henri Becquerel",
+          "source_quote": "She shared the 1903 Nobel Prize in Physics with her husband Pierre Curie \"for their joint researches on the radioactivity phenomena discovered by Professor Henri Becquerel\".",
           "required_phrases": ["Curie", "1903", "Physics"]
         },
         {
           "source_note": "laureates/maria-goeppert-mayer.md",
-          "source_quote": "TODO_PASTE_QUOTE: open laureates/maria-goeppert-mayer.md and paste the exact sentence about her 1963 Nobel for nuclear shell structure",
+          "source_quote": "In 1963, Goeppert Mayer and Jensen shared one half of the Nobel Prize in Physics \"for their discoveries concerning nuclear shell structure.\"",
           "required_phrases": ["Goeppert Mayer", "1963"]
         },
         {
           "source_note": "laureates/donna-strickland.md",
-          "source_quote": "TODO_PASTE_QUOTE: open laureates/donna-strickland.md and paste the exact sentence about her 2018 Nobel for chirped pulse amplification",
+          "source_quote": "On 2 October 2018, Strickland was awarded the Nobel Prize in Physics for her work on chirped pulse amplification with her doctoral adviser Gérard Mourou.",
           "required_phrases": ["Strickland", "2018", "chirped pulse amplification"]
         },
         {
-          "source_note": "laureates/andrea-ghez.md",
-          "source_quote": "TODO_PASTE_QUOTE: open laureates/andrea-ghez.md and paste the exact sentence about her 2020 Nobel for the supermassive black hole at the galactic center",
+          "source_note": "laureates/andrea-m-ghez.md",
+          "source_quote": "She shared the 2020 Nobel Prize in Physics with Reinhard Genzel \"for the discovery of a supermassive compact object at the centre of our galaxy\".",
           "required_phrases": ["Ghez", "2020"]
         },
         {
           "source_note": "laureates/anne-lhuillier.md",
-          "source_quote": "TODO_PASTE_QUOTE: open laureates/anne-lhuillier.md and paste the exact sentence about her 2023 Nobel for attosecond physics",
+          "source_quote": "In October 2023, she was awarded the Nobel Prize in Physics, jointly with Krausz and Pierre Agostini \"for experimental methods that generate attosecond pulses of light for the study of electron dynamics in matter\".",
           "required_phrases": ["L'Huillier", "2023", "attosecond"]
         }
       ]
@@ -248,12 +248,12 @@
       "expectedClaims": [
         {
           "source_note": "laureates/john-bardeen.md",
-          "source_quote": "TODO_PASTE_QUOTE: open laureates/john-bardeen.md and paste the exact sentence about his 1956 Nobel for the transistor with Shockley and Brattain",
+          "source_quote": "In 1956, Bardeen, Brattain, and Shockley were jointly awarded the Nobel Prize in Physics \"for their researches on semiconductors and their discovery of the transistor effect.\"",
           "required_phrases": ["Bardeen", "1956", "transistor"]
         },
         {
           "source_note": "laureates/john-bardeen.md",
-          "source_quote": "TODO_PASTE_QUOTE: open laureates/john-bardeen.md and paste the exact sentence about his 1972 Nobel for BCS theory of superconductivity with Cooper and Schrieffer",
+          "source_quote": "In 1972, Bardeen, Cooper, and Schrieffer were jointly awarded the Nobel Prize in Physics \"for their jointly developed theory of superconductivity, usually called the BCS-theory.\"",
           "required_phrases": ["Bardeen", "1972", "superconductivity"]
         }
       ]
@@ -269,7 +269,7 @@
       "expectedClaims": [
         {
           "source_note": "laureates/lawrence-bragg.md",
-          "source_quote": "TODO_PASTE_QUOTE: open laureates/lawrence-bragg.md and paste the exact sentence stating he was 25 years old when he won the 1915 Nobel Prize",
+          "source_quote": "He was 25 years old and remains the youngest science laureate.",
           "required_phrases": ["Bragg", "25", "1915"]
         }
       ]
@@ -286,7 +286,7 @@
       "expectedClaims": [
         {
           "source_note": "laureates/richard-feynman.md",
-          "source_quote": "TODO_PASTE_QUOTE: open laureates/richard-feynman.md and paste the exact sentence about sharing the 1965 Nobel with Schwinger and Tomonaga for quantum electrodynamics",
+          "source_quote": "Schwinger, Tomonaga and Feynman shared the 1965 Nobel Prize in Physics \"for their fundamental work in quantum electrodynamics, with deep-ploughing consequences for the physics of elementary particles\".",
           "required_phrases": ["Feynman", "1965", "Schwinger", "Tomonaga", "quantum electrodynamics"]
         }
       ]
@@ -296,18 +296,18 @@
       "category": "co-laureate-attribution",
       "query": "Who won the 2013 Nobel Prize in Physics, and why was Robert Brout not included?",
       "trapNote": "François Englert and Peter Higgs shared the 2013 prize. Robert Brout was Englert's collaborator on the same mechanism but died in 2011; Nobel rules forbid posthumous awards. Common hallucination: listing Brout as a co-recipient, or listing CERN/ATLAS/CMS as recipients.",
-      "notesExpected": ["laureates/peter-higgs.md", "laureates/francois-englert.md"],
-      "expectedCitations": ["laureates/peter-higgs.md", "laureates/francois-englert.md"],
+      "notesExpected": ["laureates/peter-higgs.md", "laureates/françois-englert.md"],
+      "expectedCitations": ["laureates/peter-higgs.md", "laureates/françois-englert.md"],
       "expectedOutcome": "supported",
       "expectedClaims": [
         {
           "source_note": "laureates/peter-higgs.md",
-          "source_quote": "TODO_PASTE_QUOTE: open laureates/peter-higgs.md and paste the exact sentence about the 2013 Nobel shared with Englert",
+          "source_quote": "For this work, Higgs received the Nobel Prize in Physics, which he shared with François Englert in 2013.",
           "required_phrases": ["Higgs", "2013", "Englert"]
         },
         {
-          "source_note": "laureates/francois-englert.md",
-          "source_quote": "TODO_PASTE_QUOTE: open laureates/francois-englert.md and paste the exact sentence about the 2013 Nobel shared with Higgs",
+          "source_note": "laureates/françois-englert.md",
+          "source_quote": "Englert was awarded the 2013 Nobel Prize in Physics, together with Peter Higgs for the discovery of the Brout–Englert–Higgs mechanism.",
           "required_phrases": ["Englert", "2013", "Higgs"]
         }
       ]
@@ -331,17 +331,17 @@
       "expectedClaims": [
         {
           "source_note": "laureates/rainer-weiss.md",
-          "source_quote": "TODO_PASTE_QUOTE: open laureates/rainer-weiss.md and paste the exact sentence about the 2017 Nobel for LIGO/gravitational waves",
+          "source_quote": "In 2017, Weiss was awarded the Nobel Prize in Physics, along with Kip Thorne and Barry Barish, \"for decisive contributions to the LIGO detector and the observation of gravitational waves\".",
           "required_phrases": ["Weiss", "2017", "gravitational waves"]
         },
         {
           "source_note": "laureates/barry-barish.md",
-          "source_quote": "TODO_PASTE_QUOTE: open laureates/barry-barish.md and paste the exact sentence about the 2017 Nobel for LIGO/gravitational waves",
+          "source_quote": "In 2017, Barish was awarded the Nobel Prize in Physics along with Rainer Weiss and Kip Thorne \"for decisive contributions to the LIGO detector and the observation of gravitational waves\".",
           "required_phrases": ["Barish", "2017", "LIGO"]
         },
         {
           "source_note": "laureates/kip-thorne.md",
-          "source_quote": "TODO_PASTE_QUOTE: open laureates/kip-thorne.md and paste the exact sentence about the 2017 Nobel for LIGO/gravitational waves",
+          "source_quote": "He shared the 2017 Nobel Prize in Physics with Rainer Weiss and Barry C. Barish \"for decisive contributions to the LIGO detector and the observation of gravitational waves\".",
           "required_phrases": ["Thorne", "2017", "gravitational waves"]
         }
       ]
@@ -358,12 +358,12 @@
       "expectedClaims": [
         {
           "source_note": "laureates/james-chadwick.md",
-          "source_quote": "TODO_PASTE_QUOTE: open laureates/james-chadwick.md and paste the exact sentence about discovering the neutron in 1932",
+          "source_quote": "In February 1932, after only about two weeks of experimentation with neutrons, Chadwick sent a letter to Nature titled \"Possible Existence of a Neutron\".",
           "required_phrases": ["Chadwick", "neutron", "1932"]
         },
         {
           "source_note": "laureates/james-chadwick.md",
-          "source_quote": "TODO_PASTE_QUOTE: open laureates/james-chadwick.md and paste the exact sentence about the 1935 Nobel Prize for the discovery",
+          "source_quote": "For his discovery of the neutron, Chadwick was awarded the Hughes Medal in 1932, the Nobel Prize in Physics in 1935, the Copley Medal in 1950, and the Franklin Medal in 1951.",
           "required_phrases": ["Chadwick", "1935", "Nobel"]
         }
       ]
@@ -373,13 +373,13 @@
       "category": "single-fact",
       "query": "Who received the first Nobel Prize in Physics, and for what?",
       "trapNote": "Wilhelm Conrad Röntgen won the 1901 Nobel Prize in Physics for the discovery of X-rays.",
-      "notesExpected": ["laureates/wilhelm-rontgen.md"],
-      "expectedCitations": ["laureates/wilhelm-rontgen.md"],
+      "notesExpected": ["laureates/wilhelm-röntgen.md"],
+      "expectedCitations": ["laureates/wilhelm-röntgen.md"],
       "expectedOutcome": "supported",
       "expectedClaims": [
         {
-          "source_note": "laureates/wilhelm-rontgen.md",
-          "source_quote": "TODO_PASTE_QUOTE: open laureates/wilhelm-rontgen.md (filename may differ slightly — check the actual slug) and paste the exact sentence about the 1901 Nobel for X-rays",
+          "source_note": "laureates/wilhelm-röntgen.md",
+          "source_quote": "In 1901, Röntgen became the first recipient of the Nobel Prize in Physics \"in recognition of the extraordinary services he has rendered by the discovery of the remarkable rays subsequently named after him.\"",
           "required_phrases": ["Röntgen", "1901", "X-rays"]
         }
       ]
@@ -395,12 +395,12 @@
       "expectedClaims": [
         {
           "source_note": "laureates/andre-geim.md",
-          "source_quote": "TODO_PASTE_QUOTE: open laureates/andre-geim.md and paste the exact sentence about the 2010 Nobel for graphene",
+          "source_quote": "Geim was awarded the 2010 Nobel Prize in Physics jointly with Konstantin Novoselov for his work on graphene.",
           "required_phrases": ["Geim", "2010", "graphene"]
         },
         {
           "source_note": "laureates/konstantin-novoselov.md",
-          "source_quote": "TODO_PASTE_QUOTE: open laureates/konstantin-novoselov.md and paste the exact sentence about the 2010 Nobel for graphene",
+          "source_quote": "His work on graphene with Andre Geim earned them the Nobel Prize in Physics in 2010.",
           "required_phrases": ["Novoselov", "2010", "graphene"]
         }
       ]
@@ -410,18 +410,18 @@
       "category": "single-fact",
       "query": "Who won the 2006 Nobel Prize in Physics for work on the cosmic microwave background?",
       "trapNote": "John Mather and George Smoot, for blackbody form and anisotropy of CMB via COBE. Distinct from Penzias and Wilson's 1978 prize for the CMB's initial discovery.",
-      "notesExpected": ["laureates/john-mather.md", "laureates/george-smoot.md"],
-      "expectedCitations": ["laureates/john-mather.md", "laureates/george-smoot.md"],
+      "notesExpected": ["laureates/john-c-mather.md", "laureates/george-smoot.md"],
+      "expectedCitations": ["laureates/john-c-mather.md", "laureates/george-smoot.md"],
       "expectedOutcome": "supported",
       "expectedClaims": [
         {
-          "source_note": "laureates/john-mather.md",
-          "source_quote": "TODO_PASTE_QUOTE: open laureates/john-mather.md and paste the exact sentence about the 2006 Nobel for the CMB blackbody form",
+          "source_note": "laureates/john-c-mather.md",
+          "source_quote": "He shared the 2006 Nobel Prize in Physics with George Smoot for the \"for their discovery of the black body form and anisotropy of the cosmic microwave background radiation\".",
           "required_phrases": ["Mather", "2006", "cosmic microwave background"]
         },
         {
           "source_note": "laureates/george-smoot.md",
-          "source_quote": "TODO_PASTE_QUOTE: open laureates/george-smoot.md and paste the exact sentence about the 2006 Nobel for CMB anisotropy",
+          "source_quote": "He shared the 2006 Nobel Prize in Physics with John C. Mather \"for their discovery of the black body form and anisotropy of the cosmic microwave background radiation\".",
           "required_phrases": ["Smoot", "2006", "anisotropy"]
         }
       ]
@@ -445,17 +445,17 @@
       "expectedClaims": [
         {
           "source_note": "laureates/alain-aspect.md",
-          "source_quote": "TODO_PASTE_QUOTE: open laureates/alain-aspect.md and paste the exact sentence about the 2022 Nobel for entangled photons",
+          "source_quote": "Aspect was awarded the 2022 Nobel Prize in Physics, jointly with John Clauser and Anton Zeilinger, \"for experiments with entangled photons, establishing the violation of Bell inequalities and pioneering quantum information science\".",
           "required_phrases": ["Aspect", "2022", "entangled photons"]
         },
         {
           "source_note": "laureates/john-clauser.md",
-          "source_quote": "TODO_PASTE_QUOTE: open laureates/john-clauser.md and paste the exact sentence about the 2022 Nobel for Bell inequality experiments",
+          "source_quote": "Clauser was awarded the 2022 Nobel Prize in Physics, jointly with Alain Aspect and Anton Zeilinger \"for experiments with entangled photons, establishing the violation of Bell inequalities and pioneering quantum information science\".",
           "required_phrases": ["Clauser", "2022", "Bell"]
         },
         {
           "source_note": "laureates/anton-zeilinger.md",
-          "source_quote": "TODO_PASTE_QUOTE: open laureates/anton-zeilinger.md and paste the exact sentence about the 2022 Nobel for quantum information science",
+          "source_quote": "In October 2022, he received the Nobel Prize in Physics, jointly with Alain Aspect and John Clauser for their work involving experiments with entangled photons, establishing the violation of Bell inequalities and pioneering quantum information science.",
           "required_phrases": ["Zeilinger", "2022", "quantum"]
         }
       ]
@@ -479,17 +479,17 @@
       "expectedClaims": [
         {
           "source_note": "laureates/pierre-agostini.md",
-          "source_quote": "TODO_PASTE_QUOTE: open laureates/pierre-agostini.md and paste the exact sentence about the 2023 Nobel for attosecond pulses",
+          "source_quote": "In 2023, he received the Nobel Prize in Physics for \"experimental methods that generate attosecond pulses of light for the study of electron dynamics in matter\" along with Anne L'Huillier and Ferenc Krausz.",
           "required_phrases": ["Agostini", "2023", "attosecond"]
         },
         {
           "source_note": "laureates/ferenc-krausz.md",
-          "source_quote": "TODO_PASTE_QUOTE: open laureates/ferenc-krausz.md and paste the exact sentence about the 2023 Nobel for attosecond physics",
+          "source_quote": "2023 – Nobel Prize in Physics with L'Huillier and Pierre Agostini \"for experimental methods that generate attosecond pulses of light for the study of electron dynamics in matter.\"",
           "required_phrases": ["Krausz", "2023", "attosecond"]
         },
         {
           "source_note": "laureates/anne-lhuillier.md",
-          "source_quote": "TODO_PASTE_QUOTE: open laureates/anne-lhuillier.md and paste the exact sentence about the 2023 Nobel for attosecond pulse generation",
+          "source_quote": "In October 2023, she was awarded the Nobel Prize in Physics, jointly with Krausz and Pierre Agostini \"for experimental methods that generate attosecond pulses of light for the study of electron dynamics in matter\".",
           "required_phrases": ["L'Huillier", "2023", "attosecond"]
         }
       ]
