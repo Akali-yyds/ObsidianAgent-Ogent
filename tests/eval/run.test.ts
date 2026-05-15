@@ -180,4 +180,105 @@ describe("runEvalHarness", () => {
 		expect(markdown).toContain("- **Mode:** live");
 		expect(markdown).toContain("- **Dataset:** Mini Nobel benchmark");
 	});
+
+	it("treats unsupported live queries as passing when verifier flags all synthesized claims", async () => {
+		const workspaceDir = await mkdtemp(path.join(tmpdir(), "open-agent-live-eval-unsupported-"));
+		tempDirs.push(workspaceDir);
+
+		const vaultDir = path.join(workspaceDir, "vault");
+		const resultsDir = path.join(workspaceDir, "results");
+		const benchmarkPath = path.join(workspaceDir, "benchmark.json");
+		await mkdir(resultsDir, { recursive: true });
+		await mkdir(vaultDir, { recursive: true });
+
+		await writeFile(
+			benchmarkPath,
+			`${JSON.stringify(
+				{
+					_schema_notes: {
+						outcomes: {
+							unsupported:
+								"Pass when the synthesizer refuses or when verifier flags every fabricated claim.",
+						},
+					},
+					packId: "grounded-research",
+					datasetId: "mini-nobel-unsupported",
+					datasetName: "Mini Nobel unsupported benchmark",
+					queries: [
+						{
+							id: "hawking-trap",
+							category: "negative-fact",
+							query: "When did Stephen Hawking win the Nobel Prize in Physics?",
+							trapNote: "Hawking never won a Physics Nobel in this corpus.",
+							notesExpected: [],
+							expectedCitations: [],
+							expectedOutcome: "unsupported",
+							expectedClaims: [],
+						},
+					],
+				},
+				null,
+				2,
+			)}\n`,
+			"utf8",
+		);
+
+		const providerFactory = (_config: unknown, agentId: string): ModelProvider => ({
+			async *stream(): AsyncIterable<StreamEvent> {
+				if (agentId === "retriever") {
+					yield { kind: "text", text: "No supporting Nobel Physics laureate notes were retrieved." };
+					yield { kind: "done", finishReason: "stop" };
+					return;
+				}
+				if (agentId === "synthesizer") {
+					yield {
+						kind: "text",
+						text: JSON.stringify({
+							summary: "Stephen Hawking won the Nobel Prize in Physics in 1988.",
+							claims: [
+								{
+									id: "c1",
+									text: "Stephen Hawking won the Nobel Prize in Physics in 1988.",
+									source_note: "laureates/stephen-hawking.md",
+									source_quote: "Stephen Hawking won the Nobel Prize in Physics in 1988.",
+									confidence: 0.22,
+								},
+							],
+						}),
+					};
+					yield { kind: "done", finishReason: "stop" };
+					return;
+				}
+
+				yield {
+					kind: "text",
+					text: JSON.stringify({
+						supports_claim: false,
+						explanation: "The claim should be rejected.",
+					}),
+				};
+				yield { kind: "done", finishReason: "stop" };
+			},
+		});
+
+		const run = await runEvalHarness({
+			live: true,
+			benchmarkPath,
+			vaultDir,
+			resultsDir,
+			providerFactory,
+		});
+
+		expect(run.report.mode).toBe("live");
+		expect(run.report.dataset?.id).toBe("mini-nobel-unsupported");
+		expect(run.report.fixture.categories["negative-fact"]).toBe(1);
+		expect(run.report.baselineHallucinationRate).toBe(1);
+		expect(run.report.verifiedHallucinationRate).toBe(0);
+		expect(run.report.totalClaims).toBe(1);
+		expect(run.report.totalFlaggedClaims).toBe(1);
+		expect(run.report.claimBuckets.quoteMissing).toBe(1);
+		expect(run.report.perQuery[0]?.expectedOutcome).toBe("unsupported");
+		expect(run.report.perQuery[0]?.verifiedFlaggedClaims).toBe(1);
+		expect(run.report.perQuery[0]?.verifiedSurfacedClaimCount).toBe(0);
+	});
 });

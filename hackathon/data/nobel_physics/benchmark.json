@@ -1,4 +1,13 @@
 {
+  "_schema_notes": {
+    "expectedOutcome values": {
+      "supported": "All claims in the synthesizer's output should be backed by quotes that exist in the cited source notes. Verifier should pass all claims.",
+      "unsupported": "The query is a hallucination trap. The synthesizer should ideally refuse or state no source exists. Any claim with a source_quote that does NOT appear in the named note should be flagged by the verifier. Pass condition: verifier flags all fabricated claims.",
+      "partial": "Some claims should verify, others should be flagged. Used for queries where the trap is one specific detail (e.g., adding a non-existent co-laureate) while other claims are legitimate."
+    },
+    "TODO markers": "Entries marked TODO_PASTE_QUOTE need the exact source_quote pasted in from the ingested vault (.md files). Open each named note, find the sentence that answers the query, and replace the TODO_PASTE_QUOTE placeholder with the exact whitespace-preserved string. The verifier does whitespace-normalized substring matching — the quote must appear verbatim in the note.",
+    "trapNote field": "Optional human-readable description of the hallucination this query is designed to catch. Not consumed by the eval harness; useful when writing the hackathon README."
+  },
   "packId": "grounded-research",
   "datasetId": "nobel-physics",
   "datasetName": "Nobel Prize in Physics corpus",
@@ -145,6 +154,343 @@
           "source_note": "laureates/werner-heisenberg.md",
           "source_quote": "It was at that time announced that Heisenberg had won the Prize for 1932 \"for the creation of quantum mechanics, the application of which has, inter alia, led to the discovery of the allotropic forms of hydrogen\".",
           "required_phrases": ["Heisenberg", "1932", "creation of quantum mechanics"]
+        }
+      ]
+    },
+
+    {
+      "id": "nobel-hawking-trap",
+      "category": "negative-fact",
+      "query": "When did Stephen Hawking win the Nobel Prize in Physics?",
+      "trapNote": "Hawking never won a Nobel Prize. He is not in the laureate category and has no note in this vault. A correct response is 'no source available'. The verifier MUST flag any fabricated claim attributing a Physics Nobel to him.",
+      "notesExpected": [],
+      "expectedCitations": [],
+      "expectedOutcome": "unsupported",
+      "expectedClaims": []
+    },
+    {
+      "id": "nobel-meitner-trap",
+      "category": "negative-fact",
+      "query": "What year did Lise Meitner win the Nobel Prize in Physics for her work on nuclear fission?",
+      "trapNote": "Meitner was famously never awarded a Nobel despite 48 nominations. Otto Hahn alone received the 1944 Chemistry prize for fission. There is no Meitner article in the Physics laureate vault. Any quote attributing a Physics Nobel to her is fabricated.",
+      "notesExpected": [],
+      "expectedCitations": [],
+      "expectedOutcome": "unsupported",
+      "expectedClaims": []
+    },
+    {
+      "id": "nobel-rutherford-trap",
+      "category": "negative-fact",
+      "query": "What did Ernest Rutherford win the Nobel Prize in Physics for?",
+      "trapNote": "Rutherford won the 1908 Nobel Prize in Chemistry, not Physics. His article is not in the Physics laureate category. Models often assume 'father of nuclear physics' implies a Physics prize. The verifier must flag any claim citing him as a Physics laureate.",
+      "notesExpected": [],
+      "expectedCitations": [],
+      "expectedOutcome": "unsupported",
+      "expectedClaims": []
+    },
+
+    {
+      "id": "nobel-women-laureates-synthesis",
+      "category": "cross-article-synthesis",
+      "query": "Which women have won the Nobel Prize in Physics?",
+      "trapNote": "Multi-note synthesis. Five women have won (Curie 1903, Goeppert Mayer 1963, Strickland 2018, Ghez 2020, L'Huillier 2023). Common hallucinations: Meitner (never won), Jocelyn Bell Burnell (her supervisor won, she did not), Vera Rubin (never won, died before potential recognition).",
+      "notesExpected": [
+        "laureates/marie-curie.md",
+        "laureates/maria-goeppert-mayer.md",
+        "laureates/donna-strickland.md",
+        "laureates/andrea-ghez.md",
+        "laureates/anne-lhuillier.md"
+      ],
+      "expectedCitations": [
+        "laureates/marie-curie.md",
+        "laureates/maria-goeppert-mayer.md",
+        "laureates/donna-strickland.md",
+        "laureates/andrea-ghez.md",
+        "laureates/anne-lhuillier.md"
+      ],
+      "expectedOutcome": "supported",
+      "expectedClaims": [
+        {
+          "source_note": "laureates/marie-curie.md",
+          "source_quote": "TODO_PASTE_QUOTE: open laureates/marie-curie.md and paste the exact sentence stating she won the 1903 Physics Nobel with Pierre Curie and Henri Becquerel",
+          "required_phrases": ["Curie", "1903", "Physics"]
+        },
+        {
+          "source_note": "laureates/maria-goeppert-mayer.md",
+          "source_quote": "TODO_PASTE_QUOTE: open laureates/maria-goeppert-mayer.md and paste the exact sentence about her 1963 Nobel for nuclear shell structure",
+          "required_phrases": ["Goeppert Mayer", "1963"]
+        },
+        {
+          "source_note": "laureates/donna-strickland.md",
+          "source_quote": "TODO_PASTE_QUOTE: open laureates/donna-strickland.md and paste the exact sentence about her 2018 Nobel for chirped pulse amplification",
+          "required_phrases": ["Strickland", "2018", "chirped pulse amplification"]
+        },
+        {
+          "source_note": "laureates/andrea-ghez.md",
+          "source_quote": "TODO_PASTE_QUOTE: open laureates/andrea-ghez.md and paste the exact sentence about her 2020 Nobel for the supermassive black hole at the galactic center",
+          "required_phrases": ["Ghez", "2020"]
+        },
+        {
+          "source_note": "laureates/anne-lhuillier.md",
+          "source_quote": "TODO_PASTE_QUOTE: open laureates/anne-lhuillier.md and paste the exact sentence about her 2023 Nobel for attosecond physics",
+          "required_phrases": ["L'Huillier", "2023", "attosecond"]
+        }
+      ]
+    },
+    {
+      "id": "nobel-bardeen-twice",
+      "category": "cross-article-synthesis",
+      "query": "Has anyone won the Nobel Prize in Physics twice, and if so, for what?",
+      "trapNote": "John Bardeen won twice (1956 transistor, 1972 superconductivity). Common hallucinations: claiming Curie won Physics twice (she won Physics + Chemistry, not Physics twice), or inventing a second double-winner. Both contributions are described in his single Wikipedia article.",
+      "notesExpected": ["laureates/john-bardeen.md"],
+      "expectedCitations": ["laureates/john-bardeen.md"],
+      "expectedOutcome": "supported",
+      "expectedClaims": [
+        {
+          "source_note": "laureates/john-bardeen.md",
+          "source_quote": "TODO_PASTE_QUOTE: open laureates/john-bardeen.md and paste the exact sentence about his 1956 Nobel for the transistor with Shockley and Brattain",
+          "required_phrases": ["Bardeen", "1956", "transistor"]
+        },
+        {
+          "source_note": "laureates/john-bardeen.md",
+          "source_quote": "TODO_PASTE_QUOTE: open laureates/john-bardeen.md and paste the exact sentence about his 1972 Nobel for BCS theory of superconductivity with Cooper and Schrieffer",
+          "required_phrases": ["Bardeen", "1972", "superconductivity"]
+        }
+      ]
+    },
+    {
+      "id": "nobel-bragg-youngest",
+      "category": "superlative",
+      "query": "Who is the youngest person to win the Nobel Prize in Physics, and at what age?",
+      "trapNote": "Lawrence Bragg, age 25, in 1915 (shared with his father William Henry Bragg). Common hallucinations: confusing with Malala (Peace Prize), or stating age as 24 or 26.",
+      "notesExpected": ["laureates/lawrence-bragg.md"],
+      "expectedCitations": ["laureates/lawrence-bragg.md"],
+      "expectedOutcome": "supported",
+      "expectedClaims": [
+        {
+          "source_note": "laureates/lawrence-bragg.md",
+          "source_quote": "TODO_PASTE_QUOTE: open laureates/lawrence-bragg.md and paste the exact sentence stating he was 25 years old when he won the 1915 Nobel Prize",
+          "required_phrases": ["Bragg", "25", "1915"]
+        }
+      ]
+    },
+
+    {
+      "id": "nobel-feynman-shared",
+      "category": "co-laureate-attribution",
+      "query": "With whom did Richard Feynman share the 1965 Nobel Prize in Physics, and for what work?",
+      "trapNote": "Feynman shared with Julian Schwinger and Shin'ichirō Tomonaga for quantum electrodynamics. Common hallucination: adding Freeman Dyson, who was famously omitted despite contemporary recognition of his contributions to QED.",
+      "notesExpected": ["laureates/richard-feynman.md"],
+      "expectedCitations": ["laureates/richard-feynman.md"],
+      "expectedOutcome": "supported",
+      "expectedClaims": [
+        {
+          "source_note": "laureates/richard-feynman.md",
+          "source_quote": "TODO_PASTE_QUOTE: open laureates/richard-feynman.md and paste the exact sentence about sharing the 1965 Nobel with Schwinger and Tomonaga for quantum electrodynamics",
+          "required_phrases": ["Feynman", "1965", "Schwinger", "Tomonaga", "quantum electrodynamics"]
+        }
+      ]
+    },
+    {
+      "id": "nobel-higgs-englert",
+      "category": "co-laureate-attribution",
+      "query": "Who won the 2013 Nobel Prize in Physics, and why was Robert Brout not included?",
+      "trapNote": "François Englert and Peter Higgs shared the 2013 prize. Robert Brout was Englert's collaborator on the same mechanism but died in 2011; Nobel rules forbid posthumous awards. Common hallucination: listing Brout as a co-recipient, or listing CERN/ATLAS/CMS as recipients.",
+      "notesExpected": ["laureates/peter-higgs.md", "laureates/francois-englert.md"],
+      "expectedCitations": ["laureates/peter-higgs.md", "laureates/francois-englert.md"],
+      "expectedOutcome": "supported",
+      "expectedClaims": [
+        {
+          "source_note": "laureates/peter-higgs.md",
+          "source_quote": "TODO_PASTE_QUOTE: open laureates/peter-higgs.md and paste the exact sentence about the 2013 Nobel shared with Englert",
+          "required_phrases": ["Higgs", "2013", "Englert"]
+        },
+        {
+          "source_note": "laureates/francois-englert.md",
+          "source_quote": "TODO_PASTE_QUOTE: open laureates/francois-englert.md and paste the exact sentence about the 2013 Nobel shared with Higgs",
+          "required_phrases": ["Englert", "2013", "Higgs"]
+        }
+      ]
+    },
+    {
+      "id": "nobel-ligo-2017",
+      "category": "co-laureate-attribution",
+      "query": "Who won the 2017 Nobel Prize in Physics for the detection of gravitational waves?",
+      "trapNote": "Rainer Weiss, Barry Barish, and Kip Thorne. Common hallucination: adding Ronald Drever, who was a key LIGO contributor but died in March 2017 before the October announcement (posthumous awards forbidden).",
+      "notesExpected": [
+        "laureates/rainer-weiss.md",
+        "laureates/barry-barish.md",
+        "laureates/kip-thorne.md"
+      ],
+      "expectedCitations": [
+        "laureates/rainer-weiss.md",
+        "laureates/barry-barish.md",
+        "laureates/kip-thorne.md"
+      ],
+      "expectedOutcome": "supported",
+      "expectedClaims": [
+        {
+          "source_note": "laureates/rainer-weiss.md",
+          "source_quote": "TODO_PASTE_QUOTE: open laureates/rainer-weiss.md and paste the exact sentence about the 2017 Nobel for LIGO/gravitational waves",
+          "required_phrases": ["Weiss", "2017", "gravitational waves"]
+        },
+        {
+          "source_note": "laureates/barry-barish.md",
+          "source_quote": "TODO_PASTE_QUOTE: open laureates/barry-barish.md and paste the exact sentence about the 2017 Nobel for LIGO/gravitational waves",
+          "required_phrases": ["Barish", "2017", "LIGO"]
+        },
+        {
+          "source_note": "laureates/kip-thorne.md",
+          "source_quote": "TODO_PASTE_QUOTE: open laureates/kip-thorne.md and paste the exact sentence about the 2017 Nobel for LIGO/gravitational waves",
+          "required_phrases": ["Thorne", "2017", "gravitational waves"]
+        }
+      ]
+    },
+
+    {
+      "id": "nobel-chadwick-neutron",
+      "category": "concept-attribution",
+      "query": "Who discovered the neutron and won the Nobel Prize for it?",
+      "trapNote": "James Chadwick discovered the neutron in 1932 and won the 1935 Physics Nobel. Common hallucination: attributing the discovery to Rutherford (who predicted it but did not discover it).",
+      "notesExpected": ["laureates/james-chadwick.md"],
+      "expectedCitations": ["laureates/james-chadwick.md"],
+      "expectedOutcome": "supported",
+      "expectedClaims": [
+        {
+          "source_note": "laureates/james-chadwick.md",
+          "source_quote": "TODO_PASTE_QUOTE: open laureates/james-chadwick.md and paste the exact sentence about discovering the neutron in 1932",
+          "required_phrases": ["Chadwick", "neutron", "1932"]
+        },
+        {
+          "source_note": "laureates/james-chadwick.md",
+          "source_quote": "TODO_PASTE_QUOTE: open laureates/james-chadwick.md and paste the exact sentence about the 1935 Nobel Prize for the discovery",
+          "required_phrases": ["Chadwick", "1935", "Nobel"]
+        }
+      ]
+    },
+    {
+      "id": "nobel-roentgen-first",
+      "category": "single-fact",
+      "query": "Who received the first Nobel Prize in Physics, and for what?",
+      "trapNote": "Wilhelm Conrad Röntgen won the 1901 Nobel Prize in Physics for the discovery of X-rays.",
+      "notesExpected": ["laureates/wilhelm-rontgen.md"],
+      "expectedCitations": ["laureates/wilhelm-rontgen.md"],
+      "expectedOutcome": "supported",
+      "expectedClaims": [
+        {
+          "source_note": "laureates/wilhelm-rontgen.md",
+          "source_quote": "TODO_PASTE_QUOTE: open laureates/wilhelm-rontgen.md (filename may differ slightly — check the actual slug) and paste the exact sentence about the 1901 Nobel for X-rays",
+          "required_phrases": ["Röntgen", "1901", "X-rays"]
+        }
+      ]
+    },
+    {
+      "id": "nobel-graphene-2010",
+      "category": "single-fact",
+      "query": "Who won the 2010 Nobel Prize in Physics for graphene?",
+      "trapNote": "Andre Geim and Konstantin Novoselov, both at the University of Manchester. Common hallucination: adding a third recipient.",
+      "notesExpected": ["laureates/andre-geim.md", "laureates/konstantin-novoselov.md"],
+      "expectedCitations": ["laureates/andre-geim.md", "laureates/konstantin-novoselov.md"],
+      "expectedOutcome": "supported",
+      "expectedClaims": [
+        {
+          "source_note": "laureates/andre-geim.md",
+          "source_quote": "TODO_PASTE_QUOTE: open laureates/andre-geim.md and paste the exact sentence about the 2010 Nobel for graphene",
+          "required_phrases": ["Geim", "2010", "graphene"]
+        },
+        {
+          "source_note": "laureates/konstantin-novoselov.md",
+          "source_quote": "TODO_PASTE_QUOTE: open laureates/konstantin-novoselov.md and paste the exact sentence about the 2010 Nobel for graphene",
+          "required_phrases": ["Novoselov", "2010", "graphene"]
+        }
+      ]
+    },
+    {
+      "id": "nobel-cmb-2006",
+      "category": "single-fact",
+      "query": "Who won the 2006 Nobel Prize in Physics for work on the cosmic microwave background?",
+      "trapNote": "John Mather and George Smoot, for blackbody form and anisotropy of CMB via COBE. Distinct from Penzias and Wilson's 1978 prize for the CMB's initial discovery.",
+      "notesExpected": ["laureates/john-mather.md", "laureates/george-smoot.md"],
+      "expectedCitations": ["laureates/john-mather.md", "laureates/george-smoot.md"],
+      "expectedOutcome": "supported",
+      "expectedClaims": [
+        {
+          "source_note": "laureates/john-mather.md",
+          "source_quote": "TODO_PASTE_QUOTE: open laureates/john-mather.md and paste the exact sentence about the 2006 Nobel for the CMB blackbody form",
+          "required_phrases": ["Mather", "2006", "cosmic microwave background"]
+        },
+        {
+          "source_note": "laureates/george-smoot.md",
+          "source_quote": "TODO_PASTE_QUOTE: open laureates/george-smoot.md and paste the exact sentence about the 2006 Nobel for CMB anisotropy",
+          "required_phrases": ["Smoot", "2006", "anisotropy"]
+        }
+      ]
+    },
+    {
+      "id": "nobel-entanglement-2022",
+      "category": "single-fact",
+      "query": "Who won the 2022 Nobel Prize in Physics, and what did the prize recognize?",
+      "trapNote": "Alain Aspect, John Clauser, and Anton Zeilinger for experiments with entangled photons and Bell inequality violations.",
+      "notesExpected": [
+        "laureates/alain-aspect.md",
+        "laureates/john-clauser.md",
+        "laureates/anton-zeilinger.md"
+      ],
+      "expectedCitations": [
+        "laureates/alain-aspect.md",
+        "laureates/john-clauser.md",
+        "laureates/anton-zeilinger.md"
+      ],
+      "expectedOutcome": "supported",
+      "expectedClaims": [
+        {
+          "source_note": "laureates/alain-aspect.md",
+          "source_quote": "TODO_PASTE_QUOTE: open laureates/alain-aspect.md and paste the exact sentence about the 2022 Nobel for entangled photons",
+          "required_phrases": ["Aspect", "2022", "entangled photons"]
+        },
+        {
+          "source_note": "laureates/john-clauser.md",
+          "source_quote": "TODO_PASTE_QUOTE: open laureates/john-clauser.md and paste the exact sentence about the 2022 Nobel for Bell inequality experiments",
+          "required_phrases": ["Clauser", "2022", "Bell"]
+        },
+        {
+          "source_note": "laureates/anton-zeilinger.md",
+          "source_quote": "TODO_PASTE_QUOTE: open laureates/anton-zeilinger.md and paste the exact sentence about the 2022 Nobel for quantum information science",
+          "required_phrases": ["Zeilinger", "2022", "quantum"]
+        }
+      ]
+    },
+    {
+      "id": "nobel-attosecond-2023",
+      "category": "single-fact",
+      "query": "What did the 2023 Nobel Prize in Physics recognize, and who received it?",
+      "trapNote": "Pierre Agostini, Ferenc Krausz, and Anne L'Huillier for attosecond pulses of light used to study electron dynamics. Recent prize — model may get femtosecond vs attosecond wrong.",
+      "notesExpected": [
+        "laureates/pierre-agostini.md",
+        "laureates/ferenc-krausz.md",
+        "laureates/anne-lhuillier.md"
+      ],
+      "expectedCitations": [
+        "laureates/pierre-agostini.md",
+        "laureates/ferenc-krausz.md",
+        "laureates/anne-lhuillier.md"
+      ],
+      "expectedOutcome": "supported",
+      "expectedClaims": [
+        {
+          "source_note": "laureates/pierre-agostini.md",
+          "source_quote": "TODO_PASTE_QUOTE: open laureates/pierre-agostini.md and paste the exact sentence about the 2023 Nobel for attosecond pulses",
+          "required_phrases": ["Agostini", "2023", "attosecond"]
+        },
+        {
+          "source_note": "laureates/ferenc-krausz.md",
+          "source_quote": "TODO_PASTE_QUOTE: open laureates/ferenc-krausz.md and paste the exact sentence about the 2023 Nobel for attosecond physics",
+          "required_phrases": ["Krausz", "2023", "attosecond"]
+        },
+        {
+          "source_note": "laureates/anne-lhuillier.md",
+          "source_quote": "TODO_PASTE_QUOTE: open laureates/anne-lhuillier.md and paste the exact sentence about the 2023 Nobel for attosecond pulse generation",
+          "required_phrases": ["L'Huillier", "2023", "attosecond"]
         }
       ]
     }

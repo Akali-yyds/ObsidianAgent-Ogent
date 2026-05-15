@@ -15,7 +15,7 @@ import { createMarkdownVaultAdapter } from "./fixture-vault";
 import { createNodeEvalProvider } from "./live-provider";
 
 type FixtureCategory = "single-fact" | "multi-note" | "conflict" | "no-support" | "adversarial";
-type FixtureOutcome = "supported" | "mixed" | "unsupported";
+type EvalOutcome = "supported" | "mixed" | "unsupported" | "partial";
 
 interface EvalQueryExpectation {
 	text: string;
@@ -39,7 +39,7 @@ interface EvalQueryFixture {
 	notesExpected: string[];
 	expectedSupport: EvalQueryExpectation[];
 	expectedCitations: string[];
-	expectedOutcome: FixtureOutcome;
+	expectedOutcome: EvalOutcome;
 	mustNotClaim?: string[];
 	mockClaims: EvalMockClaim[];
 }
@@ -58,11 +58,11 @@ interface LiveEvalExpectedClaim {
 
 interface LiveEvalQueryFixture {
 	id: string;
-	category: FixtureCategory;
+	category: string;
 	query: string;
 	notesExpected: string[];
 	expectedCitations: string[];
-	expectedOutcome: FixtureOutcome;
+	expectedOutcome: EvalOutcome;
 	expectedClaims: LiveEvalExpectedClaim[];
 }
 
@@ -89,9 +89,9 @@ interface ScoredBaselineClaim {
 
 interface PerQueryReport {
 	id: string;
-	category: FixtureCategory;
+	category: string;
 	query: string;
-	expectedOutcome: FixtureOutcome;
+	expectedOutcome: EvalOutcome;
 	retrievedPaths: string[];
 	notesExpected: string[];
 	notesExpectedSatisfied: boolean;
@@ -128,7 +128,7 @@ export interface EvalReport {
 	fixture: {
 		rootDir: string;
 		queryCount: number;
-		categories: Record<FixtureCategory, number>;
+		categories: Record<string, number>;
 	};
 	baselineHallucinationRate: number;
 	verifiedHallucinationRate: number;
@@ -242,6 +242,7 @@ const fixtureValidator = ajv.compile<EvalFixtures>({
 const liveBenchmarkValidator = ajv.compile<LiveEvalBenchmark>({
 	type: "object",
 	properties: {
+		_schema_notes: { type: "object", nullable: true },
 		packId: { type: "string", minLength: 1 },
 		datasetId: { type: "string", minLength: 1 },
 		datasetName: { type: "string", minLength: 1 },
@@ -252,11 +253,9 @@ const liveBenchmarkValidator = ajv.compile<LiveEvalBenchmark>({
 				type: "object",
 				properties: {
 					id: { type: "string", minLength: 1 },
-					category: {
-						type: "string",
-						enum: ["single-fact", "multi-note", "conflict", "no-support", "adversarial"],
-					},
+					category: { type: "string", minLength: 1 },
 					query: { type: "string", minLength: 1 },
+					trapNote: { type: "string", minLength: 1 },
 					notesExpected: {
 						type: "array",
 						items: { type: "string", minLength: 1 },
@@ -265,10 +264,10 @@ const liveBenchmarkValidator = ajv.compile<LiveEvalBenchmark>({
 						type: "array",
 						items: { type: "string", minLength: 1 },
 					},
-					expectedOutcome: { type: "string", enum: ["supported", "mixed", "unsupported"] },
+					expectedOutcome: { type: "string", enum: ["supported", "mixed", "unsupported", "partial"] },
 					expectedClaims: {
 						type: "array",
-						minItems: 1,
+						minItems: 0,
 						items: {
 							type: "object",
 							properties: {
@@ -298,12 +297,12 @@ const liveBenchmarkValidator = ajv.compile<LiveEvalBenchmark>({
 					"expectedOutcome",
 					"expectedClaims",
 				],
-				additionalProperties: false,
+				additionalProperties: true,
 			},
 		},
 	},
 	required: ["packId", "datasetId", "datasetName", "queries"],
-	additionalProperties: false,
+	additionalProperties: true,
 });
 
 const reportValidator = ajv.compile<EvalReport>({
@@ -772,6 +771,8 @@ async function buildLivePerQueryReport(
 	const verifiedClaimBuckets = countBuckets(verified.claims.map((claim) => claim.status));
 	const verifiedSurfacedClaims = verified.claims.filter((claim) => claim.status === "verified");
 	const verifiedEscapedHallucinations = await countLiveEscapedHallucinations(queryFixture, vault, verified.claims);
+	const baselineHallucinationRate = toRate(baselineFlaggedClaims, baselineClaims.length);
+	const verifiedHallucinationRate = toRate(verifiedEscapedHallucinations, verifiedSurfacedClaims.length);
 
 	return {
 		id: queryFixture.id,
@@ -788,17 +789,14 @@ async function buildLivePerQueryReport(
 		verifiedSummary: verified.verifiedSummary,
 		baselineClaimCount: baselineClaims.length,
 		baselineFlaggedClaims,
-		baselineHallucinationRate: toRate(baselineFlaggedClaims, baselineClaims.length),
+		baselineHallucinationRate,
 		baselineClaimBuckets,
 		verifiedClaimCount: verified.claims.length,
 		verifiedSurfacedClaimCount: verifiedSurfacedClaims.length,
 		verifiedFlaggedClaims: verified.claims.filter((claim) => claim.status !== "verified").length,
-		verifiedHallucinationRate: toRate(verifiedEscapedHallucinations, verifiedSurfacedClaims.length),
+		verifiedHallucinationRate,
 		verifiedClaimBuckets,
-		hallucinationRateDelta: toDelta(
-			toRate(baselineFlaggedClaims, baselineClaims.length),
-			toRate(verifiedEscapedHallucinations, verifiedSurfacedClaims.length),
-		),
+		hallucinationRateDelta: toDelta(baselineHallucinationRate, verifiedHallucinationRate),
 		baselineClaims,
 		verifiedClaims: verified.claims,
 		expectedStatuses: [],
@@ -911,6 +909,10 @@ async function countLiveEscapedHallucinations(
 	claims: Array<{ text: string; sourceNote: string; sourceQuote: string; status: ClaimVerificationStatus }>,
 ): Promise<number> {
 	const surfaced = claims.filter((claim) => claim.status === "verified");
+	if (queryFixture.expectedOutcome === "unsupported") {
+		return surfaced.length;
+	}
+
 	const statuses = await Promise.all(
 		surfaced.map((claim) =>
 			classifyLiveClaim(queryFixture, vault, {
@@ -946,16 +948,10 @@ function matchesExpectedLiveClaim(claim: EvalClaimLike, expected: LiveEvalExpect
 	);
 }
 
-function countCategories(queries: EvalQueryFixture[]): Record<FixtureCategory, number> {
-	const categories: Record<FixtureCategory, number> = {
-		"single-fact": 0,
-		"multi-note": 0,
-		conflict: 0,
-		"no-support": 0,
-		adversarial: 0,
-	};
+function countCategories<T extends { category: string }>(queries: T[]): Record<string, number> {
+	const categories: Record<string, number> = {};
 	for (const query of queries) {
-		categories[query.category] += 1;
+		categories[query.category] = (categories[query.category] ?? 0) + 1;
 	}
 	return categories;
 }
