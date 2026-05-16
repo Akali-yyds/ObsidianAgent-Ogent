@@ -7,6 +7,7 @@ import { runTurn } from "./loop";
 import { isMobile } from "./platform";
 import { OpenAICompatibleProvider } from "./provider";
 import { resolveCitationTarget } from "./citations";
+import type { ExactPhraseAnchor } from "./agents/verifier";
 import { PackConfigError, PackRunError, type PackRuntimeEvent, type PackRunResult, type PackRunTransparency } from "./packs/runtime";
 import type { AgentPack } from "./packs/types";
 import { isConfigured, type PluginSettings } from "./settings";
@@ -85,6 +86,8 @@ interface UiTurn {
 	segments: AssistantSegment[]; // assistant turns: text and tool cards in order
 	toolCallMap: Record<string, ToolCallRecord>; // assistant turns: looked up by id
 	thinking: boolean; // true until first content arrives
+	thinkingLabel?: string; // optional context label shown inside the thinking indicator
+	thinkingContent?: string; // model reasoning/thoughts extracted from response
 	interrupted?: boolean;
 	degraded?: boolean;
 	error?: string;
@@ -147,6 +150,7 @@ export class ChatView extends ItemView {
 
 	// Panel state
 	private sessionsPanelVisible = false;
+	private thinkingHidden = false;
 	private availablePacks: AgentPack[] = [];
 	private activePackError: string | null = null;
 	private readonly packExpandedStepId = new WeakMap<StoredPackTurnData, string | null>();
@@ -347,13 +351,17 @@ export class ChatView extends ItemView {
 		this.packHintEl.classList.toggle("is-hidden", !packMode);
 
 		if (activePack) {
+			const overrides = settings.packProviderOverrides[activePack.id] ?? {};
+			const effectiveModel = (providerName: string): string => {
+				return overrides[providerName]?.model?.trim() || activePack.providers[providerName]?.model || "n/a";
+			};
 			this.packSummaryEl.createEl("div", { cls: "open-agent-pack-name", text: activePack.name });
 			this.packSummaryEl.createEl("div", {
 				cls: "open-agent-pack-models",
 				text:
-					`Retriever — ${activePack.providers.retriever?.model ?? "n/a"}; ` +
-					`Synthesizer — ${activePack.providers.synthesizer?.model ?? "n/a"}; ` +
-					`Verifier — ${activePack.providers.verifier?.model ?? "n/a"}`,
+					`Retriever — ${effectiveModel("retriever")}; ` +
+					`Synthesizer — ${effectiveModel("synthesizer")}; ` +
+					`Verifier — ${effectiveModel("verifier")}`,
 			});
 		}
 
@@ -763,9 +771,14 @@ export class ChatView extends ItemView {
 				tools: this.deps.tools,
 				consent: this.deps.consent,
 			})) {
-				if (ev.kind === "text") {
+				if (ev.kind === "thinking_text") {
+					assistantTurn.thinkingContent = (assistantTurn.thinkingContent ?? "") + ev.text;
+					if (this.turns.includes(assistantTurn)) this.scheduleRender();
+					continue;
+				} else if (ev.kind === "text") {
 					if (ev.degraded) assistantTurn.degraded = true;
 					assistantTurn.thinking = false;
+					assistantTurn.thinkingLabel = undefined;
 					const lastSeg = assistantTurn.segments[assistantTurn.segments.length - 1];
 					if (lastSeg?.kind === "text") {
 						lastSeg.text += ev.text;
@@ -801,6 +814,7 @@ export class ChatView extends ItemView {
 					}
 					// Show thinking indicator while the model processes tool results.
 					assistantTurn.thinking = true;
+					assistantTurn.thinkingLabel = tc ? `Processing ${tc.name}…` : undefined;
 				} else if (ev.kind === "cap_hit") {
 					assistantTurn.capHit = true;
 				}
@@ -1120,7 +1134,37 @@ export class ChatView extends ItemView {
 				if (turn.packTurn) {
 					this.renderPackTurn(row, turn.packTurn);
 				} else if (turn.thinking) {
-					row.createEl("div", { cls: "open-agent-turn-thinking" });
+					const thinkingWrap = row.createDiv({ cls: "open-agent-turn-thinking-wrap" });
+					thinkingWrap.createEl("span", {
+						cls: "open-agent-turn-thinking-label",
+						text: turn.thinkingLabel ?? "Thinking…",
+					});
+					const dotsEl = thinkingWrap.createDiv({ cls: "open-agent-turn-thinking-dots" });
+					dotsEl.createEl("span", { cls: "open-agent-turn-thinking-dot" });
+					dotsEl.createEl("span", { cls: "open-agent-turn-thinking-dot" });
+					dotsEl.createEl("span", { cls: "open-agent-turn-thinking-dot" });
+				}
+				if (turn.thinkingContent) {
+					const thoughtsWrap = row.createDiv({ cls: "open-agent-turn-thoughts-wrap" });
+					const thoughtsToggle = thoughtsWrap.createEl("button", {
+						cls: "open-agent-turn-thoughts-toggle",
+						attr: { "aria-label": this.thinkingHidden ? "Show thoughts" : "Hide thoughts" },
+					});
+					thoughtsToggle.createEl("span", {
+						cls: "open-agent-turn-thinking-chevron",
+						text: this.thinkingHidden ? "▸" : "▾",
+					});
+					thoughtsToggle.createEl("span", { text: "Thoughts" });
+					thoughtsToggle.addEventListener("click", () => {
+						this.thinkingHidden = !this.thinkingHidden;
+						this.renderTranscript();
+					});
+					if (!this.thinkingHidden) {
+						thoughtsWrap.createEl("div", {
+							cls: "open-agent-turn-thoughts-content",
+							text: turn.thinkingContent,
+						});
+					}
 				}
 				if (!turn.packTurn) {
 					for (const seg of turn.segments) {
@@ -1620,7 +1664,7 @@ export class ChatView extends ItemView {
 			}
 		}
 
-		private async openCitationTarget(citation: NonNullable<StoredPackTurnData["citations"]>[number]): Promise<void> {
+		private async openCitationTarget(citation: ExactPhraseAnchor): Promise<void> {
 			const file = this.app.vault.getAbstractFileByPath(citation.notePath);
 			if (!(file instanceof TFile)) {
 				new Notice(`Not found: ${citation.notePath}`);
@@ -1684,7 +1728,11 @@ export class ChatView extends ItemView {
 			const meta = card.createDiv({ cls: "open-agent-claim-meta" });
 			const sourceBtn = meta.createEl("button", { text: "Open source note", cls: "open-agent-claim-open" });
 			sourceBtn.addEventListener("click", () => {
-				this.openStoredNote(claim.sourceNote);
+				if (claim.exactPhraseAnchor) {
+					void this.openCitationTarget(claim.exactPhraseAnchor);
+				} else {
+					this.openStoredNote(claim.sourceNote);
+				}
 			});
 			meta.createEl("span", { cls: "open-agent-claim-source", text: sourceNoteLabel(claim.sourceNote) });
 

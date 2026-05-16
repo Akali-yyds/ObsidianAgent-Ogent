@@ -23,6 +23,7 @@ export interface AssembledToolCall {
 
 export type StreamEvent =
 	| { kind: "text"; text: string; degraded?: boolean }
+	| { kind: "thinking_text"; text: string }
 	| { kind: "tool_call_assembled"; calls: AssembledToolCall[]; degraded?: boolean }
 	| { kind: "done"; finishReason: "stop" | "tool_calls" | "length" | "content_filter" | "unknown" };
 
@@ -111,6 +112,7 @@ export interface ConsentDecision {
 // Loop events
 export type LoopEvent =
 	| { kind: "text"; text: string; degraded?: boolean }
+	| { kind: "thinking_text"; text: string }
 	| { kind: "tool_call_started"; id: string; name: string; args: unknown; mutates: boolean }
 	| { kind: "consent_requested"; id: string; name: string }
 	| { kind: "tool_call_finished"; id: string; result: ToolResult }

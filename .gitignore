@@ -11,3 +11,4 @@ data.json
 hackathon/eval/results/*
 !hackathon/eval/results/.gitkeep
 .pi/
+hackathon/data/nobel_physics/.obsidian/

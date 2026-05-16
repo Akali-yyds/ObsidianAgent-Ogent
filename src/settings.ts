@@ -1,6 +1,9 @@
-import { App, PluginSettingTab, Setting } from "obsidian";
+import { App, PluginSettingTab, Setting, requestUrl } from "obsidian";
 import type OpenAgentPlugin from "./main";
 import { DEFAULT_CONSENT, type ConsentSettings } from "./consent/manager";
+import { loadPacks } from "./packs/loader";
+import type { AgentPack } from "./packs/types";
+import type { OpenAICompatibleConfig } from "./provider-config";
 import type { ConsentMode } from "./types";
 
 export type ProviderId = "openai-compatible";
@@ -12,6 +15,7 @@ export interface PluginSettings {
 	model: string;
 	systemPrompt: string;
 	consent: ConsentSettings;
+	packProviderOverrides: Record<string, Record<string, Partial<OpenAICompatibleConfig>>>;
 }
 
 export const DEFAULT_SETTINGS: PluginSettings = {
@@ -21,10 +25,36 @@ export const DEFAULT_SETTINGS: PluginSettings = {
 	model: "gpt-4o-mini",
 	systemPrompt: "",
 	consent: { ...DEFAULT_CONSENT },
+	packProviderOverrides: {},
 };
 
 export function isConfigured(s: PluginSettings): boolean {
 	return s.baseUrl.trim().length > 0 && s.apiKey.trim().length > 0 && s.model.trim().length > 0;
+}
+
+async function fetchModelList(baseUrl: string, apiKey: string): Promise<string[]> {
+	if (!baseUrl.trim()) return [];
+	try {
+		const base = baseUrl.replace(/\/$/, "");
+		const res = await requestUrl({
+			url: `${base}/models`,
+			method: "GET",
+			headers: { Authorization: `Bearer ${apiKey}` },
+			throw: false,
+		});
+		if (res.status >= 400) return [];
+		const parsed = JSON.parse(res.text) as unknown;
+		if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return [];
+		const data = (parsed as Record<string, unknown>).data;
+		if (!Array.isArray(data)) return [];
+		return (data as unknown[])
+			.filter((e): e is Record<string, unknown> => typeof e === "object" && e !== null && !Array.isArray(e))
+			.map((e) => e.id)
+			.filter((id): id is string => typeof id === "string" && id.length > 0)
+			.sort();
+	} catch {
+		return [];
+	}
 }
 
 export class OpenAgentSettingsTab extends PluginSettingTab {
@@ -91,18 +121,19 @@ export class OpenAgentSettingsTab extends PluginSettingTab {
 				txt.inputEl.autocomplete = "off";
 			});
 
-		new Setting(containerEl)
-			.setName("Model")
-			.setDesc("Model name as accepted by your endpoint.")
-			.addText((txt) =>
-				txt
-					.setPlaceholder("")
-					.setValue(this.plugin.settings.model)
-					.onChange(async (v) => {
-						this.plugin.settings.model = v.trim();
-						await this.plugin.saveSettings();
-					}),
-			);
+		const modelContainer = containerEl.createDiv();
+		this.renderModelSetting(
+			modelContainer,
+			"Model",
+			"Model name as accepted by your endpoint.",
+			() => this.plugin.settings.model,
+			async (v) => {
+				this.plugin.settings.model = v;
+				await this.plugin.saveSettings();
+			},
+			() => this.plugin.settings.baseUrl,
+			() => this.plugin.settings.apiKey,
+		);
 
 		new Setting(containerEl)
 			.setName("System prompt")
@@ -121,6 +152,179 @@ export class OpenAgentSettingsTab extends PluginSettingTab {
 
 		this.consentDropdown(containerEl, "Read tools", "vault_read");
 		this.consentDropdown(containerEl, "Write tools", "vault_write");
+
+		new Setting(containerEl).setName("Pack models").setHeading();
+
+		const packSectionEl = containerEl.createDiv();
+		const loadingEl = packSectionEl.createEl("p", { text: "Loading packs…", cls: "open-agent-notice" });
+
+		void loadPacks(this.app, this.plugin.manifest.dir).then((packs) => {
+			loadingEl.remove();
+			this.renderPackProviderOverrides(packSectionEl, packs);
+		});
+	}
+
+	private renderPackProviderOverrides(containerEl: HTMLElement, packs: AgentPack[]): void {
+		if (packs.length === 0) {
+			containerEl.createEl("p", { text: "No packs installed.", cls: "open-agent-notice" });
+			return;
+		}
+		for (const pack of packs) {
+			containerEl.createEl("strong", { text: pack.name });
+			for (const providerName of Object.keys(pack.providers)) {
+				const jsonConfig = pack.providers[providerName];
+				const label = providerName.charAt(0).toUpperCase() + providerName.slice(1);
+
+				new Setting(containerEl)
+					.setName(`${label} — Base URL`)
+					.setDesc(`Default: ${jsonConfig?.baseUrl ?? ""}`)
+					.addText((txt) =>
+						txt
+							.setPlaceholder(jsonConfig?.baseUrl ?? "")
+							.setValue(this.plugin.settings.packProviderOverrides[pack.id]?.[providerName]?.baseUrl ?? "")
+							.onChange(async (v) => {
+								this.savePackProviderField(pack.id, providerName, "baseUrl", v.trim());
+								await this.plugin.saveSettings();
+							}),
+					);
+
+				new Setting(containerEl)
+					.setName(`${label} — API key`)
+					.setDesc("Leave blank to use the value from the pack config file.")
+					.addText((txt) => {
+						txt
+							.setPlaceholder("")
+							.setValue(this.plugin.settings.packProviderOverrides[pack.id]?.[providerName]?.apiKey ?? "")
+							.onChange(async (v) => {
+								this.savePackProviderField(pack.id, providerName, "apiKey", v);
+								await this.plugin.saveSettings();
+							});
+						txt.inputEl.type = "password";
+						txt.inputEl.autocomplete = "off";
+					});
+
+				const packModelContainer = containerEl.createDiv();
+				this.renderModelSetting(
+					packModelContainer,
+					`${label} — Model`,
+					`Default: ${jsonConfig?.model ?? ""}`,
+					() => this.plugin.settings.packProviderOverrides[pack.id]?.[providerName]?.model ?? "",
+					async (v) => {
+						this.savePackProviderField(pack.id, providerName, "model", v);
+						await this.plugin.saveSettings();
+					},
+					() =>
+						this.plugin.settings.packProviderOverrides[pack.id]?.[providerName]?.baseUrl ??
+						jsonConfig?.baseUrl ??
+						"",
+					() =>
+						this.plugin.settings.packProviderOverrides[pack.id]?.[providerName]?.apiKey ??
+						jsonConfig?.apiKey ??
+						"",
+				);
+			}
+		}
+	}
+
+	private savePackProviderField(
+		packId: string,
+		providerName: string,
+		field: keyof OpenAICompatibleConfig,
+		value: string,
+	): void {
+		if (!this.plugin.settings.packProviderOverrides[packId]) {
+			this.plugin.settings.packProviderOverrides[packId] = {};
+		}
+		if (!this.plugin.settings.packProviderOverrides[packId][providerName]) {
+			this.plugin.settings.packProviderOverrides[packId][providerName] = {};
+		}
+		if (value) {
+			this.plugin.settings.packProviderOverrides[packId][providerName][field] = value;
+		} else {
+			delete this.plugin.settings.packProviderOverrides[packId][providerName][field];
+		}
+	}
+
+	private renderModelSetting(
+		container: HTMLElement,
+		name: string,
+		desc: string,
+		getValue: () => string,
+		onSave: (v: string) => Promise<void>,
+		getBaseUrl: () => string,
+		getApiKey: () => string,
+	): void {
+		container.empty();
+		const saved = getValue();
+
+		if (!getBaseUrl().trim()) {
+			new Setting(container)
+				.setName(name)
+				.setDesc(desc)
+				.addText((txt) =>
+					txt
+						.setPlaceholder("")
+						.setValue(saved)
+						.onChange(async (v) => {
+							await onSave(v.trim());
+						}),
+				);
+			return;
+		}
+
+		let selectEl: HTMLSelectElement | null = null;
+
+		new Setting(container)
+			.setName(name)
+			.setDesc(desc)
+			.addDropdown((drop) => {
+				selectEl = drop.selectEl;
+				drop.addOption(saved, saved);
+				drop.setValue(saved);
+				drop.onChange(async (v) => {
+					await onSave(v);
+				});
+			})
+			.addButton((btn) => {
+				btn.setButtonText("Fetch models").onClick(async () => {
+					btn.setButtonText("Fetching…").setDisabled(true);
+					const models = await fetchModelList(getBaseUrl(), getApiKey());
+
+					if (models.length === 0) {
+						container.empty();
+						new Setting(container)
+							.setName(name)
+							.setDesc(desc)
+							.addText((txt) =>
+								txt
+									.setPlaceholder("")
+									.setValue(getValue())
+									.onChange(async (v) => {
+										await onSave(v.trim());
+									}),
+							);
+						container.createEl("p", {
+							text: "Could not fetch models — check URL and API key.",
+							cls: "open-agent-notice",
+						});
+						return;
+					}
+
+					btn.setButtonText("Fetch models").setDisabled(false);
+					if (selectEl) {
+						const current = getValue();
+						while (selectEl.options.length > 0) selectEl.remove(0);
+						const allModels =
+							current && !models.includes(current) ? [current, ...models] : models;
+						for (const m of allModels) {
+							selectEl.add(new Option(m, m));
+						}
+						const toSelect = current && allModels.includes(current) ? current : (allModels[0] ?? "");
+						selectEl.value = toSelect;
+						await onSave(toSelect);
+					}
+				});
+			});
 	}
 
 	private consentDropdown(parent: HTMLElement, label: string, key: keyof ConsentSettings): void {

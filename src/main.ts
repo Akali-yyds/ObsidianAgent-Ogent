@@ -199,6 +199,7 @@ export default class OpenAgentPlugin extends Plugin {
 			activeFilePath: this.app.workspace.getActiveFile()?.path,
 			signal,
 			onEvent,
+			providerOverrides: this.settings.packProviderOverrides[pack.id],
 		});
 	}
 }

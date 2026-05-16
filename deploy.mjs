@@ -2,12 +2,12 @@ import { copyFileSync, mkdirSync, readFileSync, existsSync } from "fs";
 import { join } from "path";
 
 function getVaultPath() {
+	const env = process.env.OBSIDIAN_VAULT;
+	if (env) return env.trim();
 	const localFile = new URL(".vault-path", import.meta.url).pathname;
 	if (existsSync(localFile)) {
 		return readFileSync(localFile, "utf8").trim();
 	}
-	const env = process.env.OBSIDIAN_VAULT;
-	if (env) return env.trim();
 	console.error(
 		"Error: vault path not configured.\n" +
 		"Either create a .vault-path file with the path to your Obsidian vault root,\n" +

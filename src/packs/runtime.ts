@@ -151,6 +151,7 @@ interface PackRunOptions {
 	onEvent?: (event: PackRuntimeEvent) => void | Promise<void>;
 	verifierEnabled?: boolean;
 	providerFactory?: (config: OpenAICompatibleConfig, agentId: string, pack: AgentPack) => ModelProvider;
+	providerOverrides?: Record<string, Partial<OpenAICompatibleConfig>>;
 }
 
 interface GroundedResearchContext {
@@ -184,7 +185,7 @@ export async function runPack(opts: PackRunOptions): Promise<PackRunResult> {
 }
 
 export async function runPackForEval(opts: PackRunOptions): Promise<PackRunResult> {
-	const prepared = await preparePackExecution(opts.pack, opts.providerFactory);
+	const prepared = await preparePackExecution(opts.pack, opts.providerFactory, opts.providerOverrides);
 	const vault = resolveVault(opts);
 	const verifierEnabled = opts.verifierEnabled ?? true;
 	const { retrieverStep, synthesizerStep, verifierStep, modelsUsed } = prepared;
@@ -392,8 +393,9 @@ export async function runPackForEval(opts: PackRunOptions): Promise<PackRunResul
 export async function preparePackExecution(
 	pack: AgentPack,
 	providerFactory?: (config: OpenAICompatibleConfig, agentId: string, pack: AgentPack) => ModelProvider,
+	providerOverrides?: Record<string, Partial<OpenAICompatibleConfig>>,
 ): Promise<PreparedPackExecution> {
-	const providers = await buildProviders(pack, providerFactory);
+	const providers = await buildProviders(pack, providerOverrides, providerFactory);
 	const retrieverStep = pack.steps.find((step) => step.id === "retriever");
 	const synthesizerStep = pack.steps.find((step) => step.id === "synthesizer");
 	const verifierStep = pack.steps.find((step) => step.id === "verifier");
@@ -481,6 +483,7 @@ export async function runPackVerificationStep(
 
 async function buildProviders(
 	pack: AgentPack,
+	providerOverrides: Record<string, Partial<OpenAICompatibleConfig>> | undefined,
 	providerFactory?: (config: OpenAICompatibleConfig, agentId: string, pack: AgentPack) => ModelProvider,
 ): Promise<Record<string, { config: { model: string }; provider: ModelProvider }>> {
 	const byAgent: Record<string, { config: { model: string }; provider: ModelProvider }> = {};
@@ -494,17 +497,23 @@ async function buildProviders(
 		if (!providerConfig) {
 			throw new PackConfigError(`Pack ${pack.id} is missing provider ${agent.provider} for agent ${agentId}`);
 		}
-		if (!providerConfig.baseUrl.trim() || !providerConfig.apiKey.trim() || !providerConfig.model.trim()) {
+		const overrides = providerOverrides?.[agent.provider];
+		const effectiveConfig: OpenAICompatibleConfig = {
+			baseUrl: overrides?.baseUrl?.trim() || providerConfig.baseUrl,
+			apiKey: overrides?.apiKey || providerConfig.apiKey,
+			model: overrides?.model?.trim() || providerConfig.model,
+		};
+		if (!effectiveConfig.baseUrl.trim() || !effectiveConfig.apiKey.trim() || !effectiveConfig.model.trim()) {
 			throw new PackConfigError(`Pack ${pack.id} provider ${agent.provider} must declare baseUrl, apiKey, and model`);
 		}
-		if (isPlaceholderApiKey(providerConfig.apiKey)) {
+		if (isPlaceholderApiKey(effectiveConfig.apiKey)) {
 			throw new PackConfigError(
 				`Pack ${pack.id} provider ${agent.provider} still uses the placeholder API key "replace-me"`,
 			);
 		}
 		byAgent[agentId] = {
-			config: { model: providerConfig.model },
-			provider: resolvedProviderFactory(providerConfig, agentId, pack),
+			config: { model: effectiveConfig.model },
+			provider: resolvedProviderFactory(effectiveConfig, agentId, pack),
 		};
 	}
 	return byAgent;

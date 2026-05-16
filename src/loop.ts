@@ -11,9 +11,18 @@ export interface RunTurnOptions {
 	maxSteps?: number;
 }
 
+const BASE_SYSTEM_PROMPT = `You are a helpful assistant with access to tools for searching and managing an Obsidian vault.
+
+When you use a tool, always follow up with a natural language response explaining what you found — even if the result is empty or an error.
+
+When a search returns no results:
+- Try alternative search terms or strategies (e.g. different keywords, broader queries)
+- After exhausting reasonable alternatives, clearly tell the user nothing was found`;
+
 const classicAgent = new Agent({
 	id: "classic",
 	name: "Classic",
+	systemPrompt: BASE_SYSTEM_PROMPT,
 });
 
 export async function* runTurn(

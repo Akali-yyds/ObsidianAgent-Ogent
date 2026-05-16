@@ -57,8 +57,9 @@ async function* executeAgentLoop(
 	opts: ExecuteAgentLoopOptions,
 ): AsyncIterable<AgentEvent> {
 	const messages: ChatMessage[] = [];
-	const systemPrompt = opts.systemPrompt ?? definition.systemPrompt;
-	if (systemPrompt && systemPrompt.trim().length > 0) {
+	const parts = [definition.systemPrompt, opts.systemPrompt].filter((p) => p && p.trim().length > 0);
+	const systemPrompt = parts.join("\n\n");
+	if (systemPrompt.length > 0) {
 		messages.push({ role: "system", content: systemPrompt });
 	}
 	messages.push(...opts.messages);
@@ -80,12 +81,18 @@ async function* executeAgentLoop(
 			if (ev.kind === "text") {
 				assistantText += ev.text;
 				yield { kind: "text", text: ev.text, degraded: ev.degraded };
+			} else if (ev.kind === "thinking_text") {
+				yield { kind: "thinking_text", text: ev.text };
 			} else if (ev.kind === "tool_call_assembled") {
 				assembled.push(...ev.calls);
 			}
 		}
 
 		if (assembled.length === 0) {
+			// If we processed tool results but the model returned nothing, emit a fallback.
+			if (step > 0 && assistantText.trim() === "") {
+				yield { kind: "text", text: "*(No response from the model after tool use.)*", degraded: true };
+			}
 			yield { kind: "done" };
 			return;
 		}

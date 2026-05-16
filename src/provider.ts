@@ -64,7 +64,11 @@ export class OpenAICompatibleProvider implements ModelProvider {
 		const choice = parseChatCompletionChoice(responseText);
 		if (!choice) throw new ProviderError("Malformed response from completion endpoint");
 
-		const text = extractMessageText(choice.message?.content);
+		const rawText = extractMessageText(choice.message?.content);
+		const { text, thinking } = extractThinking(choice.message?.reasoning_content, rawText);
+		if (thinking.length > 0) {
+			yield { kind: "thinking_text", text: thinking };
+		}
 		if (text.length > 0) {
 			yield { kind: "text", text, degraded: degraded || undefined };
 		}
@@ -163,7 +167,7 @@ function shouldRetryWithoutResponseFormat(status: number, text: string): boolean
 }
 
 function parseChatCompletionChoice(responseText: string): {
-	message?: { content?: unknown; tool_calls?: unknown };
+	message?: { content?: unknown; tool_calls?: unknown; reasoning_content?: unknown };
 	finish_reason?: string | null;
 } | null {
 	const parsed = parseJsonResponse(responseText);
@@ -172,13 +176,48 @@ function parseChatCompletionChoice(responseText: string): {
 	if (!isRecord(choice)) return null;
 	return {
 		message: isRecord(choice.message)
-			? { content: choice.message.content, tool_calls: choice.message.tool_calls }
+			? {
+				content: choice.message.content,
+				tool_calls: choice.message.tool_calls,
+				reasoning_content: choice.message.reasoning_content,
+			}
 			: undefined,
 		finish_reason:
 			typeof choice.finish_reason === "string" || choice.finish_reason === null
 				? choice.finish_reason
 				: undefined,
 	};
+}
+
+// EOS tokens that some local/open-source models leak into their output
+const EOS_TOKENS = ["<|endoftext|>", "<|eot_id|>", "<|im_end|>", "<eos>", "</s>"];
+
+function stripEosTokens(text: string): string {
+	let result = text;
+	for (const token of EOS_TOKENS) {
+		result = result.replaceAll(token, "");
+	}
+	return result.trim();
+}
+
+function extractThinking(
+	reasoningContent: unknown,
+	rawText: string,
+): { text: string; thinking: string } {
+	// Prefer an explicit reasoning_content field (DeepSeek-R1, etc.)
+	if (typeof reasoningContent === "string" && reasoningContent.trim().length > 0) {
+		return { text: stripEosTokens(rawText), thinking: reasoningContent.trim() };
+	}
+
+	// Fall back to stripping <think>...</think> from the text content
+	const thinkMatch = rawText.match(/^<think>([\s\S]*?)<\/think>\s*/);
+	if (thinkMatch) {
+		const thinking = thinkMatch[1].trim();
+		const remainder = rawText.slice(thinkMatch[0].length);
+		return { text: stripEosTokens(remainder), thinking };
+	}
+
+	return { text: stripEosTokens(rawText), thinking: "" };
 }
 
 function parseCompletionToolCalls(value: unknown): AssembledToolCall[] {
