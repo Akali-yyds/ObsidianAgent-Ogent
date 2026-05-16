@@ -93,22 +93,9 @@ Notes:
 - Live mode writes the same timestamped JSON plus markdown reports under `hackathon/eval/results/`.
 - `hackathon/RESULTS.md` contains the consolidated project outcomes and the strongest application-ready summary.
 
-### Latest local metrics
+### Latest live Nobel full-run artifact — headline result
 
-The latest run against the committed 20-query corpus produced:
-
-| Metric | Value |
-| --- | ---: |
-| Baseline hallucination rate | 37.0% |
-| Verified hallucination rate | 0.0% |
-| Improvement (baseline - verified) | 37.0 percentage points |
-| Total claims | 27 |
-| Total flagged claims | 10 |
-| Claim buckets | 17 verified / 6 unsupported / 4 quote-missing |
-
-The fixture set is balanced across 5 single-fact, 5 multi-note, 4 conflict, 3 no-support, and 3 adversarial queries.
-
-### Latest live Nobel full-run artifact
+The live benchmark is the only eval here that runs real Gemma 4 inference end-to-end. It is the result the public submissions reference.
 
 The latest full 24-query live-corpus run is:
 
@@ -124,7 +111,21 @@ The latest full 24-query live-corpus run is:
 | Total flagged claims | 7 |
 | Claim buckets | 41 verified / 0 unsupported / 7 quote-missing |
 
-This run reflects the post-hackathon rerun with no code changes. It is the best full-corpus snapshot available.
+The 7.8-point delta is a conservative lower bound — the benchmark scores quote wording strictly, so factually correct claims with slightly different phrasing still count as flagged.
+
+### Fixture harness — pipeline correctness check (mocked providers)
+
+The fixture eval runs against the committed 20-query corpus but with mocked providers throughout: the synthesizer returns canned claims from `queries.json`, and the verifier returns decisions looked up from ground-truth labels. This is **not** a model-performance result — it exists to confirm the pipeline routes claims correctly when the verifier is right.
+
+| Metric | Value |
+| --- | ---: |
+| Baseline flagged-claim rate | 37.0% |
+| Escaped-hallucination rate (with mocked verifier) | 0.0% |
+| Total claims | 27 |
+| Total flagged claims | 10 |
+| Claim buckets | 17 verified / 6 unsupported / 4 quote-missing |
+
+The fixture set is balanced across 5 single-fact, 5 multi-note, 4 conflict, 3 no-support, and 3 adversarial queries.
 
 ### Latest live Nobel quick-run artifact
 

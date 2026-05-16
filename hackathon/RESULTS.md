@@ -2,7 +2,7 @@
 
 ## Project
 
-OpenAgent for Obsidian now has a grounded-research mode that answers from vault notes through a retriever -> synthesizer -> verifier pipeline instead of relying on a single ungrounded response. The goal was to keep classic chat unchanged, add a higher-trust research path, and prove it with both deterministic fixture evals and a real Nobel Physics corpus.
+OpenAgent for Obsidian now has a grounded-research mode that answers from vault notes through a retriever -> synthesizer -> verifier pipeline instead of relying on a single ungrounded response. The goal was to keep classic chat unchanged, add a higher-trust local-only research path for users who can't put their notes in the cloud, and prove it with a real-corpus live benchmark. A deterministic fixture harness is kept alongside as a pipeline-correctness check.
 
 ## What shipped
 
@@ -17,28 +17,9 @@ OpenAgent for Obsidian now has a grounded-research mode that answers from vault 
 
 ## Final evaluation snapshot
 
-### Fixture regression — headline result
+### Live Nobel benchmark — headline result
 
-The fixture harness uses a deterministic, mock-provider eval against a committed vault. The verifier decisions come from ground-truth labels so the result is reproducible across runs.
-
-Artifacts:
-
-- `hackathon/eval/results/fixture-2026-05-15T11-41-05-085Z.json`
-- `hackathon/eval/results/fixture-2026-05-15T11-41-05-085Z.md`
-
-| Metric | Value |
-| --- | ---: |
-| Baseline hallucination rate | 37.0% |
-| Verified hallucination rate | 0.0% |
-| **Improvement** | **37.0 percentage points** |
-| Total claims | 27 |
-| Total flagged claims | 10 |
-
-The 37-point improvement is the core result: the grounded pipeline eliminates verified hallucinations on a deterministic corpus where all claims have known ground-truth labels.
-
-### Live Nobel benchmark — real-corpus spot check
-
-The live harness runs against actual vault notes with real model outputs. Results have run-to-run model variance because local Gemma 4 models are used without temperature=0 guarantees.
+The live harness runs against actual vault notes with real Gemma 4 model outputs. This is the only eval here that measures real model performance, and it is the result the submissions reference.
 
 Artifacts:
 
@@ -50,12 +31,30 @@ Artifacts:
 | Queries | 24 |
 | Baseline hallucination rate | 54.2% |
 | Verified hallucination rate | 46.3% |
-| Improvement | 7.8 percentage points |
+| **Improvement** | **7.8 percentage points** |
 | Total claims | 48 |
 | Total flagged claims | 7 |
 | Claim buckets | 41 verified / 0 unsupported / 7 quote-missing |
 
-**Note on live numbers:** The benchmark's `expectedClaims` entries use slightly different quote wordings than what the live models produce. The claim-match logic flags these as unsupported even when the claim text is factually correct and the quote is present in the note. This inflates the live escaped-hallucination count. The 7.8-point delta is a lower bound on actual improvement.
+**Note on live numbers:** The benchmark's `expectedClaims` entries use slightly different quote wordings than what the live models produce. The claim-match logic flags these as unsupported even when the claim text is factually correct and the quote is present in the note. This inflates the live escaped-hallucination count. The 7.8-point delta is a conservative lower bound on actual improvement. Run-to-run variance is also real because local models are not forced to temperature=0.
+
+### Pipeline correctness check — mocked-provider fixture
+
+This is *not* a model-performance result. The fixture harness uses mocked providers throughout: the synthesizer returns canned `mockClaims` from `queries.json`, and the verifier returns decisions looked up from ground-truth `expectedSupport` labels. It exists to prove the pipeline routes claims correctly when the verifier is right — not to measure how often a real model is right.
+
+Artifacts:
+
+- `hackathon/eval/results/fixture-2026-05-15T11-41-05-085Z.json`
+- `hackathon/eval/results/fixture-2026-05-15T11-41-05-085Z.md`
+
+| Metric | Value |
+| --- | ---: |
+| Baseline flagged-claim rate | 37.0% |
+| Escaped-hallucination rate (with mocked verifier) | 0.0% |
+| Total claims | 27 |
+| Total flagged claims | 10 |
+
+What this confirms: when the verifier correctly labels an unsupported claim, the pipeline filters it out; the routing logic, the bucket counting, and the `verifierEnabled` toggle all behave as intended.
 
 ## Live benchmark improvement trail
 
@@ -82,7 +81,7 @@ Artifacts:
 
 ## Application-ready summary
 
-Built a grounded-research mode for an Obsidian AI plugin aimed at users who cannot paste their notes into a cloud LLM — lawyers, doctors, researchers, anyone working with sensitive material. Every step runs locally, and every claim it surfaces is verified against the cited note text before reaching the user. The system coordinates three Gemma 4 sizes through a single local MLX endpoint: E4B for retrieval, 31B Dense for synthesis, 26B A4B for verification — three model jobs over the same vault with nothing leaving the machine. A live end-to-end eval over a 24-query Nobel Physics corpus shows a 7.8-point hallucination-rate improvement (54.2% → 46.3%, conservative lower bound due to strict benchmark quote-matching), with the verifier correctly handling failure-prone cases like the unsupported Rutherford trap and grounding queries such as Bardeen-twice, youngest Bragg, Chadwick's neutron discovery, and the first Physics Nobel to Röntgen on the expected notes.
+Built a grounded-research mode for an Obsidian AI plugin aimed at users who cannot paste their notes into a cloud LLM — lawyers, doctors, researchers, anyone working with sensitive material. Every step runs locally, and every claim it surfaces is verified against the cited note text before reaching the user. The system coordinates three Gemma 4 sizes through a single local MLX endpoint: E4B for retrieval, 31B Dense for synthesis, 26B A4B for verification — three model jobs over the same vault with nothing leaving the machine. A live end-to-end eval over a 24-query Nobel Physics corpus shows a 7.8-point hallucination-rate improvement (54.2% → 46.3%, conservative lower bound due to strict benchmark quote-matching), with the verifier correctly handling failure-prone cases like the unsupported Rutherford trap and grounding queries such as Bardeen-twice, youngest Bragg, Chadwick's neutron discovery, and the first Physics Nobel to Rontgen on the expected notes.
 
 ## Submission notes
 
