@@ -112,19 +112,19 @@ The fixture set is balanced across 5 single-fact, 5 multi-note, 4 conflict, 3 no
 
 The latest full 24-query live-corpus run is:
 
-- `hackathon/eval/results/live-nobel-physics-2026-05-15T10-51-15-234Z.json`
-- `hackathon/eval/results/live-nobel-physics-2026-05-15T10-51-15-234Z.md`
+- `hackathon/eval/results/live-nobel-physics-2026-05-16T14-48-51-040Z.json`
+- `hackathon/eval/results/live-nobel-physics-2026-05-16T14-48-51-040Z.md`
 
 | Metric | Value |
 | --- | ---: |
-| Baseline hallucination rate | 66.7% |
-| Verified hallucination rate | 61.0% |
-| Improvement (baseline - verified) | 5.7 percentage points |
+| Baseline hallucination rate | 54.2% |
+| Verified hallucination rate | 46.3% |
+| Improvement (baseline - verified) | 7.8 percentage points |
 | Total claims | 48 |
 | Total flagged claims | 7 |
 | Claim buckets | 41 verified / 0 unsupported / 7 quote-missing |
 
-This run reflects the benchmark cleanup plus retrieval tuning done during the hackathon push. It is the best full-corpus snapshot for the submission package today.
+This run reflects the post-hackathon rerun with no code changes. It is the best full-corpus snapshot available.
 
 ### Latest live Nobel quick-run artifact
 

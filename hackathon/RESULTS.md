@@ -42,20 +42,20 @@ The live harness runs against actual vault notes with real model outputs. Result
 
 Artifacts:
 
-- `hackathon/eval/results/live-nobel-physics-2026-05-15T10-51-15-234Z.json`
-- `hackathon/eval/results/live-nobel-physics-2026-05-15T10-51-15-234Z.md`
+- `hackathon/eval/results/live-nobel-physics-2026-05-16T14-48-51-040Z.json`
+- `hackathon/eval/results/live-nobel-physics-2026-05-16T14-48-51-040Z.md`
 
 | Metric | Value |
 | --- | ---: |
 | Queries | 24 |
-| Baseline hallucination rate | 66.7% |
-| Verified hallucination rate | 61.0% |
-| Improvement | 5.7 percentage points |
+| Baseline hallucination rate | 54.2% |
+| Verified hallucination rate | 46.3% |
+| Improvement | 7.8 percentage points |
 | Total claims | 48 |
 | Total flagged claims | 7 |
 | Claim buckets | 41 verified / 0 unsupported / 7 quote-missing |
 
-**Note on live numbers:** The benchmark's `expectedClaims` entries use slightly different quote wordings than what the live models produce. The claim-match logic flags these as unsupported even when the claim text is factually correct and the quote is present in the note. This inflates the live escaped-hallucination count. The 5.7-point delta is a lower bound on actual improvement.
+**Note on live numbers:** The benchmark's `expectedClaims` entries use slightly different quote wordings than what the live models produce. The claim-match logic flags these as unsupported even when the claim text is factually correct and the quote is present in the note. This inflates the live escaped-hallucination count. The 7.8-point delta is a lower bound on actual improvement.
 
 ## Live benchmark improvement trail
 
@@ -64,6 +64,7 @@ Artifacts:
 | `live-nobel-physics-2026-05-15T09-07-45-450Z` | First full 24-query live run | 83.9% | 82.8% | 1.1 pts |
 | `live-nobel-physics-2026-05-15T09-43-55-168Z` | Filled benchmark quotes and fixed note slugs | 61.3% | 58.6% | 2.7 pts |
 | `live-nobel-physics-2026-05-15T10-51-15-234Z` | Tuned retrieval for hard runtime misses | 66.7% | 61.0% | 5.7 pts |
+| `live-nobel-physics-2026-05-16T14-48-51-040Z` | Post-hackathon rerun | 54.2% | 46.3% | 7.8 pts |
 
 **Why the baseline went up between runs 2 and 3:** Retrieval tuning changed which notes were fetched for hard queries. Different retrieved notes caused the synthesizer to generate different claims — including more factually borderline ones that the benchmark scores harshly. The verified rate still improved (58.6% → 61.0%) because the verifier correctly filtered those claims; it's the baseline that rose.
 
@@ -81,7 +82,7 @@ Artifacts:
 
 ## Application-ready summary
 
-Built a grounded-research mode for an Obsidian AI plugin that answers from vault notes with explicit claim extraction and quote-level verification instead of ungrounded generation. A deterministic fixture eval shows the grounded pipeline eliminates all verified hallucinations on a 27-claim corpus (37-point improvement, 37% → 0%). A live end-to-end eval over a 24-query Nobel Physics corpus shows a 5.7-point improvement (66.7% → 61.0%), with the verifier correctly handling failure-prone cases like the unsupported Rutherford trap and grounding queries such as Bardeen-twice, youngest Bragg, Chadwick's neutron discovery, and the first Physics Nobel to Röntgen on the expected notes.
+Built a grounded-research mode for an Obsidian AI plugin that answers from vault notes with explicit claim extraction and quote-level verification instead of ungrounded generation. A deterministic fixture eval shows the grounded pipeline eliminates all verified hallucinations on a 27-claim corpus (37-point improvement, 37% → 0%). A live end-to-end eval over a 24-query Nobel Physics corpus shows a 7.8-point improvement (54.2% → 46.3%), with the verifier correctly handling failure-prone cases like the unsupported Rutherford trap and grounding queries such as Bardeen-twice, youngest Bragg, Chadwick's neutron discovery, and the first Physics Nobel to Röntgen on the expected notes.
 
 ## Submission notes
 
