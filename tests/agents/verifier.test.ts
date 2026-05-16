@@ -175,6 +175,35 @@ describe("verifyClaims", () => {
 		]);
 	});
 
+	it("sends an excerpt centered on the quote when the quote appears after 2000 chars", async () => {
+		const padding = "x".repeat(2500);
+		const noteBody = `${padding}The decisive phrase is here.`;
+		runStructuredStepMock.mockResolvedValueOnce({
+			ok: true,
+			attempts: 1,
+			rawText: '{"decisions":[{"claim_id":"c1","supports_claim":true,"explanation":"Found it"}]}',
+			value: { decisions: [{ claim_id: "c1", supports_claim: true, explanation: "Found it" }] },
+		});
+
+		await verifyClaims({
+			vault: createVault({ "notes/a.md": noteBody }),
+			claims: {
+				summary: "S",
+				claims: [{ id: "c1", text: "Decisive phrase", source_note: "notes/a.md", source_quote: "The decisive phrase is here." }],
+			},
+			agent,
+			provider,
+		});
+
+		const calledContent = runStructuredStepMock.mock.calls[0]?.[0]?.messages[0]?.content as string;
+		// Excerpt should contain the quote (centered window found it)
+		expect(calledContent).toContain("The decisive phrase is here.");
+		// Excerpt should contain some x-padding just before the quote (proving it's centered, not head-sliced)
+		// If head-sliced, excerpt would be chars 0-2000 = all x's with no quote
+		// If centered, excerpt is roughly chars 1500-3500 = some x's + the quote
+		expect(calledContent).toContain("x".repeat(100) + "The decisive phrase is here.");
+	});
+
 	it("keeps fuzzy-only matches quote-present but anchorless", async () => {
 		runStructuredStepMock.mockResolvedValueOnce({
 			ok: true,

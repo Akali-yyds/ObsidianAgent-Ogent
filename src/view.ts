@@ -127,8 +127,7 @@ export class ChatView extends ItemView {
 	private sessionsPanelEl!: HTMLElement;
 	private sessionsListEl!: HTMLElement;
 	private sessionsSearchEl!: HTMLInputElement;
-	private modelInputEl!: HTMLInputElement;
-	private modelDatalistEl!: HTMLElement;
+	private modelInputEl!: HTMLSelectElement;
 	private modeSelectEl!: HTMLSelectElement;
 	private packSummaryEl!: HTMLElement;
 	private packHintEl!: HTMLElement;
@@ -302,17 +301,8 @@ export class ChatView extends ItemView {
 		const modelBar = header.createDiv({ cls: "open-agent-model-bar" });
 		modelBar.createEl("span", { text: "Model:", cls: "open-agent-model-label" });
 
-		const datalistId = "open-agent-model-list";
-		this.modelInputEl = modelBar.createEl("input", {
-			cls: "open-agent-model-input",
-			attr: { type: "text", list: datalistId },
-		});
+		this.modelInputEl = modelBar.createEl("select", { cls: "open-agent-model-input" });
 		this.modelInputEl.addEventListener("change", () => { void this.handleModelChange(); });
-		this.modelInputEl.addEventListener("keydown", (e) => {
-			if (e.key === "Enter") this.modelInputEl.blur();
-		});
-
-		this.modelDatalistEl = modelBar.createEl("datalist", { attr: { id: datalistId } });
 		this.packSummaryEl = header.createDiv({ cls: "open-agent-pack-summary" });
 		this.packHintEl = header.createDiv({ cls: "open-agent-pack-hint", text: "Applies to future turns in this chat." });
 		this.packRecoveryEl = header.createDiv({ cls: "open-agent-pack-recovery" });
@@ -326,7 +316,11 @@ export class ChatView extends ItemView {
 		const active = this.deps.sessionStore.getActive();
 		const settings = this.deps.getSettings();
 		this.sessionTitleEl.setText(active.title);
-		this.modelInputEl.value = active.lastClassicModel?.trim().length ? active.lastClassicModel : (active.model.trim().length > 0 ? active.model : settings.model);
+		const currentModel = active.lastClassicModel?.trim() || active.model.trim() || settings.model;
+		if (currentModel && !Array.from(this.modelInputEl.options).some((o) => o.value === currentModel)) {
+			this.modelInputEl.add(new Option(currentModel, currentModel), 0);
+		}
+		this.modelInputEl.value = currentModel;
 
 		this.modeSelectEl.empty();
 		this.modeSelectEl.createEl("option", { value: "", text: "Classic" });
@@ -574,10 +568,14 @@ export class ChatView extends ItemView {
 			model: settings.model,
 		});
 		const models = await provider.listModels();
-		this.modelDatalistEl.empty();
-		for (const m of models) {
-			this.modelDatalistEl.createEl("option", { attr: { value: m } });
+		if (models.length === 0) return;
+		const current = this.modelInputEl.value;
+		while (this.modelInputEl.options.length > 0) this.modelInputEl.remove(0);
+		const allModels = current && !models.includes(current) ? [current, ...models] : models;
+		for (const m of allModels) {
+			this.modelInputEl.add(new Option(m, m));
 		}
+		this.modelInputEl.value = current || allModels[0] || "";
 	}
 
 	// ─── Render debounce ─────────────────────────────────────────────────────

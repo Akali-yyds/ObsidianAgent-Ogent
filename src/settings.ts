@@ -279,10 +279,15 @@ export class OpenAgentSettingsTab extends PluginSettingTab {
 			.setDesc(desc)
 			.addDropdown((drop) => {
 				selectEl = drop.selectEl;
-				drop.addOption(saved, saved);
-				drop.setValue(saved);
+				if (saved) {
+					drop.addOption(saved, saved);
+					drop.setValue(saved);
+				} else {
+					drop.addOption("", "— click Fetch to select —");
+					drop.setValue("");
+				}
 				drop.onChange(async (v) => {
-					await onSave(v);
+					if (v) await onSave(v);
 				});
 			})
 			.addButton((btn) => {

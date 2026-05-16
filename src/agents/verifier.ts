@@ -66,6 +66,17 @@ const verifierDecisionSchema: StructuredOutputSchema<{
 	},
 };
 
+function excerptAroundOffset(body: string, resolution: ReturnType<typeof resolveQuoteMatch>, windowSize: number): string {
+	if (resolution.kind !== "exact") return body.slice(0, windowSize);
+	const center = Math.floor((resolution.startOffset + resolution.endOffset) / 2);
+	const half = Math.floor(windowSize / 2);
+	const start = Math.min(
+		Math.max(0, center - half),
+		Math.max(0, body.length - windowSize),
+	);
+	return body.slice(start, start + windowSize);
+}
+
 export async function verifyClaims(opts: VerifyClaimsOptions): Promise<ClaimVerification[]> {
 	const verifications = new Array<ClaimVerification | null>(opts.claims.claims.length).fill(null);
 	const pendingClaims: Array<{
@@ -132,11 +143,11 @@ export async function verifyClaims(opts: VerifyClaimsOptions): Promise<ClaimVeri
 						"Determine whether each quoted note text supports its claim.\n" +
 						"Return JSON with a decisions array. Each decision must include claim_id, supports_claim, and explanation.\n\n" +
 						`Claims:\n${JSON.stringify(
-							pendingClaims.map(({ claim, body }) => ({
+							pendingClaims.map(({ claim, quoteResolution, body }) => ({
 								claim_id: claim.id,
 								claim: claim.text,
 								quoted_text: claim.source_quote,
-								note_excerpt: body.slice(0, 2000),
+								note_excerpt: excerptAroundOffset(body, quoteResolution, 2000),
 							})),
 							null,
 							2,
