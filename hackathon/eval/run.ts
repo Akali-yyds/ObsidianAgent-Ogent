@@ -551,6 +551,17 @@ async function runFixtureEvalHarness(options: {
 	return { report, jsonPath, markdownPath };
 }
 
+async function runWithConcurrency<T>(items: T[], concurrency: number, fn: (item: T) => Promise<void>): Promise<void> {
+	const queue = [...items];
+	const workers = Array.from({ length: Math.min(concurrency, queue.length) }, async () => {
+		while (queue.length > 0) {
+			const item = queue.shift();
+			if (item !== undefined) await fn(item);
+		}
+	});
+	await Promise.all(workers);
+}
+
 async function runLiveEvalHarness(options: {
 	pack?: AgentPack;
 	packPath?: string;
@@ -558,6 +569,7 @@ async function runLiveEvalHarness(options: {
 	benchmarkPath?: string;
 	vaultDir?: string;
 	providerFactory?: EvalProviderFactory;
+	concurrency?: number;
 } = {}): Promise<EvalRunResult> {
 	const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 	const pack = options.pack ?? (options.packPath ? await loadPackFile(options.packPath) : (groundedResearchDefault as AgentPack));
@@ -565,6 +577,7 @@ async function runLiveEvalHarness(options: {
 		options.benchmarkPath ?? path.join(scriptDir, "..", "data", "nobel_physics", "benchmark.json");
 	const vaultDir = options.vaultDir ?? path.join(scriptDir, "..", "data", "nobel_physics");
 	const resultsDir = options.resultsDir ?? path.join(scriptDir, "results");
+	const concurrency = options.concurrency ?? 1;
 
 	await ensureDirectory(vaultDir, "live eval vault");
 	await ensureDirectory(resultsDir, "eval results");
@@ -594,41 +607,35 @@ async function runLiveEvalHarness(options: {
 	const prepared = await preparePackExecution(pack, providerFactory);
 	const liveRuns = new Map<string, LiveQueryRun>();
 
-	await Promise.all(
-		benchmark.queries.map(async (queryFixture) => {
-			const retrieval = await runPackRetrievalStep(prepared, {
-				vault,
-				query: queryFixture.query,
-			});
-			liveRuns.set(queryFixture.id, {
-				retrieval,
-				draftClaims: { summary: "", claims: [] },
-				verifications: [],
-			});
-		}),
-	);
+	await runWithConcurrency(benchmark.queries, concurrency, async (queryFixture) => {
+		const retrieval = await runPackRetrievalStep(prepared, {
+			vault,
+			query: queryFixture.query,
+		});
+		liveRuns.set(queryFixture.id, {
+			retrieval,
+			draftClaims: { summary: "", claims: [] },
+			verifications: [],
+		});
+	});
 
-	await Promise.all(
-		benchmark.queries.map(async (queryFixture) => {
-			const existing = liveRuns.get(queryFixture.id);
-			if (!existing) return;
-			existing.draftClaims = await runPackSynthesisStep(prepared, {
-				query: queryFixture.query,
-				retrieval: existing.retrieval,
-			});
-		}),
-	);
+	await runWithConcurrency(benchmark.queries, concurrency, async (queryFixture) => {
+		const existing = liveRuns.get(queryFixture.id);
+		if (!existing) return;
+		existing.draftClaims = await runPackSynthesisStep(prepared, {
+			query: queryFixture.query,
+			retrieval: existing.retrieval,
+		});
+	});
 
-	await Promise.all(
-		benchmark.queries.map(async (queryFixture) => {
-			const existing = liveRuns.get(queryFixture.id);
-			if (!existing) return;
-			existing.verifications = await runPackVerificationStep(prepared, {
-				vault,
-				claims: existing.draftClaims,
-			});
-		}),
-	);
+	await runWithConcurrency(benchmark.queries, concurrency, async (queryFixture) => {
+		const existing = liveRuns.get(queryFixture.id);
+		if (!existing) return;
+		existing.verifications = await runPackVerificationStep(prepared, {
+			vault,
+			claims: existing.draftClaims,
+		});
+	});
 
 	for (const queryFixture of benchmark.queries) {
 		const run = liveRuns.get(queryFixture.id);
