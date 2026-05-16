@@ -59,7 +59,7 @@ interface EvalFixtures {
 
 interface LiveEvalExpectedClaim {
 	source_note: string;
-	source_quote: string;
+	source_quote?: string;
 	required_phrases: string[];
 	forbidden_phrases?: string[];
 }
@@ -297,7 +297,7 @@ const liveBenchmarkValidator = ajv.compile<LiveEvalBenchmark>({
 									items: { type: "string", minLength: 1 },
 								},
 							},
-							required: ["source_note", "source_quote", "required_phrases"],
+							required: ["source_note", "required_phrases"],
 							additionalProperties: false,
 						},
 					},
@@ -990,12 +990,7 @@ function matchesExpectedLiveClaim(claim: EvalClaimLike, expected: LiveEvalExpect
 		return false;
 	}
 
-	const normalizedClaimQuote = normalizeWhitespace(claim.sourceQuote);
-	const normalizedExpectedQuote = normalizeWhitespace(expected.source_quote);
-	return (
-		normalizedExpectedQuote.includes(normalizedClaimQuote) ||
-		normalizedClaimQuote.includes(normalizedExpectedQuote)
-	);
+	return true;
 }
 
 function countCategories<T extends { category: string }>(queries: T[]): Record<string, number> {

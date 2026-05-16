@@ -339,6 +339,97 @@ describe("runEvalHarness", () => {
 		]);
 	});
 
+	it("classifies a live claim as verified when required_phrases match even if quote wording differs", async () => {
+		const workspaceDir = await mkdtemp(path.join(tmpdir(), "open-agent-phrase-match-"));
+		tempDirs.push(workspaceDir);
+		const vaultDir = path.join(workspaceDir, "vault");
+		const resultsDir = path.join(workspaceDir, "results");
+		const benchmarkPath = path.join(workspaceDir, "benchmark.json");
+		await mkdir(path.join(vaultDir, "laureates"), { recursive: true });
+		await mkdir(resultsDir, { recursive: true });
+
+		const noteBody = 'Einstein received the 1921 Nobel Prize in Physics for "the discovery of the law of the photoelectric effect".';
+		await writeFile(path.join(vaultDir, "laureates", "einstein.md"), noteBody, "utf8");
+
+		const benchmark = {
+			packId: "grounded-research",
+			datasetId: "phrase-match-test",
+			datasetName: "Phrase Match Test",
+			queries: [
+				{
+					id: "q1",
+					category: "single-fact",
+					query: "Why did Einstein win the Nobel Prize?",
+					notesExpected: ["laureates/einstein.md"],
+					expectedCitations: ["laureates/einstein.md"],
+					expectedOutcome: "supported",
+					expectedClaims: [
+						{
+							source_note: "laureates/einstein.md",
+							source_quote: "discovery of the photoelectric effect law",
+							required_phrases: ["1921", "photoelectric effect"],
+						},
+					],
+				},
+			],
+		};
+		await writeFile(benchmarkPath, JSON.stringify(benchmark), "utf8");
+
+		// Model produces a claim with matching required_phrases but different quote wording
+		const modelQuote = "the discovery of the law of the photoelectric effect";
+		const providerFactory = (_config: unknown, agentId: string): ModelProvider => ({
+			async *stream(messages: ChatMessage[]): AsyncIterable<StreamEvent> {
+				if (agentId === "retriever") {
+					yield { kind: "text", text: `- laureates/einstein.md: ${noteBody}` };
+					yield { kind: "done", finishReason: "stop" };
+					return;
+				}
+				if (agentId === "synthesizer") {
+					yield {
+						kind: "text",
+						text: JSON.stringify({
+							summary: "Einstein won for photoelectric effect",
+							claims: [{
+								id: "c1",
+								text: "Einstein won the 1921 Nobel Prize for his discovery of the photoelectric effect",
+								source_note: "laureates/einstein.md",
+								source_quote: modelQuote,
+								confidence: 1,
+							}],
+						}),
+					};
+					yield { kind: "done", finishReason: "stop" };
+					return;
+				}
+				// verifier
+				const prompt = messages.at(-1)?.content ?? "";
+				yield {
+					kind: "text",
+					text: JSON.stringify({
+						decisions: [{
+							claim_id: prompt.includes('"claim_id": "c1"') ? "c1" : "unknown",
+							supports_claim: true,
+							explanation: "The note supports the claim.",
+						}],
+					}),
+				};
+				yield { kind: "done", finishReason: "stop" };
+			},
+		});
+
+		const run = await runEvalHarness({
+			live: true,
+			benchmarkPath,
+			vaultDir,
+			resultsDir,
+			providerFactory,
+		});
+
+		// With phrase-only matching, the claim should be verified (0% hallucination)
+		expect(run.report.baselineHallucinationRate).toBe(0);
+		expect(run.report.verifiedHallucinationRate).toBe(0);
+	});
+
 	it("treats unsupported live queries as passing when verifier flags all synthesized claims", async () => {
 		const workspaceDir = await mkdtemp(path.join(tmpdir(), "open-agent-live-eval-unsupported-"));
 		tempDirs.push(workspaceDir);
