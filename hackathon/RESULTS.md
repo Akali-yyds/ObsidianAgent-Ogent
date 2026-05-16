@@ -82,7 +82,7 @@ Artifacts:
 
 ## Application-ready summary
 
-Built a grounded-research mode for an Obsidian AI plugin that answers from vault notes with explicit claim extraction and quote-level verification instead of ungrounded generation. A deterministic fixture eval shows the grounded pipeline eliminates all verified hallucinations on a 27-claim corpus (37-point improvement, 37% → 0%). A live end-to-end eval over a 24-query Nobel Physics corpus shows a 7.8-point improvement (54.2% → 46.3%), with the verifier correctly handling failure-prone cases like the unsupported Rutherford trap and grounding queries such as Bardeen-twice, youngest Bragg, Chadwick's neutron discovery, and the first Physics Nobel to Röntgen on the expected notes.
+Built a grounded-research mode for an Obsidian AI plugin aimed at users who cannot paste their notes into a cloud LLM — lawyers, doctors, researchers, anyone working with sensitive material. Every step runs locally, and every claim it surfaces is verified against the cited note text before reaching the user. The system coordinates three Gemma 4 sizes through a single local MLX endpoint: E4B for retrieval, 31B Dense for synthesis, 26B A4B for verification — three model jobs over the same vault with nothing leaving the machine. A live end-to-end eval over a 24-query Nobel Physics corpus shows a 7.8-point hallucination-rate improvement (54.2% → 46.3%, conservative lower bound due to strict benchmark quote-matching), with the verifier correctly handling failure-prone cases like the unsupported Rutherford trap and grounding queries such as Bardeen-twice, youngest Bragg, Chadwick's neutron discovery, and the first Physics Nobel to Röntgen on the expected notes.
 
 ## Submission notes
 
