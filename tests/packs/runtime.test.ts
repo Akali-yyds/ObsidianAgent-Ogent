@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import groundedResearchDefault from "../../src/packs/defaults/grounded-research.json";
 import { createMockApp } from "../setup";
+import type { PackRunFailure } from "../../src/packs/runtime";
+import type { AgentPack } from "../../src/packs/types";
 
 const retrieveEvidenceMock = vi.fn();
 const verifyClaimsMock = vi.fn();
@@ -809,6 +811,60 @@ describe("runPack", () => {
 				}),
 			}),
 		]);
+	});
+
+	it("does not report verifier as failedStepId when verifierEnabled is false and retriever fails", async () => {
+		// retriever throws — failedStepId will be "retriever" (set by step event handler)
+		// But this test verifies: when verifierEnabled=false, failure never blames "verifier"
+		retrieveEvidenceMock.mockRejectedValueOnce(new Error("network failure"));
+
+		let caughtFailure: import("../../src/packs/runtime").PackRunFailure | undefined;
+		try {
+			const { runPackForEval } = await import("../../src/packs/runtime");
+			await runPackForEval({
+				pack: groundedResearchDefault as import("../../src/packs/runtime").AgentPack,
+				query: "test",
+				app: createMockApp() as never,
+				verifierEnabled: false,
+			});
+		} catch (error) {
+			const { PackRunError } = await import("../../src/packs/runtime");
+			if (error instanceof PackRunError) caughtFailure = error.failure;
+		}
+
+		expect(caughtFailure).toBeDefined();
+		expect(caughtFailure?.failedStepId).not.toBe("verifier");
+		expect(caughtFailure?.failedStepId).toBe("retriever");
+	});
+
+	it("reports synthesizer as failedStepId when verifierEnabled is false and synthesizer fails", async () => {
+		retrieveEvidenceMock.mockResolvedValueOnce({
+			query: "test",
+			scope: { notePaths: [], folders: [], tags: [] },
+			notes: [],
+		});
+		// Push a valid brief for the retriever's streaming call,
+		// leave synthesizer stream empty so structured step fails
+		providerStreams.push("Brief: no notes found.");
+
+		let caughtFailure: PackRunFailure | undefined;
+		try {
+			const { runPackForEval } = await import("../../src/packs/runtime");
+			await runPackForEval({
+				pack: groundedResearchDefault as AgentPack,
+				query: "test",
+				app: createMockApp(),
+				verifierEnabled: false,
+			});
+		} catch (error) {
+			const { PackRunError } = await import("../../src/packs/runtime");
+			if (error instanceof PackRunError) caughtFailure = error.failure;
+		}
+
+		expect(caughtFailure).toBeDefined();
+		// lastStepId is "synthesizer" when verifierEnabled=false
+		expect(caughtFailure?.failedStepId).toBe("synthesizer");
+		expect(caughtFailure?.failedStepId).not.toBe("verifier");
 	});
 
 	it("throws partial transparency data for failed runs", async () => {

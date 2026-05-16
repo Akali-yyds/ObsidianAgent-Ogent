@@ -362,7 +362,7 @@ export async function runPackForEval(opts: PackRunOptions): Promise<PackRunResul
 		const failure: PackRunFailure = {
 			packId: opts.pack.id,
 			packName: opts.pack.name,
-			failedStepId: failedStepId ?? "verifier",
+			failedStepId: failedStepId ?? lastStepId,
 			modelsUsed,
 			artifacts: buildArtifacts(),
 			transparency: buildTransparency(runState, terminalAt ?? Date.now()),
