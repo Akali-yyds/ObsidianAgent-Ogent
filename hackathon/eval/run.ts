@@ -606,7 +606,13 @@ async function runLiveEvalHarness(options: {
 
 	const prepared = await preparePackExecution(pack, providerFactory);
 	const liveRuns = new Map<string, LiveQueryRun>();
+	const total = benchmark.queries.length;
+	let done = 0;
 
+	console.log(`[eval:live] ${total} queries · concurrency ${concurrency}`);
+
+	console.log(`[eval:live] stage 1/3: retrieval`);
+	done = 0;
 	await runWithConcurrency(benchmark.queries, concurrency, async (queryFixture) => {
 		const retrieval = await runPackRetrievalStep(prepared, {
 			vault,
@@ -617,8 +623,12 @@ async function runLiveEvalHarness(options: {
 			draftClaims: { summary: "", claims: [] },
 			verifications: [],
 		});
+		done += 1;
+		console.log(`  retrieval  ${done}/${total}  ${queryFixture.id}`);
 	});
 
+	console.log(`[eval:live] stage 2/3: synthesis`);
+	done = 0;
 	await runWithConcurrency(benchmark.queries, concurrency, async (queryFixture) => {
 		const existing = liveRuns.get(queryFixture.id);
 		if (!existing) return;
@@ -626,8 +636,12 @@ async function runLiveEvalHarness(options: {
 			query: queryFixture.query,
 			retrieval: existing.retrieval,
 		});
+		done += 1;
+		console.log(`  synthesis  ${done}/${total}  ${queryFixture.id}`);
 	});
 
+	console.log(`[eval:live] stage 3/3: verification`);
+	done = 0;
 	await runWithConcurrency(benchmark.queries, concurrency, async (queryFixture) => {
 		const existing = liveRuns.get(queryFixture.id);
 		if (!existing) return;
@@ -635,6 +649,8 @@ async function runLiveEvalHarness(options: {
 			vault,
 			claims: existing.draftClaims,
 		});
+		done += 1;
+		console.log(`  verification  ${done}/${total}  ${queryFixture.id}`);
 	});
 
 	for (const queryFixture of benchmark.queries) {
