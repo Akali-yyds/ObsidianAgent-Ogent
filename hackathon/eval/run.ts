@@ -594,35 +594,41 @@ async function runLiveEvalHarness(options: {
 	const prepared = await preparePackExecution(pack, providerFactory);
 	const liveRuns = new Map<string, LiveQueryRun>();
 
-	for (const queryFixture of benchmark.queries) {
-		const retrieval = await runPackRetrievalStep(prepared, {
-			vault,
-			query: queryFixture.query,
-		});
-		liveRuns.set(queryFixture.id, {
-			retrieval,
-			draftClaims: { summary: "", claims: [] },
-			verifications: [],
-		});
-	}
+	await Promise.all(
+		benchmark.queries.map(async (queryFixture) => {
+			const retrieval = await runPackRetrievalStep(prepared, {
+				vault,
+				query: queryFixture.query,
+			});
+			liveRuns.set(queryFixture.id, {
+				retrieval,
+				draftClaims: { summary: "", claims: [] },
+				verifications: [],
+			});
+		}),
+	);
 
-	for (const queryFixture of benchmark.queries) {
-		const existing = liveRuns.get(queryFixture.id);
-		if (!existing) continue;
-		existing.draftClaims = await runPackSynthesisStep(prepared, {
-			query: queryFixture.query,
-			retrieval: existing.retrieval,
-		});
-	}
+	await Promise.all(
+		benchmark.queries.map(async (queryFixture) => {
+			const existing = liveRuns.get(queryFixture.id);
+			if (!existing) return;
+			existing.draftClaims = await runPackSynthesisStep(prepared, {
+				query: queryFixture.query,
+				retrieval: existing.retrieval,
+			});
+		}),
+	);
 
-	for (const queryFixture of benchmark.queries) {
-		const existing = liveRuns.get(queryFixture.id);
-		if (!existing) continue;
-		existing.verifications = await runPackVerificationStep(prepared, {
-			vault,
-			claims: existing.draftClaims,
-		});
-	}
+	await Promise.all(
+		benchmark.queries.map(async (queryFixture) => {
+			const existing = liveRuns.get(queryFixture.id);
+			if (!existing) return;
+			existing.verifications = await runPackVerificationStep(prepared, {
+				vault,
+				claims: existing.draftClaims,
+			});
+		}),
+	);
 
 	for (const queryFixture of benchmark.queries) {
 		const run = liveRuns.get(queryFixture.id);
