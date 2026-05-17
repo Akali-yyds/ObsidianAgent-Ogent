@@ -2,7 +2,7 @@
 
 An AI agent that lives inside your vault — vault-aware, tool-capable, BYOK, and cross-platform (desktop + mobile).
 
-> **Hackathon build:** See [hackathon/README.md](./hackathon/README.md) for the Gemma 4 Good submission story, local MLX setup, eval results, and demo assets.
+> **Hackathon build:** See [hackathon/README.md](./hackathon/README.md) for the Gemma 4 hackathon submission story, local MLX setup, eval results, and demo assets.
 
 ## Features
 
