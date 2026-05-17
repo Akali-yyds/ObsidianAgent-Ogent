@@ -2,9 +2,9 @@
 
 OpenAgent for Obsidian turns a normal vault into a privacy-first research workspace. The core plugin keeps the existing classic chat flow intact, and the new **Grounded Research** pack adds a retriever -> synthesizer -> verifier pipeline that catches hallucinated citations before they reach the user as verified facts. The core impact is that the same local note collection can now support higher-trust, local-only grounded research and agentic workflows without sending vault data to a hosted reasoning stack by default.
 
-![Grounded research result 1](assets/research-result-1.png)
+![Grounded research - positive result](assets/result-positive.png)
 
-![Grounded research result 2](assets/research-result-2.png)
+![Grounded research - corrected result](assets/result-negative.png)
 
 ## Problem
 
