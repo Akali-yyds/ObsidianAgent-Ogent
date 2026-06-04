@@ -29,6 +29,8 @@ Single-agent note assistants are fast, but they are hard to trust when they summ
 
 ## Architecture
 
+![OpenAgent grounded-research pipeline: retriever -> synthesizer -> verifier, running 100% on-device](assets/architecture-pipeline.png)
+
 | Stage | Default endpoint | Default model | Responsibility |
 | --- | --- | --- | --- |
 | Retriever | `http://127.0.0.1:8000/v1` | `gemma-4-E4B-it-MLX-8bit` | Pull likely notes and summarize the strongest evidence with a smaller fast local model. |
