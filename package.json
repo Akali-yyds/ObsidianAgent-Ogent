@@ -43,5 +43,9 @@
   },
   "dependencies": {
     "ajv": "^8.20.0"
+  },
+  "allowScripts": {
+    "esbuild@0.20.2": true,
+    "esbuild@0.27.7": true
   }
 }

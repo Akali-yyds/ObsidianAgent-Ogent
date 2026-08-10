@@ -202,10 +202,11 @@ export class ChatView extends ItemView {
 			attr: { rows: "3", placeholder: "Ask the agent…" },
 		});
 		this.inputEl.addEventListener("keydown", (e) => {
-			if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-				e.preventDefault();
-				void this.handleSend();
-			}
+			if (e.key !== "Enter" || e.isComposing || e.keyCode === 229) return;
+			const wantsNewline = e.shiftKey || e.ctrlKey || e.metaKey || e.altKey;
+			if (wantsNewline) return; // 让浏览器默认插入换行
+			e.preventDefault();
+			void this.handleSend();
 		});
 
 		const buttons = composer.createDiv({ cls: "open-agent-buttons" });
