@@ -10,6 +10,7 @@ export interface SessionMeta {
 	lastClassicModel?: string;
 	createdAt: number;
 	updatedAt: number;
+	attachedContextPaths?: string[];
 }
 
 export type StoredClaimStatus = "verified" | "unsupported" | "quote-missing";
@@ -67,6 +68,13 @@ export type StoredAssistantSegment =
 	| { kind: "text"; text: string }
 	| { kind: "tool"; id: string };
 
+export interface StoredAgentEvent {
+	sequence: number;
+	timestamp: number;
+	kind: string;
+	data?: unknown;
+}
+
 export interface StoredToolCall {
 	id: string;
 	name: string;
@@ -75,6 +83,7 @@ export interface StoredToolCall {
 	status: "running" | "awaiting-consent" | "ok" | "error" | "denied";
 	result?: ToolResult;
 	diffRows?: DiffRow[];
+	planPreview?: boolean;
 }
 
 export interface StoredTurn {
@@ -82,6 +91,7 @@ export interface StoredTurn {
 	content: string;
 	segments?: StoredAssistantSegment[];
 	toolCalls?: StoredToolCall[];
+	events?: StoredAgentEvent[];
 	packTurn?: StoredPackTurnData;
 }
 
@@ -189,7 +199,7 @@ export class SessionStore {
 				await this.cb.writeTurns(s.id, s.turns).catch(() => {});
 			}
 		}
-		const meta: SessionMeta[] = rawSessions.map(({ id, title, model, selectedPackId, lastClassicModel, createdAt, updatedAt }) => ({
+		const meta: SessionMeta[] = rawSessions.map(({ id, title, model, selectedPackId, lastClassicModel, createdAt, updatedAt, attachedContextPaths }) => ({
 			id,
 			title,
 			model,
@@ -197,6 +207,7 @@ export class SessionStore {
 			lastClassicModel: lastClassicModel ?? model,
 			createdAt,
 			updatedAt,
+			...(Array.isArray(attachedContextPaths) && attachedContextPaths.length > 0 ? { attachedContextPaths: [...attachedContextPaths] } : {}),
 		}));
 		if (meta.length === 0) {
 			const m = this.makeMeta();
@@ -234,6 +245,32 @@ export class SessionStore {
 		this.activeTurns = [];
 		await this.cb.persistIndex(this.meta, this.activeId);
 		return { ...m, turns: [] };
+	}
+
+	async fork(id: string): Promise<StoredSession | null> {
+		const source = this.meta.find((session) => session.id === id);
+		if (!source) return null;
+		const sourceTurns = id === this.activeId ? this.activeTurns : await this.loadTurns(id);
+		const now = Date.now();
+		const forked: SessionMeta = {
+			id: makeId(),
+			title: `${source.title} (fork)`,
+			model: source.model,
+			selectedPackId: source.selectedPackId ?? null,
+			lastClassicModel: source.lastClassicModel ?? source.model,
+			createdAt: now,
+			updatedAt: now,
+			...(source.attachedContextPaths ? { attachedContextPaths: [...source.attachedContextPaths] } : {}),
+		};
+		const turns = JSON.parse(JSON.stringify(sourceTurns)) as StoredTurn[];
+		this.meta.push(forked);
+		this.activeId = forked.id;
+		this.activeTurns = turns;
+		await Promise.all([
+			this.cb.writeTurns(forked.id, turns),
+			this.cb.persistIndex(this.meta, this.activeId),
+		]);
+		return { ...forked, turns };
 	}
 
 	async switchTo(id: string): Promise<void> {
@@ -313,6 +350,16 @@ export class SessionStore {
 		await this.cb.persistIndex(this.meta, this.activeId);
 	}
 
+	async updateAttachedContext(id: string, paths: string[]): Promise<void> {
+		const session = this.meta.find((entry) => entry.id === id);
+		if (!session) return;
+		const uniquePaths = [...new Set(paths.filter((path) => path.trim().length > 0))];
+		if (uniquePaths.length > 0) session.attachedContextPaths = uniquePaths;
+		else delete session.attachedContextPaths;
+		session.updatedAt = Date.now();
+		await this.cb.persistIndex(this.meta, this.activeId);
+	}
+
 	toJSON(): { sessions: SessionMeta[]; activeSessionId: string } {
 		return { sessions: this.meta, activeSessionId: this.activeId };
 	}
@@ -350,14 +397,37 @@ function sanitizeStoredTurn(turn: unknown): StoredTurn {
 		if (segments === undefined) delete sanitized.segments;
 		else sanitized.segments = segments;
 	}
+
 	if (Object.prototype.hasOwnProperty.call(turn, "toolCalls")) {
 		const toolCalls = sanitizeOptionalToolCalls(turn.toolCalls);
 		if (toolCalls === undefined) delete sanitized.toolCalls;
 		else sanitized.toolCalls = toolCalls;
 	}
+	if (Object.prototype.hasOwnProperty.call(turn, "events")) {
+		const events = sanitizeOptionalAgentEvents(turn.events);
+		if (events === undefined) delete sanitized.events;
+		else sanitized.events = events;
+	}
 	const packTurn = turn.packTurn;
 	if (packTurn && typeof packTurn === "object") sanitized.packTurn = sanitizeStoredPackTurn(packTurn);
 	return sanitized as StoredTurn;
+}
+
+function sanitizeOptionalAgentEvents(value: unknown): StoredAgentEvent[] | undefined {
+	if (value === undefined) return undefined;
+	if (!Array.isArray(value)) return undefined;
+	const events = value.map((event) => {
+		if (!isRecord(event) || typeof event.kind !== "string") return null;
+		if (typeof event.sequence !== "number" || !Number.isFinite(event.sequence) || event.sequence < 0) return null;
+		if (typeof event.timestamp !== "number" || !Number.isFinite(event.timestamp) || event.timestamp < 0) return null;
+		return {
+			sequence: event.sequence,
+			timestamp: event.timestamp,
+			kind: event.kind.slice(0, 80),
+			...(event.data !== undefined ? { data: event.data } : {}),
+		};
+	});
+	return events.every((event): event is StoredAgentEvent => event !== null) ? events : undefined;
 }
 
 function sanitizeOptionalAssistantSegments(value: unknown): StoredAssistantSegment[] | undefined {
@@ -395,6 +465,7 @@ function sanitizeOptionalToolCalls(value: unknown): StoredToolCall[] | undefined
 			status,
 			...(result !== undefined ? { result } : {}),
 			...(Array.isArray(call.diffRows) ? { diffRows: call.diffRows as DiffRow[] } : {}),
+			...(call.planPreview === true ? { planPreview: true as boolean } : {}),
 		} satisfies StoredToolCall;
 	});
 	return toolCalls.every((call): call is StoredToolCall => call !== null) ? toolCalls : undefined;

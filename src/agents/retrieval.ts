@@ -192,8 +192,10 @@ function scoreFile(
 	if (scope.notePaths.includes(file.path)) score += 20;
 
 	const visibleContent = stripFrontmatter(content);
+	const frontmatter = extractFrontmatter(content);
 	const normalizedBasename = normalizeSearchText(file.basename);
 	const normalizedContent = normalizeSearchText(visibleContent);
+	const normalizedFrontmatter = normalizeSearchText(frontmatter);
 	const normalizedQuery = normalizeSearchText(query);
 	const queryTokens = extractQueryTokens(query);
 	const bestLineBonus = computeBestLineBonus(visibleContent, queryTokens);
@@ -203,6 +205,7 @@ function scoreFile(
 		if (normalizedBasename.includes(token)) score += weight * 3;
 		const matches = normalizedContent.split(token).length - 1;
 		score += Math.min(matches, 2) * weight;
+		if (normalizedFrontmatter.includes(token)) score += weight * 2;
 	}
 
 	if (queryTokens.length >= 2) {
@@ -232,6 +235,11 @@ function stripFrontmatter(content: string): string {
 	return content.replace(FRONTMATTER_RE, "");
 }
 
+function extractFrontmatter(content: string): string {
+	const match = content.match(FRONTMATTER_RE);
+	return match?.[0] ?? "";
+}
+
 function normalizeSearchText(value: string): string {
 	return value
 		.normalize("NFKD")
@@ -240,9 +248,29 @@ function normalizeSearchText(value: string): string {
 }
 
 function extractQueryTokens(query: string): string[] {
-	return normalizeSearchText(query)
+	const normalized = normalizeSearchText(query);
+	const latin = normalized
 		.split(TOKEN_SPLIT_RE)
 		.filter((token) => token.length > 2 && !token.startsWith("#") && !STOPWORDS.has(token));
+	const cjk = extractCjkNgrams(normalized);
+	return [...new Set([...latin, ...cjk])];
+}
+
+/**
+ * Chinese has no whitespace boundaries. Bigram/trigram tokens preserve enough
+ * recall for note titles such as "关键字段解析" without requiring a bundled
+ * dictionary or native ML runtime.
+ */
+function extractCjkNgrams(value: string): string[] {
+	const runs = value.match(/[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]{2,}/g) ?? [];
+	const tokens: string[] = [];
+	for (const run of runs) {
+		for (let index = 0; index < run.length - 1; index += 1) {
+			tokens.push(run.slice(index, index + 2));
+			if (index < run.length - 2) tokens.push(run.slice(index, index + 3));
+		}
+	}
+	return tokens;
 }
 
 function tokenWeight(token: string): number {

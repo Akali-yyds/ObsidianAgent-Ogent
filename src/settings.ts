@@ -1,4 +1,4 @@
-import { App, PluginSettingTab, Setting, requestUrl } from "obsidian";
+import { App, Notice, PluginSettingTab, Setting, requestUrl } from "obsidian";
 import type OpenAgentPlugin from "./main";
 import { DEFAULT_CONSENT, type ConsentSettings } from "./consent/manager";
 import { loadPacks } from "./packs/loader";
@@ -6,6 +6,7 @@ import type { AgentPack } from "./packs/types";
 import type { OpenAICompatibleConfig } from "./provider-config";
 import type { ConsentMode } from "./types";
 import type { WebSearchProvider } from "./tools/web-search";
+import { OpenAICompatibleProvider } from "./provider";
 
 export type ProviderId = "openai-compatible";
 
@@ -15,9 +16,11 @@ export interface PluginSettings {
 	apiKey: string;
 	model: string;
 	systemPrompt: string;
+	agentMemory: string;
 	webSearchProvider: WebSearchProvider;
 	webSearchApiKey: string;
 	consent: ConsentSettings;
+	disabledTools: string[];
 	packProviderOverrides: Record<string, Record<string, Partial<OpenAICompatibleConfig>>>;
 }
 
@@ -27,9 +30,11 @@ export const DEFAULT_SETTINGS: PluginSettings = {
 	apiKey: "",
 	model: "gpt-4o-mini",
 	systemPrompt: "",
+	agentMemory: "",
 	webSearchProvider: "tavily",
 	webSearchApiKey: "",
 	consent: { ...DEFAULT_CONSENT },
+	disabledTools: [],
 	packProviderOverrides: {},
 };
 
@@ -168,6 +173,22 @@ export class OpenAgentSettingsTab extends PluginSettingTab {
 		);
 
 		new Setting(containerEl)
+			.setName("Provider health")
+			.setDesc("Check model discovery and the capabilities used by the Agent loop.")
+			.addButton((button) => {
+				button.setButtonText("Test connection").onClick(async () => {
+					button.setButtonText("Testing…").setDisabled(true);
+					const result = await new OpenAICompatibleProvider({
+						baseUrl: this.plugin.settings.baseUrl,
+						apiKey: this.plugin.settings.apiKey,
+						model: this.plugin.settings.model,
+					}).healthCheck();
+					button.setButtonText("Test connection").setDisabled(false);
+					new Notice(result.ok ? `Provider is reachable (${result.modelCount} models).` : "Provider check failed. Verify URL, API key, and endpoint compatibility.");
+				});
+			});
+
+		new Setting(containerEl)
 			.setName("System prompt")
 			.setDesc("Optional. Prepended to every conversation.")
 			.addTextArea((txt) =>
@@ -180,17 +201,49 @@ export class OpenAgentSettingsTab extends PluginSettingTab {
 					}),
 			);
 
+		new Setting(containerEl)
+			.setName("Agent memory")
+			.setDesc("Optional plugin-local memory. Do not store API keys or secrets here.")
+			.addTextArea((txt) =>
+				txt
+					.setPlaceholder("Stable preferences and decisions for this Agent")
+					.setValue(this.plugin.settings.agentMemory)
+					.onChange(async (v) => {
+						this.plugin.settings.agentMemory = v;
+						await this.plugin.saveSettings();
+					}),
+			);
+
 		new Setting(containerEl).setName("Tool consent").setHeading();
 
 		this.consentDropdown(containerEl, "Read tools", "vault_read");
 		this.consentDropdown(containerEl, "Write tools", "vault_write");
+		this.consentDropdown(containerEl, "Network access", "network_read");
+
+		new Setting(containerEl).setName("Enabled tools").setHeading();
+		const toolList = this.plugin.getToolNames();
+		if (toolList.length === 0) {
+			containerEl.createEl("p", { text: "Tools are not loaded yet.", cls: "open-agent-notice" });
+		} else {
+			for (const toolName of toolList) {
+				new Setting(containerEl)
+					.setName(toolName)
+					.setDesc(this.plugin.isToolEnabled(toolName) ? "Enabled for Agent calls." : "Disabled for Agent calls.")
+					.addToggle((toggle) => {
+						toggle.setValue(this.plugin.isToolEnabled(toolName));
+						toggle.onChange(async (enabled) => {
+							await this.plugin.setToolEnabled(toolName, enabled);
+						});
+					});
+			}
+		}
 
 		new Setting(containerEl).setName("Pack models").setHeading();
 
 		const packSectionEl = containerEl.createDiv();
 		const loadingEl = packSectionEl.createEl("p", { text: "Loading packs…", cls: "open-agent-notice" });
 
-		void loadPacks(this.app, this.plugin.manifest.dir).then((packs) => {
+		void loadPacks(this.app, this.plugin.manifest.dir ?? this.plugin.manifest.id).then((packs) => {
 			loadingEl.remove();
 			this.renderPackProviderOverrides(packSectionEl, packs);
 		});
@@ -383,6 +436,9 @@ export class OpenAgentSettingsTab extends PluginSettingTab {
 	private consentDesc(key: keyof ConsentSettings): string {
 		if (key === "vault_read") {
 			return "Reads (list, read, search, metadata, links). Default: Always.";
+		}
+		if (key === "network_read") {
+			return "Public web search and page fetching. Default: Ask before the first network operation.";
 		}
 		return "Writes (write, append, edit). Default: Ask. Choose 'Never' to disable mutating tools entirely.";
 	}

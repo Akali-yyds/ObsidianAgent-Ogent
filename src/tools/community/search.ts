@@ -57,7 +57,8 @@ export function communityPluginSearchTool(app: App, deps: CommunitySearchDeps) {
 			"Search the official Obsidian community plugin marketplace by keyword or feature description. " +
 			"Returns matching plugins (name, description, author, and a marketplace link) when the user wants to know " +
 			"whether a community plugin already exists for a given capability. Does not install anything.",
-		category: "vault_read",
+		category: "network_read",
+		requiresApproval: true,
 		mutates: false,
 		schema: {
 			type: "object",

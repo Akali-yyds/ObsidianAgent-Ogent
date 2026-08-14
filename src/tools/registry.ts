@@ -2,6 +2,7 @@ import type { OpenAiToolSpec, ToolDef } from "../types";
 
 export class ToolRegistry {
 	private readonly tools = new Map<string, ToolDef>();
+	private readonly disabled = new Set<string>();
 
 	register(tool: ToolDef): void {
 		this.tools.set(tool.name, tool);
@@ -12,11 +13,25 @@ export class ToolRegistry {
 	}
 
 	get(name: string): ToolDef | undefined {
-		return this.tools.get(name);
+		return this.disabled.has(name) ? undefined : this.tools.get(name);
 	}
 
 	list(): ToolDef[] {
+		return [...this.tools.values()].filter((tool) => !this.disabled.has(tool.name));
+	}
+
+	listAll(): ToolDef[] {
 		return [...this.tools.values()];
+	}
+
+	setEnabled(name: string, enabled: boolean): void {
+		if (!this.tools.has(name)) return;
+		if (enabled) this.disabled.delete(name);
+		else this.disabled.add(name);
+	}
+
+	isEnabled(name: string): boolean {
+		return this.tools.has(name) && !this.disabled.has(name);
 	}
 
 	size(): number {

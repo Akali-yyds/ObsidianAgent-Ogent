@@ -10,10 +10,13 @@ import { ToolRegistry } from "./tools/registry";
 import { vaultTools } from "./tools/vault";
 import { communityPluginSearchTool } from "./tools/community/search";
 import { webSearchTool } from "./tools/web-search";
+import { webFetchTool } from "./tools/web-fetch";
 import type { VaultContext } from "./context";
+import { loadVaultRules } from "./rules";
 import { CHAT_VIEW_TYPE, ChatView } from "./view";
 
 const SETTINGS_CHANGED_EVENT = "open-agent:settings-changed";
+const CONTEXT_CHANGED_EVENT = "open-agent:context-changed";
 
 export default class OpenAgentPlugin extends Plugin {
 	settings: PluginSettings = DEFAULT_SETTINGS;
@@ -23,7 +26,8 @@ export default class OpenAgentPlugin extends Plugin {
 	private lastMarkdownPath: string | null = null;
 
 	async onload(): Promise<void> {
-		const sessionsDir = `${this.manifest.dir}/sessions`;
+		const pluginDir = this.manifest.dir ?? this.manifest.id;
+		const sessionsDir = `${pluginDir}/sessions`;
 		let sessionsDirEnsured = false;
 		const ensureSessionsDir = async () => {
 			if (sessionsDirEnsured) return;
@@ -58,9 +62,16 @@ export default class OpenAgentPlugin extends Plugin {
 
 		await this.loadSettings();
 		this.lastMarkdownPath = this.findCurrentMarkdownFile()?.path ?? null;
+		const publishContextChanged = (file: TFile | null): void => {
+			if (!file) return;
+			this.lastMarkdownPath = file.path;
+			window.dispatchEvent(new CustomEvent(CONTEXT_CHANGED_EVENT, { detail: { path: file.path } }));
+		};
 		this.registerEvent(this.app.workspace.on("active-leaf-change", (leaf) => {
-			const file = leaf ? this.fileFromLeaf(leaf) : null;
-			if (file) this.lastMarkdownPath = file.path;
+			publishContextChanged(leaf ? this.fileFromLeaf(leaf) : null);
+		}));
+		this.registerEvent(this.app.workspace.on("file-open", (file) => {
+			publishContextChanged(file);
 		}));
 		const recoveryIssues = this.sessionStore.getRecoveryIssues();
 		if (recoveryIssues.length === 1) {
@@ -68,16 +79,18 @@ export default class OpenAgentPlugin extends Plugin {
 		} else if (recoveryIssues.length > 1) {
 			new Notice(`Recovered ${recoveryIssues.length} unreadable chat histories. Open OpenAgent to review the backup locations.`);
 		}
-		await ensureDefaultPacks(this.app, this.manifest.dir);
+		await ensureDefaultPacks(this.app, pluginDir);
 
 		this.toolRegistry = new ToolRegistry();
 		this.undo = new UndoBuffer(50);
 		this.toolRegistry.registerAll(vaultTools(this.app, { undo: this.undo }));
-		this.toolRegistry.register(communityPluginSearchTool(this.app, { pluginDir: this.manifest.dir }));
+		this.toolRegistry.register(communityPluginSearchTool(this.app, { pluginDir }));
 		this.toolRegistry.register(webSearchTool(() => ({
 			provider: this.settings.webSearchProvider,
 			apiKey: this.settings.webSearchApiKey,
 		})));
+		this.toolRegistry.register(webFetchTool());
+		for (const toolName of this.settings.disabledTools ?? []) this.toolRegistry.setEnabled(toolName, false);
 
 		this.registerView(CHAT_VIEW_TYPE, (leaf: WorkspaceLeaf) => {
 			const consent = new ConsentManager(() => this.settings.consent);
@@ -90,6 +103,11 @@ export default class OpenAgentPlugin extends Plugin {
 				sessionStore: this.sessionStore,
 				getPacks: () => this.getPacks(),
 				getCurrentContext: () => this.getCurrentContext(),
+				getVaultRules: () => loadVaultRules(this.app),
+				loadDocumentContent: async (path: string) => {
+					const file = this.app.vault.getAbstractFileByPath(path);
+					return file instanceof TFile ? this.app.vault.cachedRead(file) : null;
+				},
 				runPack: (pack, query, signal, onEvent) => this.runPack(pack, query, signal, onEvent),
 			});
 		});
@@ -112,6 +130,12 @@ export default class OpenAgentPlugin extends Plugin {
 			id: "undo-last-tool-write",
 			name: "Undo last tool write",
 			callback: () => this.undoLastWrite(),
+		});
+
+		this.addCommand({
+			id: "undo-last-agent-checkpoint",
+			name: "Undo last Agent checkpoint",
+			callback: () => this.undoLastCheckpoint(),
 		});
 
 		this.addSettingTab(new OpenAgentSettingsTab(this.app, this));
@@ -198,7 +222,7 @@ export default class OpenAgentPlugin extends Plugin {
 	}
 
 	private async getPacks(): Promise<AgentPack[]> {
-		return loadPacks(this.app, this.manifest.dir);
+		return loadPacks(this.app, this.manifest.dir ?? this.manifest.id);
 	}
 
 	private async runPack(
@@ -218,15 +242,86 @@ export default class OpenAgentPlugin extends Plugin {
 		});
 	}
 
+	private async undoLastCheckpoint(): Promise<void> {
+		const operations = this.undo.popLastCheckpoint();
+		if (operations.length === 0) {
+			new Notice("No Agent checkpoint to undo");
+			return;
+		}
+		try {
+			for (const op of operations) {
+				const file = this.app.vault.getAbstractFileByPath(op.path);
+				if (op.before === null) {
+					if (file instanceof TFile) await this.app.vault.trash(file, true);
+				} else if (file instanceof TFile) {
+					await this.app.vault.modify(file, op.before);
+				} else {
+					await this.app.vault.create(op.path, op.before);
+				}
+			}
+			new Notice(`Reverted ${operations.length} Agent change${operations.length === 1 ? "" : "s"}`);
+		} catch (err) {
+			new Notice(`Checkpoint undo failed: ${err instanceof Error ? err.message : String(err)}`);
+		}
+	}
+
+	getToolNames(): string[] {
+		return this.toolRegistry?.listAll().map((tool) => tool.name) ?? [];
+	}
+
+	isToolEnabled(name: string): boolean {
+		return this.toolRegistry?.isEnabled(name) ?? false;
+	}
+
+	async setToolEnabled(name: string, enabled: boolean): Promise<void> {
+		this.toolRegistry?.setEnabled(name, enabled);
+		const disabled = new Set(this.settings.disabledTools ?? []);
+		if (enabled) disabled.delete(name);
+		else disabled.add(name);
+		this.settings.disabledTools = [...disabled].sort();
+		await this.saveSettings();
+	}
+
 	private getCurrentContext(): VaultContext {
 		const file = this.findCurrentMarkdownFile();
 		if (!file) return { activeFilePath: null, activeFolderPath: null, activeFileName: null };
 		const slash = file.path.lastIndexOf("/");
+		const cache = this.app.metadataCache.getFileCache(file) as {
+			tags?: Array<{ tag?: string }>;
+			frontmatter?: Record<string, unknown>;
+			links?: Array<{ link?: string }>;
+			headings?: Array<{ heading?: string; position?: { start?: { line?: number } } }>;
+		} | null;
+		const editor = this.getActiveEditor();
+		const selectionText = editor?.getSelection?.() ?? "";
+		const cursorLine = editor?.getCursor?.()?.line;
+		const currentHeading = typeof cursorLine === "number"
+			? cache?.headings?.slice().reverse().find((heading) =>
+				typeof heading.position?.start?.line === "number" && heading.position.start.line <= cursorLine,
+			)?.heading ?? null
+			: null;
 		return {
 			activeFilePath: file.path,
 			activeFolderPath: slash > 0 ? file.path.slice(0, slash) : null,
 			activeFileName: file.name,
+			selectionText: selectionText.trim() || null,
+			currentHeading,
+			tags: cache?.tags?.map((entry) => entry.tag).filter((tag): tag is string => Boolean(tag)) ?? [],
+			properties: cache?.frontmatter ?? {},
+			linkedNotes: cache?.links?.map((entry) => entry.link).filter((link): link is string => Boolean(link)) ?? [],
 		};
+	}
+
+	private getActiveEditor(): {
+		getSelection?: () => string;
+		getCursor?: () => { line: number; ch: number };
+	} | null {
+		const activeLeaf = this.app.workspace.activeLeaf;
+		const view = activeLeaf?.view as unknown as { editor?: {
+			getSelection?: () => string;
+			getCursor?: () => { line: number; ch: number };
+		} } | undefined;
+		return view?.editor ?? null;
 	}
 
 	private findCurrentMarkdownFile(): TFile | null {

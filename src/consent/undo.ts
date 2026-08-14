@@ -4,11 +4,21 @@ export interface WriteOp {
 	before: string | null; // null = file didn't exist before
 	after: string;
 	timestamp: number;
+	kind?: "write" | "delete";
+	checkpointId?: string;
+}
+
+export interface UndoCheckpoint {
+	id: string;
+	label: string;
+	startedAt: number;
 }
 
 export class UndoBuffer {
 	private readonly capacity: number;
 	private ops: WriteOp[] = [];
+	private activeCheckpoint: UndoCheckpoint | null = null;
+	private lastCheckpointId: string | null = null;
 
 	constructor(capacity = 50) {
 		this.capacity = capacity;
@@ -18,6 +28,7 @@ export class UndoBuffer {
 		const full: WriteOp = {
 			id: crypto.randomUUID(),
 			timestamp: Date.now(),
+			...(this.activeCheckpoint ? { checkpointId: this.activeCheckpoint.id } : {}),
 			...op,
 		};
 		this.ops.push(full);
@@ -39,5 +50,37 @@ export class UndoBuffer {
 
 	clear(): void {
 		this.ops = [];
+		this.activeCheckpoint = null;
+		this.lastCheckpointId = null;
+	}
+
+	beginCheckpoint(label: string): UndoCheckpoint {
+		const checkpoint = { id: crypto.randomUUID(), label, startedAt: Date.now() };
+		this.activeCheckpoint = checkpoint;
+		this.lastCheckpointId = checkpoint.id;
+		return checkpoint;
+	}
+
+	endCheckpoint(): void {
+		this.activeCheckpoint = null;
+	}
+
+	popLastCheckpoint(): WriteOp[] {
+		if (!this.lastCheckpointId) return [];
+		const id = this.lastCheckpointId;
+		const selected = this.ops.filter((op) => op.checkpointId === id);
+		this.ops = this.ops.filter((op) => op.checkpointId !== id);
+		this.lastCheckpointId = null;
+		return selected.reverse();
+	}
+
+	findLatest(path: string, kind?: WriteOp["kind"]): WriteOp | undefined {
+		return [...this.ops].reverse().find((op) => op.path === path && (!kind || (op.kind ?? "write") === kind));
+	}
+
+	remove(id: string): WriteOp | undefined {
+		const index = this.ops.findIndex((op) => op.id === id);
+		if (index < 0) return undefined;
+		return this.ops.splice(index, 1)[0];
 	}
 }

@@ -1538,6 +1538,178 @@
 	.open-agent-model-input { max-width: 118px; }
 }
 
+/* P0/P1 context and execution controls. These controls intentionally share
+   the composer surface instead of native raised button styling. */
+.open-agent-context-chips {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	flex-wrap: wrap;
+	padding: 8px 12px 0;
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+}
+
+.open-agent-context-chip {
+	border: 1px solid var(--oa-composer-border, var(--background-modifier-border));
+	border-radius: 999px;
+	background: transparent;
+	color: var(--text-muted);
+	padding: 2px 8px;
+	cursor: pointer;
+}
+
+.open-agent-context-chip:hover,
+.open-agent-context-chip:focus-visible {
+	background: var(--oa-composer-hover, var(--background-modifier-hover));
+	color: var(--text-normal);
+}
+
+.open-agent-context-add {
+	border: 0;
+	background: transparent;
+	color: var(--text-muted);
+	min-height: 0;
+	height: auto;
+	padding: 1px 6px;
+	line-height: 1.25;
+	cursor: pointer;
+}
+
+.open-agent-context-add:hover,
+.open-agent-context-add:focus-visible {
+	color: var(--text-normal);
+}
+
+.open-agent-context-modal-help {
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+}
+
+.open-agent-context-file-list {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	max-height: 55vh;
+	overflow: auto;
+	margin-top: 10px;
+}
+
+.open-agent-context-breadcrumb {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	flex-wrap: wrap;
+	margin-top: 10px;
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+}
+
+.open-agent-context-breadcrumb-button {
+	border: 0;
+	background: transparent;
+	color: var(--text-muted);
+	padding: 2px 4px;
+	cursor: pointer;
+}
+
+.open-agent-context-breadcrumb-button:hover:not(:disabled),
+.open-agent-context-breadcrumb-button:focus-visible:not(:disabled) {
+	color: var(--text-normal);
+	background: var(--background-modifier-hover);
+}
+
+.open-agent-context-breadcrumb-button:disabled {
+	color: var(--text-normal);
+	cursor: default;
+}
+
+.open-agent-context-breadcrumb-separator {
+	color: var(--text-faint);
+}
+
+.open-agent-context-folder-item {
+	border: 0;
+	border-radius: 6px;
+	background: transparent;
+	color: var(--text-muted);
+	text-align: left;
+	padding: 6px 8px;
+	cursor: pointer;
+}
+
+.open-agent-context-folder-item:hover,
+.open-agent-context-folder-item:focus-visible {
+	background: var(--background-modifier-hover);
+	color: var(--text-normal);
+}
+
+.open-agent-context-file-item {
+	border: 0;
+	border-radius: 6px;
+	background: transparent;
+	color: var(--text-normal);
+	text-align: left;
+	padding: 6px 8px;
+	cursor: pointer;
+}
+
+.open-agent-context-file-item:hover,
+.open-agent-context-file-item:focus-visible {
+	background: var(--background-modifier-hover);
+}
+
+.open-agent-context-chip-current {
+	color: var(--text-normal);
+}
+
+.open-agent-context-empty {
+	opacity: .7;
+}
+
+.open-agent-execution-mode-select,
+.open-agent-permission-select {
+	border: 0;
+	background: transparent;
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+	padding: 2px 18px 2px 2px;
+}
+
+.open-agent-execution-mode-select:hover,
+.open-agent-execution-mode-select:focus,
+.open-agent-permission-select:hover,
+.open-agent-permission-select:focus {
+	background: var(--oa-composer-hover, var(--background-modifier-hover));
+	color: var(--text-normal);
+}
+
+.open-agent-plan-preview-label {
+	color: var(--text-warning, var(--text-muted));
+	font-size: var(--font-ui-smaller);
+	padding: 6px 0;
+}
+
+.open-agent-tool-trace {
+	max-height: 60vh;
+	overflow: auto;
+	white-space: pre-wrap;
+	user-select: text;
+}
+
+.open-agent-transcript,
+.open-agent-transcript * {
+	-webkit-user-select: text;
+	user-select: text;
+}
+
+.open-agent-transcript summary,
+.open-agent-transcript button,
+.open-agent-transcript .open-agent-tool-status-icon {
+	-webkit-user-select: none;
+	user-select: none;
+}
+
 /* ─── Ordered assistant timeline ─────────────────────────────────────
    Thinking and tools are independent events. They share a quiet card
    surface, while tool approval remains visible in the main timeline. */
@@ -1971,28 +2143,39 @@
 }
 
 .open-agent-composer {
-	gap: 0.12rem;
-	margin: 0.08rem 0 0;
-	border-radius: 12px;
-	padding: 0.34rem 0.48rem 0.25rem;
+	gap: 0;
+	margin: 0.02rem 0 0;
+	border-radius: 9px;
+	padding: 0.12rem 0.28rem 0.08rem;
+}
+
+.open-agent-context-chips {
+	gap: 2px;
+	padding: 1px 4px 0;
+	line-height: 1.1;
+}
+
+.open-agent-context-chip {
+	padding: 0 5px;
+	line-height: 1.1;
 }
 
 .open-agent-input-shell {
-	min-height: 2.15rem;
+	min-height: 1.55rem;
 }
 
 .open-agent-input {
-	height: 2.15rem;
-	min-height: 2.15rem;
+	height: 1.55rem;
+	min-height: 1.55rem;
 	max-height: 20vh;
-	padding: 0 0.08rem 0.08rem;
+	padding: 0 0.04rem 0;
 	font-size: 12.5px;
-	line-height: 1.45;
+	line-height: 1.25;
 }
 
 .open-agent-composer-toolbar {
-	margin-top: 0.02rem;
-	padding-top: 0.1rem;
+	margin-top: 0;
+	padding-top: 0;
 }
 
 .open-agent-composer-selectors {
@@ -2067,6 +2250,14 @@
 	pointer-events: none;
 }
 
+.open-agent-context-meter {
+	margin-left: auto;
+	padding: 0 0.25rem;
+	color: var(--oa-text-faint);
+	font-size: 9px;
+	white-space: nowrap;
+}
+
 .open-agent-permission-select {
 	max-width: 92px;
 	padding: 0.12rem 0.82rem 0.12rem 0.24rem;
@@ -2109,4 +2300,28 @@
 	.open-agent-model-wrap { max-width: 138px; }
 	.open-agent-mode-select,
 	.open-agent-model-input { max-width: 112px; }
+}
+
+/* Keep the session switcher out of the document flow. It should overlay the
+   transcript in the same way as the session menu instead of moving the chat
+   viewport every time the list is opened. */
+.open-agent-header {
+	position: relative;
+	z-index: 20;
+}
+
+.open-agent-sessions-panel {
+	position: absolute;
+	top: 2.55rem;
+	left: 0;
+	right: 0;
+	z-index: 90;
+	box-sizing: border-box;
+	margin-top: 0;
+	max-height: min(300px, 48vh);
+	overflow: hidden;
+}
+
+.open-agent-sessions-list {
+	max-height: min(220px, 38vh);
 }

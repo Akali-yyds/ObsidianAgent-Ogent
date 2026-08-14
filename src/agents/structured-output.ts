@@ -52,7 +52,9 @@ async function collectStructuredText(
 		signal: opts.signal,
 		tools: opts.tools,
 		consent: opts.consent,
-		responseFormat: buildResponseFormat(opts.schema.name, opts.schema.schema),
+		responseFormat: opts.provider.capabilities?.().jsonSchema === false
+			? undefined
+			: buildResponseFormat(opts.schema.name, opts.schema.schema),
 	})) {
 		await opts.onAgentEvent?.(event);
 		if (event.kind === "text") output += event.text;

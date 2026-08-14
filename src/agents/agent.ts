@@ -16,6 +16,7 @@ import type {
 	ToolCallSpec,
 	ToolDef,
 	ToolResult,
+	AgentExecutionMode,
 } from "../types";
 
 const DEFAULT_MAX_STEPS = 8;
@@ -51,6 +52,7 @@ export interface ExecuteAgentLoopOptions {
 	maxSteps?: number;
 	requireToolCall?: boolean;
 	responseFormat?: ResponseFormatConfig;
+	executionMode?: AgentExecutionMode;
 }
 
 async function* executeAgentLoop(
@@ -67,7 +69,9 @@ async function* executeAgentLoop(
 
 	const maxSteps = opts.maxSteps ?? definition.maxSteps ?? DEFAULT_MAX_STEPS;
 	const toolsApi = bindTools(opts.tools, definition.toolAllowlist);
-	const useTools = toolsApi && toolsApi.toApiSpec().length > 0;
+	const providerCapabilities = opts.provider.capabilities?.();
+	const useTools = Boolean(toolsApi && toolsApi.toApiSpec().length > 0 && (providerCapabilities?.toolCalls ?? true));
+	const supportsRequiredToolChoice = providerCapabilities?.requiredToolChoice ?? true;
 
 	for (let step = 0; step < maxSteps; step++) {
 		const assembled: AssembledToolCall[] = [];
@@ -76,7 +80,7 @@ async function* executeAgentLoop(
 		for await (const ev of opts.provider.stream(messages, {
 				signal: opts.signal,
 				tools: useTools ? toolsApi?.toApiSpec() : undefined,
-				toolChoice: useTools && step === 0 && opts.requireToolCall ? "required" : undefined,
+				toolChoice: useTools && step === 0 && opts.requireToolCall && supportsRequiredToolChoice ? "required" : undefined,
 				responseFormat: opts.responseFormat,
 		})) {
 			if (opts.signal?.aborted) return;
@@ -135,6 +139,21 @@ async function* executeAgentLoop(
 			}
 
 			if (toolDef.mutates) {
+				if (opts.executionMode === "plan") {
+					yield { kind: "plan_preview", id: call.id, name: call.name, args: validated.value };
+					const result: ToolResult = {
+						ok: false,
+						error: "PlanModePreview",
+						details: "This write was previewed in Plan mode and was not executed. Switch to Ask or Full access to apply it.",
+					};
+					yield { kind: "tool_call_finished", id: call.id, result };
+					messages.push(toolMessage(call, result));
+					continue;
+				}
+			}
+
+			const requiresApproval = toolDef.mutates || toolDef.requiresApproval === true || toolDef.category === "network_read";
+			if (requiresApproval) {
 				if (!opts.consent) {
 					const result: ToolResult = { ok: false, error: "ConsentDeniedError: no consent manager" };
 					yield { kind: "tool_call_finished", id: call.id, result };

@@ -6,6 +6,7 @@ interface ToolSpec<TArgs> {
 	schema: JsonSchema;
 	category: ToolCategory;
 	mutates: boolean;
+	requiresApproval?: boolean;
 	run(args: TArgs, ctx: ToolContext): Promise<ToolResult>;
 }
 

@@ -18,7 +18,7 @@ interface SearchResult {
 	url: string;
 	snippet: string;
 	publishedDate?: string;
-	domain?: string;
+	domain: string;
 }
 
 const TAVILY_URL = "https://api.tavily.com/search";
@@ -31,7 +31,8 @@ export function webSearchTool(getConfig: () => WebSearchConfig) {
 			"Search the live web for current or time-sensitive information. Use this before answering about recent events, " +
 			"software versions, current APIs, prices, releases, documentation changes, or facts that may have changed. " +
 			"Use the returned URLs as sources in the final answer. This searches the public web and is separate from the Obsidian vault.",
-		category: "vault_read",
+		category: "network_read",
+		requiresApproval: true,
 		mutates: false,
 		schema: {
 			type: "object",
@@ -162,11 +163,11 @@ function parseBraveResults(payload: unknown, limit: number): SearchResult[] {
 		.slice(0, limit);
 }
 
-function getDomain(value: string): string | undefined {
+function getDomain(value: string): string {
 	try {
 		return new URL(value).hostname;
 	} catch {
-		return undefined;
+		return "";
 	}
 }
 

@@ -9,6 +9,11 @@ An AI agent that lives inside your vault — vault-aware, tool-capable, BYOK, an
 
 ## Features
 
+- **Context-aware Agent**: current note, folder, selection, heading, tags, Properties, and linked notes are shown as removable context chips.
+- **Plan and safety modes**: Ask, Plan, and Full access modes with vault-relative path checks, Diff previews, session approval, and undo snapshots.
+- **Web research**: Tavily/Brave search plus public HTML fetching with citation metadata, SSRF protections, and untrusted-content boundaries.
+- **Session reliability**: streaming event traces, restart recovery, context meter, compaction, queueing, and Markdown copying.
+
 - **OpenAI-compatible provider** — works with OpenAI, Anthropic (via proxy), Ollama, LM Studio, or any OpenAI-compatible endpoint
 - **Vault tools** — read, write, edit, append, search, list notes, manage frontmatter and links
 - **Consent & safety** — per-action confirmation dialogs with diff previews before any destructive write
@@ -38,6 +43,8 @@ Open Settings → OpenAgent and fill in:
 
 | Field | Description | Default |
 |-------|-------------|---------|
+| Agent memory | Plugin-local stable preferences and decisions | `empty` |
+| Network access | Approval policy for public web search and fetching | `Ask` |
 | Base URL | Your provider's API endpoint | `https://api.openai.com/v1` |
 | API Key | Your API key | — |
 | Model | Model name to use | `gpt-4o-mini` |
@@ -45,11 +52,12 @@ Open Settings → OpenAgent and fill in:
 
 ## Privacy & network use
 
-This plugin makes network requests **only** to the LLM endpoint you configure (e.g. OpenAI, OpenRouter, Ollama, LM Studio). No data is sent to any other server.
+The plugin may contact the configured LLM endpoint, the selected web search provider (Tavily or Brave), the Obsidian community plugin directory, and public URLs explicitly fetched through `web_fetch`.
+
 
 With vault tools enabled, the agent may transmit note bodies, paths, frontmatter, and tags to that endpoint — only use endpoints you trust.
 
-Your API key is stored in `.obsidian/plugins/open-agent/data.json`. If you sync your `.obsidian/` folder (e.g. via Obsidian Sync), the key travels with it.
+Your API keys are stored in `.obsidian/plugins/open-agent/data.json`. If you sync your `.obsidian/` folder (e.g. via Obsidian Sync), the keys travel with it. Never commit this file or paste keys into `OpenAgent.md`, Agent memory, notes, or issue reports.
 
 ## Development
 

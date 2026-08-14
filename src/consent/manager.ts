@@ -3,11 +3,15 @@ import type { ConsentMode, ToolCategory, ToolDef } from "../types";
 export interface ConsentSettings {
 	vault_read: ConsentMode;
 	vault_write: ConsentMode;
+	[key: string]: ConsentMode;
 }
 
 export const DEFAULT_CONSENT: ConsentSettings = {
 	vault_read: "always",
 	vault_write: "ask",
+	network_read: "ask",
+	external_write: "never",
+	system_command: "never",
 };
 
 export type ConsentChoice = "approve" | "reject" | "approve-session";
@@ -26,7 +30,7 @@ export class ConsentManager {
 	}
 
 	getMode(category: ToolCategory): ConsentMode {
-		return this.sessionOverrides[category] ?? this.getSettings()[category];
+		return this.sessionOverrides[category] ?? this.getSettings()[category] ?? DEFAULT_CONSENT[category] ?? "ask";
 	}
 
 	/**
@@ -68,7 +72,8 @@ export class ConsentManager {
 	}
 
 	async requestApproval(tool: ToolDef, _args: unknown): Promise<boolean> {
-		if (!tool.mutates) return true;
+		const requiresApproval = tool.mutates || tool.requiresApproval === true || tool.category === "network_read";
+		if (!requiresApproval) return true;
 		const mode = this.getMode(tool.category);
 		if (mode === "always") return true;
 		if (mode === "never") return false;

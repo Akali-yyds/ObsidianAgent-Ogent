@@ -1,5 +1,5 @@
 import { Agent } from "./agents/agent";
-import type { ChatMessage, LoopEvent, ModelProvider } from "./types";
+import type { AgentExecutionMode, ChatMessage, LoopEvent, ModelProvider } from "./types";
 import type { ConsentManager } from "./consent/manager";
 import type { ToolRegistry } from "./tools/registry";
 
@@ -10,6 +10,7 @@ export interface RunTurnOptions {
 	consent?: ConsentManager;
 	maxSteps?: number;
 	requireToolCall?: boolean;
+	executionMode?: AgentExecutionMode;
 }
 
 const BASE_SYSTEM_PROMPT = `You are a helpful assistant with access to tools for searching and managing an Obsidian vault, plus live web search when configured.
@@ -42,5 +43,6 @@ export async function* runTurn(
 		consent: opts.consent,
 		maxSteps: opts.maxSteps,
 		requireToolCall: opts.requireToolCall,
+		executionMode: opts.executionMode,
 	});
 }

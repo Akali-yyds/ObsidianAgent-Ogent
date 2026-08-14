@@ -4,6 +4,7 @@ import {
 	AuthError,
 	type ChatMessage,
 	type ModelProvider,
+	type ProviderCapabilities,
 	NetworkError,
 	type OpenAiToolSpec,
 	ProviderError,
@@ -25,6 +26,22 @@ export class OpenAICompatibleProvider implements ModelProvider {
 
 	constructor(config: OpenAICompatibleConfig) {
 		this.config = config;
+	}
+
+	capabilities(): ProviderCapabilities {
+		return {
+			streaming: true,
+			thinking: true,
+			toolCalls: true,
+			requiredToolChoice: true,
+			jsonSchema: true,
+			vision: false,
+		};
+	}
+
+	async healthCheck(): Promise<{ ok: boolean; modelCount: number; capabilities: ProviderCapabilities }> {
+		const models = await this.listModels();
+		return { ok: models.length > 0, modelCount: models.length, capabilities: this.capabilities() };
 	}
 
 	async *stream(messages: ChatMessage[], opts: StreamOptions = {}): AsyncIterable<StreamEvent> {

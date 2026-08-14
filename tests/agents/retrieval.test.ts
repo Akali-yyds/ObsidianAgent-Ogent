@@ -77,6 +77,18 @@ In 1907, Michelson received the Nobel Prize in Physics, becoming the first Ameri
 	});
 });
 
+it("retrieves Chinese notes without whitespace tokenization", async () => {
+	const vault = createVault({
+		"参考与项目介绍/关键字段解析.md": "# 关键字段解析\n\n详细解释 CLI、启动流程和执行流程。",
+		"参考与项目介绍/Cloud Code源码详解.md": "# Cloud Code\n\n源码执行流程说明。",
+		"其他/无关.md": "一份与字段和流程无关的记录。",
+	});
+
+	const result = await retrieveEvidence(vault, "关键字段解析 CLI 执行流程");
+
+	expect(result.notes[0]?.path).toBe("参考与项目介绍/关键字段解析.md");
+});
+
 function createVault(filesByPath: Record<string, string>): VaultAdapter {
 	const files = new Map<string, VaultFile>();
 	const contents = new Map<string, string>();

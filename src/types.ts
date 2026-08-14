@@ -57,7 +57,19 @@ export interface OpenAiToolSpec {
 export interface ModelProvider {
 	stream(messages: ChatMessage[], opts?: StreamOptions): AsyncIterable<StreamEvent>;
 	listModels?(): Promise<string[]>;
+	capabilities?(): ProviderCapabilities;
 }
+
+export interface ProviderCapabilities {
+	streaming: boolean;
+	thinking: boolean;
+	toolCalls: boolean;
+	requiredToolChoice: boolean;
+	jsonSchema: boolean;
+	vision: boolean;
+}
+
+export type AgentExecutionMode = "ask" | "plan" | "full-access";
 
 // JSON Schema (subset we support)
 export interface JsonSchemaProperty {
@@ -83,7 +95,15 @@ export interface JsonSchema {
 }
 
 // Tool definitions
-export type ToolCategory = "vault_read" | "vault_write";
+export type PermissionClass =
+	| "vault_read"
+	| "vault_write"
+	| "network_read"
+	| "external_write"
+	| "system_command";
+
+// Kept as an alias for existing pack and third-party tool definitions.
+export type ToolCategory = PermissionClass;
 
 export type ToolResult =
 	| { ok: true; value: unknown }
@@ -99,6 +119,10 @@ export interface ToolDef<TArgs = unknown> {
 	schema: JsonSchema;
 	category: ToolCategory;
 	mutates: boolean;
+	/** Optional explicit permission class for tools with non-default behavior. */
+	permission?: PermissionClass;
+	/** Network reads and other sensitive non-mutating operations can opt into approval. */
+	requiresApproval?: boolean;
 	run(args: TArgs, ctx: ToolContext): Promise<ToolResult>;
 }
 
@@ -115,6 +139,8 @@ export type LoopEvent =
 	| { kind: "text"; text: string; degraded?: boolean }
 	| { kind: "thinking_text"; text: string }
 	| { kind: "tool_call_started"; id: string; name: string; args: unknown; mutates: boolean }
+	| { kind: "plan_preview"; id: string; name: string; args: unknown }
+	| { kind: "checkpoint"; id: string; state: "started" | "completed" }
 	| { kind: "consent_requested"; id: string; name: string }
 	| { kind: "tool_call_finished"; id: string; result: ToolResult }
 	| { kind: "cap_hit" }

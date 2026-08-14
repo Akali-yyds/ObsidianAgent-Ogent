@@ -1,6 +1,6 @@
 import type { ConsentManager } from "../consent/manager";
 import type { ToolRegistry } from "../tools/registry";
-import type { ChatMessage, JsonSchema, LoopEvent, ModelProvider, ResponseFormatConfig } from "../types";
+import type { AgentExecutionMode, ChatMessage, JsonSchema, LoopEvent, ModelProvider, ResponseFormatConfig } from "../types";
 import type { Agent } from "./agent";
 
 export interface AgentDefinition {
@@ -21,6 +21,7 @@ export interface AgentRunOptions {
 	maxSteps?: number;
 	requireToolCall?: boolean;
 	responseFormat?: ResponseFormatConfig;
+	executionMode?: AgentExecutionMode;
 }
 
 export type AgentEvent = LoopEvent;
