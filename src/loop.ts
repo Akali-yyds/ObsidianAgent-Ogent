@@ -9,9 +9,12 @@ export interface RunTurnOptions {
 	tools?: ToolRegistry;
 	consent?: ConsentManager;
 	maxSteps?: number;
+	requireToolCall?: boolean;
 }
 
-const BASE_SYSTEM_PROMPT = `You are a helpful assistant with access to tools for searching and managing an Obsidian vault.
+const BASE_SYSTEM_PROMPT = `You are a helpful assistant with access to tools for searching and managing an Obsidian vault, plus live web search when configured.
+
+When the user asks about current, recent, time-sensitive, or version-specific information, use web_search before answering when that tool is available. Prefer the returned source URLs in your final answer and distinguish searched facts from your general knowledge.
 
 When you use a tool, always follow up with a natural language response explaining what you found — even if the result is empty or an error.
 
@@ -38,5 +41,6 @@ export async function* runTurn(
 		tools: opts.tools,
 		consent: opts.consent,
 		maxSteps: opts.maxSteps,
+		requireToolCall: opts.requireToolCall,
 	});
 }

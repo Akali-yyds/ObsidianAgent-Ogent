@@ -4,6 +4,7 @@ import type { UndoBuffer } from "./consent/undo";
 import { diffLines, type DiffRow } from "./consent/diff";
 import { renderRows } from "./consent/render-diff";
 import { runTurn } from "./loop";
+import { buildVaultContextPrompt, requestsVaultMutation, type VaultContext } from "./context";
 import { isMobile } from "./platform";
 import { OpenAICompatibleProvider } from "./provider";
 import { resolveCitationTarget } from "./citations";
@@ -16,6 +17,8 @@ import type {
 	StoredPackClaim,
 	StoredPackProgressStep,
 	StoredPackTurnData,
+	StoredAssistantSegment,
+	StoredToolCall,
 	StoredTurn,
 } from "./sessions";
 import { splitFrontmatter, mergeFrontmatter, stitchFrontmatter } from "./tools/vault/frontmatter";
@@ -78,7 +81,10 @@ interface ToolCallRecord {
 	diffRows?: DiffRow[]; // undefined = not yet computed; [] = computed, nothing to show
 }
 
-type AssistantSegment = { kind: "text"; text: string } | { kind: "tool"; id: string };
+type AssistantSegment =
+	| { kind: "thinking"; text: string }
+	| { kind: "text"; text: string }
+	| { kind: "tool"; id: string };
 
 interface UiTurn {
 	role: "user" | "assistant";
@@ -88,6 +94,9 @@ interface UiTurn {
 	thinking: boolean; // true until first content arrives
 	thinkingLabel?: string; // optional context label shown inside the thinking indicator
 	thinkingContent?: string; // model reasoning/thoughts extracted from response
+	thinkingElapsedMs?: number; // cumulative elapsed thinking time once complete
+	thinkingPhaseStartedAt?: number; // start of the current active thinking phase
+	thinkingExpanded?: boolean; // per-turn override of the global collapse state for completed thinking
 	interrupted?: boolean;
 	degraded?: boolean;
 	error?: string;
@@ -104,6 +113,7 @@ export interface ChatViewDeps {
 	undo: UndoBuffer;
 	sessionStore: SessionStore;
 	getPacks: () => Promise<AgentPack[]>;
+	getCurrentContext: () => VaultContext;
 	runPack: (
 		pack: AgentPack,
 		query: string,
@@ -149,10 +159,17 @@ export class ChatView extends ItemView {
 
 	// Panel state
 	private sessionsPanelVisible = false;
-	private thinkingHidden = false;
 	private availablePacks: AgentPack[] = [];
 	private activePackError: string | null = null;
 	private readonly packExpandedStepId = new WeakMap<StoredPackTurnData, string | null>();
+
+	// Redesigned layout
+	private composerEl!: HTMLElement;
+	private statusBarEl!: HTMLElement;
+	private permissionSelectEl!: HTMLSelectElement;
+	private menuEl!: HTMLElement;
+	private menuBtnEl!: HTMLButtonElement;
+	private boundOnDocClick: (e: MouseEvent) => void;
 
 	// Rename state
 	private isRenaming = false;
@@ -169,6 +186,7 @@ export class ChatView extends ItemView {
 			this.refreshConfiguredState();
 			void this.populateModelDatalist();
 		};
+		this.boundOnDocClick = (e) => this.handleDocClick(e);
 	}
 
 	getViewType(): string {
@@ -195,28 +213,11 @@ export class ChatView extends ItemView {
 		this.hintEl = root.createDiv({ cls: "open-agent-hint" });
 		this.buildHeader(root);
 		this.transcriptEl = root.createDiv({ cls: "open-agent-transcript" });
-
-		const composer = root.createDiv({ cls: "open-agent-composer" });
-		this.inputEl = composer.createEl("textarea", {
-			cls: "open-agent-input",
-			attr: { rows: "3", placeholder: "Ask the agent…" },
-		});
-		this.inputEl.addEventListener("keydown", (e) => {
-			if (e.key !== "Enter" || e.isComposing || e.keyCode === 229) return;
-			const wantsNewline = e.shiftKey || e.ctrlKey || e.metaKey || e.altKey;
-			if (wantsNewline) return; // 让浏览器默认插入换行
-			e.preventDefault();
-			void this.handleSend();
-		});
-
-		const buttons = composer.createDiv({ cls: "open-agent-buttons" });
-		this.sendBtn = buttons.createEl("button", { text: "Send", cls: "mod-cta" });
-		this.sendBtn.addEventListener("click", () => void this.handleSend());
-		this.stopBtn = buttons.createEl("button", { text: "Stop" });
-		this.stopBtn.addEventListener("click", () => this.handleStop());
-		this.stopBtn.disabled = true;
+		this.buildComposer(root);
+		this.buildStatusBar(root);
 
 		window.addEventListener("open-agent:settings-changed", this.boundOnSettingsChanged);
+		document.addEventListener("click", this.boundOnDocClick);
 
 		// Load active session turns
 		const session = this.deps.sessionStore.getActive();
@@ -231,6 +232,7 @@ export class ChatView extends ItemView {
 
 	onClose(): Promise<void> {
 		window.removeEventListener("open-agent:settings-changed", this.boundOnSettingsChanged);
+		document.removeEventListener("click", this.boundOnDocClick);
 		this.cancelInFlight();
 		this.deps.consent.resetSession();
 		this.deps.undo.clear();
@@ -247,15 +249,13 @@ export class ChatView extends ItemView {
 	private buildHeader(root: HTMLElement): void {
 		const header = root.createDiv({ cls: "open-agent-header" });
 
-		// Session bar
-		const sessionBar = header.createDiv({ cls: "open-agent-session-bar" });
+		// Compact toolbar: title + icon buttons
+		const toolbar = header.createDiv({ cls: "open-agent-toolbar" });
 
-		// Clickable title → inline rename
-		this.sessionTitleEl = sessionBar.createEl("span", { cls: "open-agent-session-title" });
+		this.sessionTitleEl = toolbar.createEl("span", { cls: "open-agent-session-title" });
 		this.sessionTitleEl.addEventListener("click", () => this.startRename());
 
-		// Rename input (hidden by default)
-		this.sessionRenameEl = sessionBar.createEl("input", {
+		this.sessionRenameEl = toolbar.createEl("input", {
 			cls: "open-agent-session-rename",
 			attr: { type: "text" },
 		});
@@ -266,18 +266,24 @@ export class ChatView extends ItemView {
 		});
 		this.sessionRenameEl.addEventListener("blur", () => this.finishRename());
 
-		// Sessions toggle button
-		const sessionsToggle = sessionBar.createEl("button", { text: "≡", cls: "open-agent-sessions-toggle" });
+		toolbar.createEl("span", { cls: "open-agent-toolbar-spacer" });
+
+		const newBtn = toolbar.createEl("button", { text: "+", cls: "open-agent-icon-btn" });
+		newBtn.setAttribute("aria-label", "New chat");
+		newBtn.addEventListener("click", () => { void this.createSession(); });
+
+		const sessionsToggle = toolbar.createEl("button", { text: "≡", cls: "open-agent-icon-btn open-agent-sessions-toggle" });
 		sessionsToggle.setAttribute("aria-label", "Browse sessions");
 		sessionsToggle.addEventListener("click", () => this.toggleSessionsPanel());
 
-		// New session button
-		const newBtn = sessionBar.createEl("button", { text: "+ New", cls: "open-agent-session-new" });
-		newBtn.addEventListener("click", () => { void this.createSession(); });
+		this.menuBtnEl = toolbar.createEl("button", { text: "⋯", cls: "open-agent-icon-btn open-agent-menu-btn" });
+		this.menuBtnEl.setAttribute("aria-label", "Session menu");
+		this.menuBtnEl.addEventListener("click", () => this.toggleMenu());
 
-		// Delete session button
-		const deleteBtn = sessionBar.createEl("button", { text: "Delete", cls: "open-agent-session-delete" });
-		deleteBtn.addEventListener("click", () => { void this.deleteActiveSession(); });
+		// Session menu (hidden by default)
+		this.menuEl = header.createDiv({ cls: "open-agent-menu" });
+		this.menuEl.addClass("is-hidden");
+		this.buildMenuItems(this.menuEl);
 
 		// Sessions panel (hidden by default)
 		this.sessionsPanelEl = header.createDiv({ cls: "open-agent-sessions-panel" });
@@ -293,24 +299,125 @@ export class ChatView extends ItemView {
 
 		this.sessionsListEl = this.sessionsPanelEl.createDiv({ cls: "open-agent-sessions-list" });
 
-		const modeBar = header.createDiv({ cls: "open-agent-mode-bar" });
-		modeBar.createEl("span", { text: "Mode:", cls: "open-agent-model-label" });
-		this.modeSelectEl = modeBar.createEl("select", { cls: "open-agent-mode-select" });
-		this.modeSelectEl.addEventListener("change", () => { void this.handleModeChange(); });
-
-		// Model bar
-		const modelBar = header.createDiv({ cls: "open-agent-model-bar" });
-		modelBar.createEl("span", { text: "Model:", cls: "open-agent-model-label" });
-
-		this.modelInputEl = modelBar.createEl("select", { cls: "open-agent-model-input" });
-		this.modelInputEl.addEventListener("change", () => { void this.handleModelChange(); });
 		this.packSummaryEl = header.createDiv({ cls: "open-agent-pack-summary" });
 		this.packHintEl = header.createDiv({ cls: "open-agent-pack-hint", text: "Applies to future turns in this chat." });
 		this.packRecoveryEl = header.createDiv({ cls: "open-agent-pack-recovery" });
 		this.packMobileBannerEl = header.createDiv({ cls: "open-agent-pack-mobile-banner" });
 		this.sessionRecoveryEl = header.createDiv({ cls: "open-agent-session-recovery" });
+	}
 
-		this.refreshHeader();
+	private buildMenuItems(menu: HTMLElement): void {
+		const renameItem = menu.createEl("button", { text: "Rename", cls: "open-agent-menu-item" });
+		renameItem.addEventListener("click", () => {
+			this.setMenuVisible(false);
+			this.startRename();
+		});
+		const deleteItem = menu.createEl("button", { text: "Delete", cls: "open-agent-menu-item open-agent-menu-item-danger" });
+		deleteItem.addEventListener("click", () => {
+			this.setMenuVisible(false);
+			void this.deleteActiveSession();
+		});
+	}
+
+	private toggleMenu(): void {
+		this.setMenuVisible(this.menuEl.classList.contains("is-hidden"));
+	}
+
+	private setMenuVisible(visible: boolean): void {
+		this.menuEl.classList.toggle("is-hidden", !visible);
+	}
+
+	private handleDocClick(e: MouseEvent): void {
+		const target = e.target as Node | null;
+		if (!target || !this.menuEl) return;
+		if (this.menuEl.contains(target) || this.menuBtnEl.contains(target)) return;
+		this.setMenuVisible(false);
+	}
+
+	private buildComposer(root: HTMLElement): void {
+		this.composerEl = root.createDiv({ cls: "open-agent-composer" });
+
+		const inputShell = this.composerEl.createDiv({ cls: "open-agent-input-shell" });
+		this.inputEl = inputShell.createEl("textarea", {
+			cls: "open-agent-input",
+			attr: { rows: "2", placeholder: "Ask the agent…" },
+		});
+		this.inputEl.addEventListener("keydown", (e) => {
+			if (e.key !== "Enter" || e.isComposing || e.keyCode === 229) return;
+			const wantsNewline = e.shiftKey || e.ctrlKey || e.metaKey || e.altKey;
+			if (wantsNewline) return; // 让浏览器默认插入换行
+			e.preventDefault();
+			void this.handleSend();
+		});
+
+		const toolbar = this.composerEl.createDiv({ cls: "open-agent-composer-toolbar" });
+
+		// Left: mode + model selectors (small)
+		const selectors = toolbar.createDiv({ cls: "open-agent-composer-selectors" });
+		const modeWrap = selectors.createDiv({ cls: "open-agent-selector-pill open-agent-mode-wrap" });
+		modeWrap.createEl("span", { cls: "open-agent-selector-icon", text: "✦" });
+		this.modeSelectEl = modeWrap.createEl("select", { cls: "open-agent-mode-select" });
+		this.modeSelectEl.addEventListener("change", () => { void this.handleModeChange(); });
+
+		const modelWrap = selectors.createDiv({ cls: "open-agent-selector-pill open-agent-model-wrap" });
+		modelWrap.createEl("span", { cls: "open-agent-selector-icon open-agent-model-icon", text: "◈" });
+		this.modelInputEl = modelWrap.createEl("select", { cls: "open-agent-model-input" });
+		this.modelInputEl.addEventListener("change", () => { void this.handleModelChange(); });
+
+		// Right: send / stop buttons
+		const actions = toolbar.createDiv({ cls: "open-agent-composer-actions" });
+		this.sendBtn = actions.createEl("button", { text: "↑", cls: "open-agent-icon-btn open-agent-send-btn mod-cta" });
+		this.sendBtn.setAttribute("aria-label", "Send");
+		this.sendBtn.addEventListener("click", () => void this.handleSend());
+		this.stopBtn = actions.createEl("button", { text: "■", cls: "open-agent-icon-btn open-agent-stop-btn" });
+		this.stopBtn.setAttribute("aria-label", "Stop");
+		this.stopBtn.addEventListener("click", () => this.handleStop());
+		this.stopBtn.disabled = true;
+	}
+
+	private buildStatusBar(root: HTMLElement): void {
+		this.statusBarEl = root.createDiv({ cls: "open-agent-statusbar" });
+
+		const contextChip = this.statusBarEl.createEl("span", {
+			cls: "open-agent-status-chip open-agent-context-chip",
+			text: "Local",
+		});
+		contextChip.setAttribute("aria-label", "Context: Local vault");
+		contextChip.setAttribute("title", "OpenAgent uses the current local vault as context");
+
+		this.statusBarEl.createEl("span", {
+			cls: "open-agent-status-separator",
+			text: "·",
+			attr: { "aria-hidden": "true" },
+		});
+
+		const permissionWrap = this.statusBarEl.createDiv({ cls: "open-agent-status-control" });
+		permissionWrap.createEl("span", {
+			cls: "open-agent-status-control-label",
+			text: "Permissions",
+		});
+		this.permissionSelectEl = permissionWrap.createEl("select", {
+			cls: "open-agent-permission-select",
+			attr: { "aria-label": "Write permission mode" },
+		});
+		this.permissionSelectEl.createEl("option", { value: "ask", text: "Ask" });
+		this.permissionSelectEl.createEl("option", { value: "always", text: "Full access" });
+		this.permissionSelectEl.addEventListener("change", () => {
+			const mode = this.permissionSelectEl.value === "always"
+				? "always"
+				: this.permissionSelectEl.value === "never" ? "never" : "ask";
+			this.deps.consent.setSessionMode("vault_write", mode);
+			this.updateStatusBar();
+		});
+	}
+
+	private updateStatusBar(): void {
+		if (!this.statusBarEl || !this.permissionSelectEl) return;
+		const writeMode = this.deps.consent.getMode("vault_write");
+		if (writeMode === "never" && !Array.from(this.permissionSelectEl.options).some((option) => option.value === "never")) {
+			this.permissionSelectEl.add(new Option("Read-only", "never"));
+		}
+		this.permissionSelectEl.value = writeMode;
 	}
 
 	private refreshHeader(): void {
@@ -318,13 +425,14 @@ export class ChatView extends ItemView {
 		const settings = this.deps.getSettings();
 		this.sessionTitleEl.setText(active.title);
 		const currentModel = active.lastClassicModel?.trim() || active.model.trim() || settings.model;
-		if (currentModel && !Array.from(this.modelInputEl.options).some((o) => o.value === currentModel)) {
+		const modelOptions = this.modelInputEl?.options;
+		if (currentModel && modelOptions && !Array.from(modelOptions).some((o) => o.value === currentModel)) {
 			this.modelInputEl.add(new Option(currentModel, currentModel), 0);
 		}
-		this.modelInputEl.value = currentModel;
+		if (this.modelInputEl) this.modelInputEl.value = currentModel;
 
 		this.modeSelectEl.empty();
-		this.modeSelectEl.createEl("option", { value: "", text: "Classic" });
+		this.modeSelectEl.createEl("option", { value: "", text: "Agent" });
 		for (const pack of this.getSelectablePacks()) {
 			this.modeSelectEl.createEl("option", { value: pack.id, text: pack.name });
 		}
@@ -391,6 +499,7 @@ export class ChatView extends ItemView {
 				text: sessionRecovery.message,
 			});
 		}
+		this.updateStatusBar();
 	}
 
 	private async createSession(): Promise<void> {
@@ -615,11 +724,19 @@ export class ChatView extends ItemView {
 					error: st.packTurn.error,
 				} as UiTurn;
 			}
+			const segments: AssistantSegment[] = (st.segments ?? []).map((segment) => ({ ...segment }));
+			if (segments.length === 0 && st.content.length > 0) {
+				segments.push({ kind: "text", text: st.content });
+			}
+			const toolCallMap: Record<string, ToolCallRecord> = {};
+			for (const toolCall of st.toolCalls ?? []) {
+				toolCallMap[toolCall.id] = { ...toolCall };
+			}
 			return {
 				role: "assistant",
 				content: "",
-				segments: [{ kind: "text" as const, text: st.content }],
-				toolCallMap: {},
+				segments,
+				toolCallMap,
 				thinking: false,
 			} as UiTurn;
 		});
@@ -639,7 +756,21 @@ export class ChatView extends ItemView {
 					.filter((s): s is { kind: "text"; text: string } => s.kind === "text")
 					.map((s) => s.text)
 					.join("");
-				if (text.length > 0) result.push({ role: "assistant", content: text });
+				const segments = t.segments
+					.filter((segment): segment is StoredAssistantSegment =>
+						(segment.kind === "thinking" || segment.kind === "text") && segment.text.length > 0 ||
+						segment.kind === "tool" && segment.id.length > 0,
+					)
+					.map((segment) => ({ ...segment }));
+				const toolCalls = Object.values(t.toolCallMap).map((toolCall): StoredToolCall => ({ ...toolCall }));
+				if (text.length > 0 || segments.length > 0 || toolCalls.length > 0) {
+					result.push({
+						role: "assistant",
+						content: text,
+						...(segments.length > 0 ? { segments } : {}),
+						...(toolCalls.length > 0 ? { toolCalls } : {}),
+					});
+				}
 			}
 		}
 		return result;
@@ -674,11 +805,15 @@ export class ChatView extends ItemView {
 		this.sendBtn.disabled = !(packMode ? packOk : classicOk) || busy;
 		this.stopBtn.disabled = !busy || stopping;
 		this.inputEl.disabled = busy;
-		this.sendBtn.textContent = packMode ? "Run research" : "Send";
-		this.stopBtn.textContent = stopping ? "Stopping..." : "Stop";
+		this.sendBtn.textContent = "↑";
+		this.stopBtn.textContent = stopping ? "Stopping..." : "■";
+		if (this.composerEl) {
+			this.composerEl.classList.toggle("is-busy", busy);
+		}
 		if (this.sessionsPanelVisible) {
 			this.refreshSessionsList(this.sessionsSearchEl.value);
 		}
+		this.updateStatusBar();
 	}
 
 	// ─── Send / stop ──────────────────────────────────────────────────────────
@@ -705,7 +840,7 @@ export class ChatView extends ItemView {
 		const isFirstMessage = session.turns.length === 0 && session.title === "New chat";
 
 		this.turns.push({ role: "user", content: text, segments: [], toolCallMap: {}, thinking: false });
-		const assistantTurn: UiTurn = { role: "assistant", content: "", segments: [], toolCallMap: {}, thinking: true };
+		const assistantTurn: UiTurn = { role: "assistant", content: "", segments: [], toolCallMap: {}, thinking: true, thinkingElapsedMs: 0, thinkingPhaseStartedAt: Date.now() };
 		this.turns.push(assistantTurn);
 		// Snapshot the turns array reference so the finally block always saves to the right session
 		// even if this.turns is replaced by a session switch mid-flight.
@@ -766,16 +901,30 @@ export class ChatView extends ItemView {
 		try {
 			for await (const ev of runTurn(messages, provider, {
 				signal: ctrl.signal,
-				systemPrompt: settings.systemPrompt,
+				systemPrompt: [settings.systemPrompt, buildVaultContextPrompt(this.deps.getCurrentContext())]
+					.filter((part) => part.trim().length > 0)
+					.join("\n\n"),
 				tools: this.deps.tools,
 				consent: this.deps.consent,
+				requireToolCall: requestsVaultMutation(text),
 			})) {
 				if (ev.kind === "thinking_text") {
 					assistantTurn.thinkingContent = (assistantTurn.thinkingContent ?? "") + ev.text;
+					const lastSegment = assistantTurn.segments[assistantTurn.segments.length - 1];
+					if (lastSegment?.kind === "thinking") {
+						lastSegment.text += ev.text;
+					} else {
+						assistantTurn.segments.push({ kind: "thinking", text: ev.text });
+					}
 					if (this.turns.includes(assistantTurn)) this.scheduleRender();
 					continue;
 				} else if (ev.kind === "text") {
 					if (ev.degraded) assistantTurn.degraded = true;
+					if (assistantTurn.thinking) {
+						// First content: freeze the cumulative thinking time and stop the active timer.
+						assistantTurn.thinkingElapsedMs = this.accumulateThinkingElapsed(assistantTurn);
+						assistantTurn.thinkingPhaseStartedAt = undefined;
+					}
 					assistantTurn.thinking = false;
 					assistantTurn.thinkingLabel = undefined;
 					const lastSeg = assistantTurn.segments[assistantTurn.segments.length - 1];
@@ -814,6 +963,7 @@ export class ChatView extends ItemView {
 					// Show thinking indicator while the model processes tool results.
 					assistantTurn.thinking = true;
 					assistantTurn.thinkingLabel = tc ? `Processing ${tc.name}…` : undefined;
+					assistantTurn.thinkingPhaseStartedAt = Date.now();
 				} else if (ev.kind === "cap_hit") {
 					assistantTurn.capHit = true;
 				}
@@ -992,6 +1142,21 @@ export class ChatView extends ItemView {
 		new Notice("Stopping...");
 	}
 
+	private accumulateThinkingElapsed(turn: UiTurn): number {
+		const base = turn.thinkingElapsedMs ?? 0;
+		if (typeof turn.thinkingPhaseStartedAt === "number") {
+			return base + Math.max(0, Date.now() - turn.thinkingPhaseStartedAt);
+		}
+		return base;
+	}
+
+	private currentThinkingElapsed(turn: UiTurn): number {
+		if (turn.thinking && typeof turn.thinkingPhaseStartedAt === "number") {
+			return (turn.thinkingElapsedMs ?? 0) + Math.max(0, Date.now() - turn.thinkingPhaseStartedAt);
+		}
+		return turn.thinkingElapsedMs ?? 0;
+	}
+
 	private applyErrorToTurn(turn: UiTurn, err: unknown): void {
 		turn.thinking = false;
 		if (err instanceof AuthError) {
@@ -1054,26 +1219,28 @@ export class ChatView extends ItemView {
 	private renderTranscript(): void {
 		const activeId = this.deps.sessionStore.getActive().id;
 		const busy = this.inFlights.has(activeId);
+		const previousScrollTop = this.transcriptEl.scrollTop || 0;
+		const previousScrollHeight = this.transcriptEl.scrollHeight || 0;
+		const viewportHeight = this.transcriptEl.clientHeight || 0;
+		const wasNearBottom =
+			viewportHeight <= 0 ||
+			previousScrollHeight <= 0 ||
+			previousScrollHeight - previousScrollTop - viewportHeight < 80;
 
 		this.transcriptEl.empty();
+		if (this.turns.length === 0 && isConfigured(this.deps.getSettings())) {
+			this.transcriptEl.createDiv({
+				cls: "open-agent-empty-hint",
+				text: "Ask the agent to inspect, edit, or explain your vault.",
+			});
+		}
 		for (let i = 0; i < this.turns.length; i++) {
 			const turn = this.turns[i];
 			const row = this.transcriptEl.createDiv({ cls: `open-agent-turn open-agent-turn-${turn.role}` });
 
 			if (turn.role === "user") {
-				// Header row: "You" label + pencil edit button on right
-				const headerRow = row.createDiv({ cls: "open-agent-turn-header-row" });
-				headerRow.createEl("div", { cls: "open-agent-turn-role", text: "You" });
-				if (!busy && i !== this.editingTurnIndex) {
-					const pencilBtn = headerRow.createEl("button", { text: "✏", cls: "open-agent-turn-edit-btn" });
-					pencilBtn.setAttribute("aria-label", "Edit message");
-					pencilBtn.addEventListener("click", () => {
-						this.editingTurnIndex = i;
-						this.editingText = turn.content;
-						this.renderTranscript();
-					});
-				}
-
+				// No persistent role label — the right-aligned bubble communicates "you".
+				// The pencil edit button is hidden by default and revealed on hover (CSS).
 				if (i === this.editingTurnIndex) {
 					// Inline edit mode
 					const editArea = row.createEl("textarea", {
@@ -1104,6 +1271,15 @@ export class ChatView extends ItemView {
 						editArea.setSelectionRange(editArea.value.length, editArea.value.length);
 					});
 				} else {
+					if (!busy && i !== this.editingTurnIndex) {
+						const pencilBtn = row.createEl("button", { text: "✎", cls: "open-agent-turn-edit-btn" });
+						pencilBtn.setAttribute("aria-label", "Edit message");
+						pencilBtn.addEventListener("click", () => {
+							this.editingTurnIndex = i;
+							this.editingText = turn.content;
+							this.renderTranscript();
+						});
+					}
 					if (turn.content.length > 0) {
 						const body = row.createEl("div", { cls: "open-agent-turn-body" });
 						body.setText(turn.content);
@@ -1116,11 +1292,9 @@ export class ChatView extends ItemView {
 					if (this.turns[j].role === "user") { userTurnIdx = j; break; }
 				}
 
-				// Header row: "Assistant" label + retry icon on right (when errored)
-				const aHeaderRow = row.createDiv({ cls: "open-agent-turn-header-row" });
-				aHeaderRow.createEl("div", { cls: "open-agent-turn-role", text: "Assistant" });
+				// Retry icon on the right when this turn errored
 				if (!busy && turn.error && userTurnIdx >= 0) {
-					const retryBtn = aHeaderRow.createEl("button", { text: "↺", cls: "open-agent-turn-edit-btn" });
+					const retryBtn = row.createEl("button", { text: "↺", cls: "open-agent-turn-edit-btn open-agent-turn-retry-btn" });
 					retryBtn.setAttribute("aria-label", "Retry");
 					retryBtn.addEventListener("click", () => {
 						const retryText = this.turns[userTurnIdx].content;
@@ -1132,56 +1306,26 @@ export class ChatView extends ItemView {
 
 				if (turn.packTurn) {
 					this.renderPackTurn(row, turn.packTurn);
-				} else if (turn.thinking) {
-					const thinkingWrap = row.createDiv({ cls: "open-agent-turn-thinking-wrap" });
-					thinkingWrap.createEl("span", {
-						cls: "open-agent-turn-thinking-label",
-						text: turn.thinkingLabel ?? "Thinking…",
-					});
-					const dotsEl = thinkingWrap.createDiv({ cls: "open-agent-turn-thinking-dots" });
-					dotsEl.createEl("span", { cls: "open-agent-turn-thinking-dot" });
-					dotsEl.createEl("span", { cls: "open-agent-turn-thinking-dot" });
-					dotsEl.createEl("span", { cls: "open-agent-turn-thinking-dot" });
-				}
-				if (turn.thinkingContent) {
-					const thoughtsWrap = row.createDiv({ cls: "open-agent-turn-thoughts-wrap" });
-					const thoughtsToggle = thoughtsWrap.createEl("button", {
-						cls: "open-agent-turn-thoughts-toggle",
-						attr: { "aria-label": this.thinkingHidden ? "Show thoughts" : "Hide thoughts" },
-					});
-					thoughtsToggle.createEl("span", {
-						cls: "open-agent-turn-thinking-chevron",
-						text: this.thinkingHidden ? "▸" : "▾",
-					});
-					thoughtsToggle.createEl("span", { text: "Thoughts" });
-					thoughtsToggle.addEventListener("click", () => {
-						this.thinkingHidden = !this.thinkingHidden;
-						this.renderTranscript();
-					});
-					if (!this.thinkingHidden) {
-						thoughtsWrap.createEl("div", {
-							cls: "open-agent-turn-thoughts-content",
-							text: turn.thinkingContent,
-						});
-					}
-				}
-				if (!turn.packTurn) {
+				} else {
 					for (const seg of turn.segments) {
-						if (seg.kind === "text") {
-							if (seg.text.length > 0) {
-								const body = row.createEl("div", { cls: "open-agent-turn-body" });
-								if (busy) {
-									// Plain text during streaming to avoid flicker from async MarkdownRenderer
-									body.setText(seg.text);
-								} else {
-									void MarkdownRenderer.render(this.app, seg.text, body, "", this);
-								}
-							}
-						} else {
-							const record = turn.toolCallMap[seg.id];
-							if (record) this.renderToolCard(row, record);
+						if (seg.kind === "thinking" && seg.text.length > 0) {
+							this.renderThinkingSegment(row, seg.text, turn);
+						} else if (seg.kind === "tool") {
+							const toolCall = turn.toolCallMap[seg.id];
+							if (toolCall) this.renderToolCard(row, toolCall);
+						} else if (seg.kind === "text" && seg.text.length > 0) {
+							// One renderer for both streaming and completed states: always go
+							// through MarkdownRenderer so the DOM (lists, bold, inline code,
+							// paragraphs) is identical before and after the turn finishes.
+							// Previously the streaming path used plain setText() which produced
+							// a different DOM (raw markdown symbols), so the final transition
+							// re-laid out the message and visibly jumped.
+							const body = row.createDiv({ cls: "open-agent-turn-body" });
+							void MarkdownRenderer.render(this.app, seg.text, body, "", this);
 						}
 					}
+					const lastSegment = turn.segments[turn.segments.length - 1];
+					if (turn.thinking && lastSegment?.kind !== "thinking") this.renderThinkingStatus(row, turn);
 				}
 			}
 
@@ -1199,15 +1343,29 @@ export class ChatView extends ItemView {
 			}
 			if (turn.error) {
 				const errEl = row.createEl("div", { cls: "open-agent-turn-error" });
-				errEl.setText(turn.error);
+				errEl.createEl("span", { cls: "open-agent-turn-error-icon", text: "ⓧ" });
+				const errText = errEl.createEl("span", { cls: "open-agent-turn-error-text" });
+				errText.setText(turn.error);
 				if (turn.authError) {
-					errEl.appendText(" ");
-					const link = errEl.createEl("a", { text: "Open settings", href: "#" });
+					errText.appendText(" ");
+					const link = errText.createEl("a", { text: "Open settings", href: "#" });
 					link.addEventListener("click", (e) => { e.preventDefault(); this.deps.openSettings(); });
 				}
+				const errActions = errEl.createDiv({ cls: "open-agent-turn-error-actions" });
+				const copyBtn = errActions.createEl("button", { text: "Copy", cls: "open-agent-icon-btn" });
+				copyBtn.setAttribute("aria-label", "Copy error message");
+				copyBtn.addEventListener("click", () => {
+					void navigator.clipboard.writeText(turn.error ?? "").then(() => {
+						new Notice("Copied");
+					}).catch(() => undefined);
+				});
 			}
 		}
-		this.transcriptEl.scrollTop = this.transcriptEl.scrollHeight;
+		if (wasNearBottom) {
+			this.transcriptEl.scrollTop = this.transcriptEl.scrollHeight;
+		} else {
+			this.transcriptEl.scrollTop = previousScrollTop;
+		}
 	}
 
 	private async submitEdit(turnIndex: number): Promise<void> {
@@ -1219,10 +1377,43 @@ export class ChatView extends ItemView {
 		await this.handleSend();
 	}
 
+	// ─── Reasoning block ─────────────────────────────────────────────────────
+
+	private renderThinkingStatus(parent: HTMLElement, turn: UiTurn): void {
+		const elapsed = this.currentThinkingElapsed(turn);
+		const card = parent.createDiv({ cls: "open-agent-thinking-segment open-agent-thinking-surface open-agent-thinking-surface-active" });
+		card.createDiv({ cls: "open-agent-thinking-spinner" });
+		card.createEl("span", { cls: "open-agent-thinking-label", text: turn.thinkingLabel ?? "Thinking" });
+		if (elapsed > 0) {
+			card.createEl("span", { cls: "open-agent-thinking-meta", text: formatDuration(elapsed) });
+		}
+	}
+
+	private renderThinkingSegment(parent: HTMLElement, text: string, turn: UiTurn): void {
+		const lastSegment = turn.segments[turn.segments.length - 1];
+		const active = turn.thinking && lastSegment?.kind === "thinking" && lastSegment.text === text;
+		const card = parent.createEl("details", { cls: "open-agent-thinking-segment open-agent-thinking-surface" });
+		if (active) {
+			card.classList.add("open-agent-thinking-surface-active");
+			card.setAttribute("open", "");
+		}
+		const summary = card.createEl("summary", { cls: "open-agent-thinking-segment-summary" });
+		if (active) summary.createDiv({ cls: "open-agent-thinking-spinner" });
+		else summary.createEl("span", { cls: "open-agent-thinking-card-icon", text: "✓" });
+		summary.createEl("span", {
+			cls: "open-agent-thinking-label",
+			text: active ? (turn.thinkingLabel ?? "Thinking") : "Thought process",
+		});
+		if (active) summary.createEl("span", { cls: "open-agent-thinking-meta", text: "live" });
+		const content = card.createDiv({ cls: "open-agent-thinking-segment-content" });
+		content.setText(text || "Thinking…");
+	}
+
 	private renderToolCard(parent: HTMLElement, tc: ToolCallRecord): void {
 		const cls = ["open-agent-tool-card"];
 		if (tc.mutates) cls.push("open-agent-tool-mutates");
 		if (tc.status === "ok") cls.push("open-agent-tool-ok");
+		if (tc.status === "running") cls.push("open-agent-tool-running");
 		if (tc.status === "error") cls.push("open-agent-tool-error");
 		if (tc.status === "denied") cls.push("open-agent-tool-denied");
 		if (tc.status === "awaiting-consent") cls.push("open-agent-tool-consent");
@@ -1231,9 +1422,12 @@ export class ChatView extends ItemView {
 		if (tc.status === "awaiting-consent") card.setAttribute("open", "");
 
 		const summary = card.createEl("summary", { cls: "open-agent-tool-summary" });
+		summary.createEl("span", { cls: "open-agent-tool-status-icon", text: toolStatusIcon(tc.status) });
 		summary.createEl("span", { cls: "open-agent-tool-name", text: tc.name });
 		summary.createEl("span", { cls: "open-agent-tool-args", text: summarizeArgs(tc.args) });
-		summary.createEl("span", { cls: "open-agent-tool-status", text: statusLabel(tc.status) });
+		if (tc.status === "awaiting-consent") {
+			summary.createEl("span", { cls: "open-agent-tool-status", text: "approval required" });
+		}
 
 		if (tc.status === "awaiting-consent") {
 			const diffArea = card.createDiv({ cls: "open-agent-consent-diff-area" });
@@ -1815,18 +2009,18 @@ function shortValue(v: unknown): string {
 	return "{…}";
 }
 
-function statusLabel(s: ToolCallRecord["status"]): string {
+function toolStatusIcon(s: ToolCallRecord["status"]): string {
 	switch (s) {
 		case "running":
-			return "running…";
+			return "◌";
 		case "awaiting-consent":
-			return "awaiting consent…";
+			return "⚠";
 		case "ok":
-			return "ok";
+			return "✓";
 		case "error":
-			return "error";
+			return "ⓧ";
 		case "denied":
-			return "denied";
+			return "ⓧ";
 	}
 }
 

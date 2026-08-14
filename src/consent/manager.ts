@@ -29,6 +29,29 @@ export class ConsentManager {
 		return this.sessionOverrides[category] ?? this.getSettings()[category];
 	}
 
+	/**
+	 * Change a permission for the lifetime of the current chat view.
+	 * This is the same session-scoped boundary used by the inline approval
+	 * action, so changing the composer control never rewrites plugin settings.
+	 */
+	setSessionMode(category: ToolCategory, mode: ConsentMode): void {
+		this.sessionOverrides[category] = mode;
+		if (!this.pending || this.pending.category !== category) return;
+
+		// If a write is already waiting for approval, changing the control to
+		// Full access should continue that write instead of leaving the stream
+		// apparently stuck behind an obsolete approval prompt.
+		if (mode === "always") {
+			const resolve = this.pending.resolve;
+			this.pending = null;
+			resolve("approve-session");
+		} else if (mode === "never") {
+			const resolve = this.pending.resolve;
+			this.pending = null;
+			resolve("reject");
+		}
+	}
+
 	resolveConsent(choice: ConsentChoice): void {
 		if (!this.pending) return;
 		const { resolve, category } = this.pending;

@@ -23,6 +23,8 @@ export interface RetrievalResult {
 const DEFAULT_NOTE_LIMIT = 8;
 const TOKEN_SPLIT_RE = /[^a-z0-9#/_-]+/i;
 const FRONTMATTER_RE = /^---\n[\s\S]*?\n---\n?/;
+// Generic English function words / low-signal verbs. Kept intentionally domain-neutral:
+// no dataset-specific terms (e.g. nobel/laureate) so retrieval works for any note corpus.
 const STOPWORDS = new Set([
 	"a",
 	"an",
@@ -67,9 +69,6 @@ const STOPWORDS = new Set([
 	"won",
 	"winner",
 	"winners",
-	"nobel",
-	"laureate",
-	"laureates",
 	"was",
 	"were",
 	"what",
@@ -79,7 +78,6 @@ const STOPWORDS = new Set([
 	"who",
 	"why",
 	"with",
-	"won",
 ]);
 
 export async function retrieveEvidence(
@@ -270,16 +268,13 @@ function computeBestLineBonus(content: string, queryTokens: string[]): number {
 function genericReferencePenalty(path: string): number {
 	const normalizedPath = normalizeSearchText(path);
 	if (normalizedPath.includes("list-of-")) return -18;
-	if (normalizedPath.includes("nobel-foundation")) return -10;
 	return 0;
 }
 
 function semanticQueryBonus(normalizedQuery: string, normalizedContent: string): number {
-	if (
-		normalizedQuery.includes("first") &&
-		normalizedContent.includes("first recipient") &&
-		normalizedContent.includes("nobel prize in physics")
-	) {
+	// When the query asks about "the first X", prefer content that explicitly
+	// identifies the first recipient/winner over incidental first mentions.
+	if (normalizedQuery.includes("first") && /first (recipient|winner|person to|one to|ever to)/.test(normalizedContent)) {
 		return 18;
 	}
 	return 0;

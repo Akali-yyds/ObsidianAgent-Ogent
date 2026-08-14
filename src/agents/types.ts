@@ -19,6 +19,7 @@ export interface AgentRunOptions {
 	consent?: ConsentManager;
 	systemPrompt?: string;
 	maxSteps?: number;
+	requireToolCall?: boolean;
 	responseFormat?: ResponseFormatConfig;
 }
 

@@ -8,6 +8,9 @@ import { OpenAgentSettingsTab, DEFAULT_SETTINGS, type PluginSettings } from "./s
 import { SessionStore, loadStoredTurnsFile, type SessionMeta, type StoredTurn } from "./sessions";
 import { ToolRegistry } from "./tools/registry";
 import { vaultTools } from "./tools/vault";
+import { communityPluginSearchTool } from "./tools/community/search";
+import { webSearchTool } from "./tools/web-search";
+import type { VaultContext } from "./context";
 import { CHAT_VIEW_TYPE, ChatView } from "./view";
 
 const SETTINGS_CHANGED_EVENT = "open-agent:settings-changed";
@@ -17,6 +20,7 @@ export default class OpenAgentPlugin extends Plugin {
 	sessionStore!: SessionStore;
 	private toolRegistry!: ToolRegistry;
 	private undo!: UndoBuffer;
+	private lastMarkdownPath: string | null = null;
 
 	async onload(): Promise<void> {
 		const sessionsDir = `${this.manifest.dir}/sessions`;
@@ -53,6 +57,11 @@ export default class OpenAgentPlugin extends Plugin {
 		});
 
 		await this.loadSettings();
+		this.lastMarkdownPath = this.findCurrentMarkdownFile()?.path ?? null;
+		this.registerEvent(this.app.workspace.on("active-leaf-change", (leaf) => {
+			const file = leaf ? this.fileFromLeaf(leaf) : null;
+			if (file) this.lastMarkdownPath = file.path;
+		}));
 		const recoveryIssues = this.sessionStore.getRecoveryIssues();
 		if (recoveryIssues.length === 1) {
 			new Notice(recoveryIssues[0].message);
@@ -64,6 +73,11 @@ export default class OpenAgentPlugin extends Plugin {
 		this.toolRegistry = new ToolRegistry();
 		this.undo = new UndoBuffer(50);
 		this.toolRegistry.registerAll(vaultTools(this.app, { undo: this.undo }));
+		this.toolRegistry.register(communityPluginSearchTool(this.app, { pluginDir: this.manifest.dir }));
+		this.toolRegistry.register(webSearchTool(() => ({
+			provider: this.settings.webSearchProvider,
+			apiKey: this.settings.webSearchApiKey,
+		})));
 
 		this.registerView(CHAT_VIEW_TYPE, (leaf: WorkspaceLeaf) => {
 			const consent = new ConsentManager(() => this.settings.consent);
@@ -75,6 +89,7 @@ export default class OpenAgentPlugin extends Plugin {
 				undo: this.undo,
 				sessionStore: this.sessionStore,
 				getPacks: () => this.getPacks(),
+				getCurrentContext: () => this.getCurrentContext(),
 				runPack: (pack, query, signal, onEvent) => this.runPack(pack, query, signal, onEvent),
 			});
 		});
@@ -196,11 +211,41 @@ export default class OpenAgentPlugin extends Plugin {
 			app: this.app,
 			pack,
 			query,
-			activeFilePath: this.app.workspace.getActiveFile()?.path,
+			activeFilePath: this.getCurrentContext().activeFilePath,
 			signal,
 			onEvent,
 			providerOverrides: this.settings.packProviderOverrides[pack.id],
 		});
+	}
+
+	private getCurrentContext(): VaultContext {
+		const file = this.findCurrentMarkdownFile();
+		if (!file) return { activeFilePath: null, activeFolderPath: null, activeFileName: null };
+		const slash = file.path.lastIndexOf("/");
+		return {
+			activeFilePath: file.path,
+			activeFolderPath: slash > 0 ? file.path.slice(0, slash) : null,
+			activeFileName: file.name,
+		};
+	}
+
+	private findCurrentMarkdownFile(): TFile | null {
+		const active = this.app.workspace.getActiveFile();
+		if (active) return active;
+		if (this.lastMarkdownPath) {
+			const remembered = this.app.vault.getAbstractFileByPath(this.lastMarkdownPath);
+			if (remembered instanceof TFile) return remembered;
+		}
+		for (const leaf of this.app.workspace.getLeavesOfType("markdown")) {
+			const file = this.fileFromLeaf(leaf);
+			if (file) return file;
+		}
+		return null;
+	}
+
+	private fileFromLeaf(leaf: WorkspaceLeaf): TFile | null {
+		const file = (leaf.view as unknown as { file?: unknown }).file;
+		return file instanceof TFile ? file : null;
 	}
 }
 

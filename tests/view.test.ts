@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import groundedResearchDefault from "../src/packs/defaults/grounded-research.json";
 import { DEFAULT_SETTINGS } from "../src/settings";
-import type { StoredPackTurnData } from "../src/sessions";
+import type { StoredPackTurnData, StoredTurn } from "../src/sessions";
 import { ChatView } from "../src/view";
 import {
 	MockElement,
@@ -47,6 +47,11 @@ function createDeps(activeSession: {
 			updateSelectedPack,
 		} as never,
 		getPacks: vi.fn(),
+		getCurrentContext: vi.fn(() => ({
+			activeFilePath: "参与项目介绍/合规经营法律智能服务技术研发.md",
+			activeFolderPath: "参与项目介绍",
+			activeFileName: "合规经营法律智能服务技术研发.md",
+		})),
 		runPack: vi.fn(),
 	};
 	return { deps, updateSelectedPack };
@@ -539,6 +544,107 @@ describe("ChatView pack UI", () => {
 		expect(findByClass(classicRow, "open-agent-pack-step")).toHaveLength(0);
 	});
 
+	it("renders interleaved thinking, answer text, and tool calls in the returned order", () => {
+		const app = createMockApp();
+		const { deps } = createDeps({
+			id: "session-a",
+			model: "gpt-4o-mini",
+			selectedPackId: null,
+			lastClassicModel: "gpt-4o-mini",
+		});
+		const view = new ChatView({ app } as never, deps);
+		const transcript = new MockElement("div");
+
+		(
+			view as unknown as {
+				transcriptEl: MockElement;
+				turns: unknown[];
+			}
+		).transcriptEl = transcript;
+		(
+			view as unknown as {
+				transcriptEl: MockElement;
+				turns: unknown[];
+			}
+		).turns = [{
+			role: "assistant",
+			content: "",
+			segments: [
+				{ kind: "thinking", text: "First thought" },
+				{ kind: "text", text: "First answer" },
+				{ kind: "tool", id: "call-1" },
+				{ kind: "thinking", text: "Second thought" },
+				{ kind: "text", text: "Final answer" },
+			],
+			toolCallMap: {
+				"call-1": {
+					id: "call-1",
+					name: "vault_read",
+					args: { path: "Notes/source.md" },
+					mutates: false,
+					status: "ok",
+					result: { ok: true, value: "source" },
+				},
+			},
+			thinking: false,
+		}];
+
+		(view as unknown as { renderTranscript(): void }).renderTranscript();
+
+		const row = transcript.children[0];
+		expect(row).toBeDefined();
+		expect(row?.children.map((child) => {
+			if (child.classList.contains("open-agent-thinking-segment")) return "thinking";
+			if (child.classList.contains("open-agent-turn-body")) return "text";
+			if (child.classList.contains("open-agent-tool-card")) return "tool";
+			return "other";
+		})).toEqual(["thinking", "text", "tool", "thinking", "text"]);
+
+		const firstThinking = row?.children[0];
+		expect(firstThinking?.children.some((child) => child.classList.contains("open-agent-tool-card"))).toBe(false);
+	});
+
+	it("restores persisted thinking and tool segments instead of flattening them to answer text", () => {
+		const app = createMockApp();
+		const { deps } = createDeps({
+			id: "session-a",
+			model: "gpt-4o-mini",
+			selectedPackId: null,
+			lastClassicModel: "gpt-4o-mini",
+		});
+		const view = new ChatView({ app } as never, deps);
+		const stored: StoredTurn[] = [{
+			role: "assistant",
+			content: "First answerFinal answer",
+			segments: [
+				{ kind: "thinking", text: "First thought" },
+				{ kind: "text", text: "First answer" },
+				{ kind: "tool", id: "call-1" },
+				{ kind: "thinking", text: "Second thought" },
+				{ kind: "text", text: "Final answer" },
+			],
+			toolCalls: [{
+				id: "call-1",
+				name: "vault_read",
+				args: { path: "Notes/source.md" },
+				mutates: false,
+				status: "ok",
+				result: { ok: true, value: "source" },
+			}],
+		}];
+
+		const uiTurns = (view as unknown as { storedToUiTurns(turns: StoredTurn[]): unknown[] }).storedToUiTurns(stored);
+		const roundTripped = (view as unknown as { uiToStoredTurns(turns: unknown[]): StoredTurn[] }).uiToStoredTurns(uiTurns);
+		expect(roundTripped).toEqual(stored);
+		expect((uiTurns[0] as { segments: unknown[] }).segments.map((segment) => (segment as { kind: string }).kind)).toEqual([
+			"thinking",
+			"text",
+			"tool",
+			"thinking",
+			"text",
+		]);
+	});
+
 	it("renders live pending states and failed-run missing data inside the step rows", () => {
 		const app = createMockApp();
 		const { deps } = createDeps({
@@ -928,6 +1034,10 @@ describe("ChatView pack UI", () => {
 		expect(agentWorkStyles).toContain("overflow-x: auto");
 		expect(agentWorkStyles).toContain("overflow-y: auto");
 		expect(agentWorkStyles).toContain("max-height: 30vh");
+		expect(agentWorkStyles).toContain(".open-agent-transcript");
+		expect(agentWorkStyles).toContain("-webkit-user-select: text");
+		expect(agentWorkStyles).toContain(".open-agent-thinking-segment-summary");
+		expect(agentWorkStyles).toContain("user-select: none");
 	});
 
 	it("shows a recovery banner when the active session was restored from corrupt history", () => {

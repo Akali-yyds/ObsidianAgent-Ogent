@@ -41,6 +41,7 @@ export interface ResponseFormatConfig {
 export interface StreamOptions {
 	signal?: AbortSignal;
 	tools?: OpenAiToolSpec[];
+	toolChoice?: "auto" | "required";
 	responseFormat?: ResponseFormatConfig;
 }
 

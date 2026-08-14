@@ -49,6 +49,7 @@ export interface ExecuteAgentLoopOptions {
 	tools?: ToolRegistry;
 	consent?: ConsentManager;
 	maxSteps?: number;
+	requireToolCall?: boolean;
 	responseFormat?: ResponseFormatConfig;
 }
 
@@ -73,9 +74,10 @@ async function* executeAgentLoop(
 		let assistantText = "";
 
 		for await (const ev of opts.provider.stream(messages, {
-			signal: opts.signal,
-			tools: useTools ? toolsApi?.toApiSpec() : undefined,
-			responseFormat: opts.responseFormat,
+				signal: opts.signal,
+				tools: useTools ? toolsApi?.toApiSpec() : undefined,
+				toolChoice: useTools && step === 0 && opts.requireToolCall ? "required" : undefined,
+				responseFormat: opts.responseFormat,
 		})) {
 			if (opts.signal?.aborted) return;
 			if (ev.kind === "text") {

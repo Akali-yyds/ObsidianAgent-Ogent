@@ -1,9 +1,44 @@
+/* ── Visual tokens ─────────────────────────────────────────────
+   Keep everything on Obsidian's native variables so the agent panel
+   tracks the active theme (light/dark) automatically. */
 .open-agent-view {
 	display: flex;
 	flex-direction: column;
 	height: 100%;
-	gap: 0.5rem;
-	padding: 0.5rem;
+	min-height: 0;
+	gap: 0.3rem;
+	margin: 0;
+	padding: 0.25rem 0.5rem 0;
+	min-width: 280px;
+	box-sizing: border-box;
+	/* Force dark form controls (native <select> dropdowns) to match dark themes. */
+	color-scheme: dark;
+	--oa-bg-page: var(--background-primary);
+	--oa-bg-panel: var(--background-secondary);
+	--oa-bg-hover: var(--background-modifier-hover);
+	--oa-bg-active: var(--background-modifier-active, var(--background-modifier-hover));
+	--oa-border: var(--background-modifier-border);
+	--oa-border-strong: var(--background-modifier-border-hover, var(--background-modifier-border));
+	--oa-text: var(--text-normal);
+	--oa-text-sub: var(--text-muted);
+	--oa-text-faint: var(--text-faint);
+	--oa-accent: var(--interactive-accent);
+}
+/* Obsidian gives .view-content a default bottom padding (--file-margins). Depending
+   on the runtime DOM it lands on this element or its parent, so zero it out either
+   way so the status bar sits flush against the window bottom. !important wins over
+   Obsidian's higher-specificity core rules. */
+.open-agent-view > .open-agent-composer,
+.open-agent-view > .open-agent-statusbar {
+	padding-bottom: 0;
+	margin-bottom: 0;
+}
+.view-content:has(> .open-agent-view) {
+	padding-bottom: 0 !important;
+}
+/* Light themes: keep the dropdown dark regardless of active theme for a consistent IDE feel. */
+.theme-light .open-agent-view {
+	color-scheme: dark;
 }
 
 .open-agent-hint {
@@ -28,59 +63,154 @@
 	overflow-y: auto;
 	display: flex;
 	flex-direction: column;
-	gap: 0.75rem;
-	padding-right: 0.25rem;
+	gap: 0.9rem;
+	padding: 0.5rem 0.15rem;
 }
 
+/* ─── Start Over / empty state ─────────────────────────────── */
+.open-agent-empty-hint {
+	align-self: center;
+	margin: auto 0;
+	font-size: var(--font-ui-small);
+	color: var(--text-faint);
+	text-align: center;
+	padding: 1rem;
+}
+
+/* ─── Turns ────────────────────────────────────────────────── */
 .open-agent-turn {
 	display: flex;
 	flex-direction: column;
-	gap: 0.4rem;
-	padding: 0.5rem 0.75rem;
-	border-radius: 6px;
-	background: var(--background-secondary);
+	gap: 0.3rem;
+	width: 100%;
 }
-.open-agent-turn-user { background: var(--background-modifier-hover); }
-.open-agent-turn-role {
-	font-size: var(--font-ui-smaller);
-	color: var(--text-muted);
-	text-transform: uppercase;
-	letter-spacing: 0.05em;
+
+/* User messages: compact right-aligned bubble, no full-width card */
+.open-agent-turn-user {
+	align-self: flex-end;
+	width: fit-content;
+	max-width: 75%;
 }
-.open-agent-turn-body { word-break: break-word; }
+.open-agent-turn-user .open-agent-turn-body {
+	background: var(--oa-bg-hover);
+	border-radius: 10px;
+	padding: 5px 9px;
+	white-space: pre-wrap;
+	word-break: break-word;
+	font-size: 13.5px;
+	line-height: 1.45;
+	color: var(--oa-text);
+}
+
+/* Edit button appears on bubble hover only */
+.open-agent-turn-user {
+	position: relative;
+}
+.open-agent-turn-user .open-agent-turn-edit-btn {
+	position: absolute;
+	top: 0;
+	left: -1.6rem;
+	opacity: 0;
+	transition: opacity 120ms ease;
+}
+.open-agent-turn-user:hover .open-agent-turn-edit-btn {
+	opacity: 0.6;
+}
+.open-agent-turn-user .open-agent-turn-edit-btn:hover {
+	opacity: 1;
+}
+
+.open-agent-turn-body { word-break: break-word; color: var(--oa-text); }
 /* User turns stay as plain pre-wrapped text; assistant turns use Obsidian markdown styles */
-.open-agent-turn-user .open-agent-turn-body { white-space: pre-wrap; }
 .open-agent-turn-assistant .open-agent-turn-body { white-space: normal; }
-.open-agent-turn-assistant .open-agent-turn-body p { margin: 0.3em 0; }
-.open-agent-turn-assistant .open-agent-turn-body p:first-child { margin-top: 0; }
+.open-agent-turn-assistant .open-agent-turn-body { font-size: 13.5px; line-height: 1.6; }
+.open-agent-turn-assistant .open-agent-turn-body p { margin: 0 0 8px; }
 .open-agent-turn-assistant .open-agent-turn-body p:last-child { margin-bottom: 0; }
+.open-agent-turn-assistant .open-agent-turn-body p + p { margin-top: 6px; }
 .open-agent-turn-assistant .open-agent-turn-body pre { margin: 0.4em 0; overflow-x: auto; }
 .open-agent-turn-assistant .open-agent-turn-body ul,
-.open-agent-turn-assistant .open-agent-turn-body ol { padding-left: 1.5em; margin: 0.3em 0; }
+.open-agent-turn-assistant .open-agent-turn-body ol { padding-left: 1.4em; margin: 0.3em 0; }
+.open-agent-turn-assistant .open-agent-turn-body li { margin: 0.15em 0; }
 
-/* Active thinking indicator (while turn is in-flight) */
-.open-agent-turn-thinking-wrap {
+/* ─── Reasoning / Thinking block ───────────────────────────── */
+.open-agent-thinking-block {
 	display: flex;
-	flex-direction: row;
-	align-items: center;
-	gap: 0.5rem;
+	flex-direction: column;
+	gap: 0.35rem;
+	margin-bottom: 0.15rem;
 }
-.open-agent-turn-thinking-label {
+.open-agent-thinking-status {
+	display: flex;
+	align-items: center;
+	gap: 0.45rem;
+	color: var(--text-faint);
+	font-size: 11px;
+}
+.open-agent-thinking-chevron {
+	font-style: normal;
+	font-size: 0.75em;
+	color: var(--text-faint);
+}
+.open-agent-thinking-label {
 	color: var(--text-muted);
-	font-size: var(--font-ui-small);
-	font-style: italic;
+	font-size: 11px;
 	animation: open-agent-thinking-pulse 2s ease-in-out infinite;
 }
-.open-agent-turn-thinking-dots {
+.open-agent-thinking-block.is-done .open-agent-thinking-label {
+	animation: none;
+	color: var(--text-muted);
+	font-weight: 500;
+}
+.open-agent-thinking-toggle {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.35rem;
+	background: none;
+	border: none;
+	padding: 0;
+	cursor: pointer;
+	width: fit-content;
+	color: var(--text-muted);
+}
+.open-agent-thinking-toggle:hover .open-agent-thinking-label {
+	color: var(--text-normal);
+}
+.open-agent-thinking-meta {
+	color: var(--text-faint);
+	font-size: 11px;
+	font-style: italic;
+}
+.open-agent-thinking-details {
 	display: flex;
+	flex-direction: column;
+	gap: 0.4rem;
+}
+.open-agent-thinking-content {
+	font-size: var(--font-ui-small);
+	color: var(--text-faint);
+	white-space: pre-wrap;
+	border-left: 1px solid var(--background-modifier-border);
+	padding: 0.2rem 0.6rem;
+	margin-left: 0.15rem;
+	line-height: 1.55;
+}
+.open-agent-thinking-live-tools {
+	display: flex;
+	flex-direction: column;
+	gap: 0.25rem;
+}
+
+/* Thinking dots (active animation) */
+.open-agent-turn-thinking-dots {
+	display: inline-flex;
 	align-items: center;
 	gap: 0.2rem;
 }
 .open-agent-turn-thinking-dot {
-	width: 5px;
-	height: 5px;
+	width: 4px;
+	height: 4px;
 	border-radius: 50%;
-	background: var(--text-muted);
+	background: var(--text-faint);
 	animation: open-agent-thinking-bounce 1.2s ease-in-out infinite;
 }
 .open-agent-turn-thinking-dot:nth-child(2) { animation-delay: 0.2s; }
@@ -93,71 +223,298 @@
 	0%, 100% { opacity: 0.6; }
 	50% { opacity: 1; }
 }
-
-/* Collapsible thoughts block (after turn completes, model had reasoning) */
-.open-agent-turn-thoughts-wrap {
-	display: flex;
-	flex-direction: column;
-	gap: 0.3rem;
-}
-.open-agent-turn-thoughts-toggle {
-	display: inline-flex;
-	align-items: center;
-	gap: 0.3rem;
-	background: none;
-	border: none;
-	padding: 0;
-	cursor: pointer;
-	color: var(--text-muted);
-	font-size: var(--font-ui-small);
-	font-style: italic;
-}
-.open-agent-turn-thoughts-toggle:hover {
-	color: var(--text-normal);
-}
-.open-agent-turn-thinking-chevron {
-	font-style: normal;
-	font-size: 0.7em;
-}
-.open-agent-turn-thoughts-content {
-	font-size: var(--font-ui-small);
-	color: var(--text-muted);
-	white-space: pre-wrap;
-	padding: 0.4rem 0.6rem;
-	border-left: 2px solid var(--background-modifier-border);
-	margin-left: 0.2rem;
-}
 .open-agent-turn-meta {
 	font-size: var(--font-ui-smaller);
-	color: var(--text-muted);
+	color: var(--text-faint);
 	font-style: italic;
 }
-.open-agent-turn-error { font-size: var(--font-ui-small); color: var(--text-error); }
-.open-agent-turn-error a { color: var(--interactive-accent); cursor: pointer; }
 
-.open-agent-composer { display: flex; flex-direction: column; gap: 0.5rem; flex-shrink: 0; }
+/* Lightweight error card */
+.open-agent-turn-error {
+	display: flex;
+	align-items: flex-start;
+	gap: 0.4rem;
+	font-size: var(--font-ui-small);
+	color: var(--text-error);
+	border: 1px solid var(--background-modifier-border);
+	border-left: 3px solid var(--text-error);
+	background: var(--background-secondary);
+	border-radius: 6px;
+	padding: 0.4rem 0.55rem;
+	width: fit-content;
+	max-width: 100%;
+	line-height: 1.4;
+}
+.open-agent-turn-error-icon { flex-shrink: 0; line-height: 1.3; }
+.open-agent-turn-error-text { word-break: break-word; }
+.open-agent-turn-error-text a { color: var(--interactive-accent); cursor: pointer; }
+.open-agent-turn-error-actions { margin-left: auto; flex-shrink: 0; display: flex; align-items: center; }
+.open-agent-turn-error-actions .open-agent-icon-btn { font-size: 11px; padding: 0.1rem 0.35rem; opacity: 0.7; }
+.open-agent-turn-error-actions .open-agent-icon-btn:hover { opacity: 1; }
+
+/* ─── Composer ─────────────────────────────────────────────── */
+.open-agent-composer {
+	display: flex;
+	flex-direction: column;
+	gap: 0.1rem;
+	flex-shrink: 0;
+	margin: 0;
+	border: 1px solid var(--oa-border);
+	border-radius: 8px;
+	background: var(--oa-bg-panel);
+	padding: 0.3rem 0.45rem 0.25rem;
+	transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+.open-agent-composer:focus-within {
+	border-color: var(--oa-accent);
+	box-shadow: 0 0 0 1px var(--oa-accent);
+	opacity: 1;
+}
+.open-agent-composer.is-busy {
+	border-color: var(--oa-border);
+	box-shadow: none;
+}
 .open-agent-input {
 	width: 100%;
-	resize: vertical;
-	font-family: inherit;
-	font-size: var(--font-ui-medium);
+	resize: none;
+	font-family: var(--font-interface);
+	font-size: 13.5px;
+	background: transparent !important;
+	border: none !important;
+	outline: none !important;
+	box-shadow: none !important;
+	padding: 0.1rem 0.1rem 0.15rem;
+	min-height: 1.3em;
+	max-height: 30vh;
+	line-height: 1.5;
+	color: var(--oa-text);
 }
+.open-agent-input::placeholder {
+	color: var(--oa-text-faint);
+}
+.open-agent-input:focus {
+	border: none !important;
+	outline: none !important;
+	box-shadow: none !important;
+}
+.open-agent-composer-toolbar {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 0.5rem;
+	margin-top: 0.1rem;
+	padding-top: 0.15rem;
+	border-top: 1px solid transparent;
+}
+.open-agent-composer-selectors {
+	display: flex;
+	align-items: center;
+	gap: 0.15rem;
+	min-width: 0;
+}
+/* Model select as a subtle chip-button, not a form field */
+.open-agent-model-wrap {
+	display: inline-flex;
+	align-items: center;
+	max-width: 150px;
+}
+.open-agent-mode-select,
+.open-agent-model-input {
+	font-size: 11px;
+	font-weight: 500;
+	color: var(--oa-text-sub);
+	background: transparent !important;
+	border: none !important;
+	outline: none !important;
+	box-shadow: none !important;
+	padding: 0.15rem 0.25rem;
+	max-width: 140px;
+	cursor: pointer;
+	border-radius: 4px;
+	appearance: none;
+	-webkit-appearance: none;
+}
+.open-agent-mode-select:hover,
+.open-agent-model-input:hover {
+	background: var(--oa-bg-hover);
+	color: var(--oa-text);
+}
+.open-agent-mode-select option,
+.open-agent-model-input option {
+	background: var(--oa-bg-panel);
+	color: var(--oa-text);
+}
+.open-agent-composer-actions {
+	display: flex;
+	align-items: center;
+	gap: 0.15rem;
+}
+.open-agent-send-btn {
+	font-size: 15px;
+	font-weight: 600;
+	line-height: 1;
+	width: 26px;
+	height: 26px;
+}
+.open-agent-stop-btn {
+	font-size: 13px;
+	line-height: 1;
+	width: 26px;
+	height: 26px;
+}
+.open-agent-composer.is-busy .open-agent-send-btn { display: none; }
+.open-agent-composer:not(.is-busy) .open-agent-stop-btn { display: none; }
+.open-agent-send-btn:disabled { color: var(--oa-text-faint); cursor: default; }
+.open-agent-stop-btn:disabled { color: var(--oa-text-faint); cursor: default; }
+
+/* ─── Status bar ───────────────────────────────────────────── */
+.open-agent-statusbar {
+	flex-shrink: 0;
+	display: flex;
+	align-items: center;
+	gap: 0.4rem;
+	font-size: 11px;
+	color: var(--oa-text-faint);
+	height: 20px;
+	padding: 0 0.2rem;
+	margin-bottom: 0;
+	border-top: none;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+/* ─── Header / toolbar ─────────────────────────────────────── */
+.open-agent-header {
+	display: flex;
+	flex-direction: column;
+	gap: 0;
+	flex-shrink: 0;
+	border-bottom: 1px solid var(--background-modifier-border);
+	padding-bottom: 0.2rem;
+}
+
+.open-agent-toolbar {
+	display: flex;
+	align-items: center;
+	gap: 0.1rem;
+	min-height: 36px;
+	padding: 0.15rem 0.05rem;
+}
+
+.open-agent-session-title {
+	font-size: var(--font-ui-small);
+	font-weight: 600;
+	cursor: pointer;
+	padding: 2px 6px;
+	border-radius: 4px;
+	max-width: 180px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	border: 1px solid transparent;
+	color: var(--oa-text);
+}
+.open-agent-session-title:hover {
+	background: var(--oa-bg-hover);
+	border-color: var(--oa-border);
+}
+
+.open-agent-toolbar-spacer { flex: 1; }
+
+.open-agent-session-rename {
+	font-size: var(--font-ui-small);
+	width: 140px;
+	height: 26px;
+}
+
+.open-agent-icon-btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 28px;
+	height: 28px;
+	padding: 0;
+	border: none;
+	background: none;
+	color: var(--text-muted);
+	font-size: var(--font-ui-small);
+	cursor: pointer;
+	border-radius: 5px;
+	flex-shrink: 0;
+	transition: background-color 120ms ease, color 120ms ease;
+}
+.open-agent-icon-btn:hover {
+	background: var(--oa-bg-hover);
+	color: var(--oa-text);
+}
+.open-agent-icon-btn.mod-cta {
+	background: var(--oa-accent);
+	color: var(--text-on-accent);
+}
+.open-agent-icon-btn.mod-cta:hover {
+	background: var(--interactive-accent-hover);
+	color: var(--text-on-accent);
+}
+
+/* Session menu */
+.open-agent-menu {
+	position: absolute;
+	z-index: 100;
+	right: 0.5rem;
+	top: 2rem;
+	min-width: 140px;
+	background: var(--oa-bg-panel);
+	border: 1px solid var(--oa-border);
+	border-radius: 6px;
+	box-shadow: var(--shadow-s);
+	padding: 0.2rem;
+	display: flex;
+	flex-direction: column;
+	gap: 0.1rem;
+}
+.open-agent-menu-item {
+	text-align: left;
+	font-size: var(--font-ui-small);
+	padding: 0.3rem 0.5rem;
+	border: none;
+	background: none;
+	cursor: pointer;
+	border-radius: 4px;
+	color: var(--oa-text);
+}
+.open-agent-menu-item:hover { background: var(--oa-bg-hover); }
+.open-agent-menu-item-danger { color: var(--text-error); }
+
 .open-agent-buttons { display: flex; gap: 0.5rem; justify-content: flex-end; }
 
-/* Tool cards */
+/* Tool events */
 .open-agent-tool-card {
 	border: 1px solid var(--background-modifier-border);
 	border-radius: 4px;
-	padding: 0.25rem 0.5rem;
-	background: var(--background-primary);
+	padding: 0.15rem 0.4rem;
+	background: transparent;
 	font-size: var(--font-ui-small);
+	width: fit-content;
+	max-width: 100%;
 }
 .open-agent-tool-summary {
 	display: flex;
-	gap: 0.5rem;
+	gap: 0.45rem;
 	align-items: baseline;
 	cursor: pointer;
 }
+.open-agent-tool-status-icon {
+	width: 1em;
+	flex-shrink: 0;
+	text-align: center;
+	font-style: normal;
+}
+.open-agent-tool-card.open-agent-tool-ok .open-agent-tool-status-icon { color: var(--color-green); }
+.open-agent-tool-card.open-agent-tool-running .open-agent-tool-status-icon { color: var(--interactive-accent); }
+.open-agent-tool-card.open-agent-tool-error .open-agent-tool-status-icon,
+.open-agent-tool-card.open-agent-tool-denied .open-agent-tool-status-icon { color: var(--text-error); }
+.open-agent-tool-card.open-agent-tool-consent .open-agent-tool-status-icon { color: #d8a13c; }
 .open-agent-tool-name { font-weight: 600; }
 .open-agent-tool-args { color: var(--text-muted); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .open-agent-tool-status {
@@ -183,6 +540,7 @@
 }
 .open-agent-tool-mutates { border-color: #d8a13c; }
 .open-agent-tool-ok { border-color: var(--color-green); }
+.open-agent-tool-running { border-color: var(--interactive-accent); }
 .open-agent-tool-error { border-color: var(--color-red); }
 .open-agent-tool-denied { border-color: var(--text-muted); opacity: 0.8; }
 .open-agent-tool-consent { border-color: var(--interactive-accent); }
@@ -252,74 +610,10 @@
 .open-agent-header {
 	display: flex;
 	flex-direction: column;
-	gap: 0.3rem;
-	padding-bottom: 0.4rem;
-	border-bottom: 1px solid var(--background-modifier-border);
-}
-
-.open-agent-session-bar {
-	display: flex;
-	align-items: center;
-	gap: 0.4rem;
-	flex-wrap: wrap;
-}
-
-.open-agent-session-title {
-	font-size: var(--font-ui-medium);
-	font-weight: 600;
-	cursor: pointer;
-	padding: 2px 6px;
-	border-radius: 3px;
-	max-width: 200px;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-	border: 1px solid transparent;
-}
-.open-agent-session-title:hover {
-	background: var(--background-modifier-hover);
-	border-color: var(--background-modifier-border);
-}
-
-.open-agent-session-rename {
-	font-size: var(--font-ui-small);
-	width: 160px;
-}
-
-
-.open-agent-session-new,
-.open-agent-session-delete {
-	font-size: var(--font-ui-smaller);
-}
-
-.open-agent-model-bar {
-	display: flex;
-	align-items: center;
-	gap: 0.4rem;
-}
-
-.open-agent-model-label {
-	font-size: var(--font-ui-smaller);
-	color: var(--text-muted);
-	white-space: nowrap;
-}
-
-.open-agent-model-input {
-	font-size: var(--font-ui-small);
-	flex: 1;
-	min-width: 0;
-}
-
-.open-agent-mode-bar {
-	display: flex;
-	align-items: center;
-	gap: 0.4rem;
-}
-
-.open-agent-mode-select {
-	font-size: var(--font-ui-small);
-	flex: 1;
-	min-width: 0;
+	gap: 0.2rem;
+	padding-bottom: 0.15rem;
+	flex-shrink: 0;
+	position: relative;
 }
 
 .open-agent-pack-summary {
@@ -742,17 +1036,12 @@
 }
 
 /* Session toggle + panel */
-.open-agent-sessions-toggle {
-	font-size: var(--font-ui-small);
-	padding: 0 0.4rem;
-}
-
 .open-agent-sessions-panel {
-	border: 1px solid var(--background-modifier-border);
-	border-radius: 4px;
-	background: var(--background-primary);
-	padding: 0.4rem;
-	margin-top: 0.3rem;
+	border: 1px solid var(--oa-border);
+	border-radius: 6px;
+	background: var(--oa-bg-panel);
+	padding: 0.3rem;
+	margin-top: 0.2rem;
 	display: flex;
 	flex-direction: column;
 	gap: 0.3rem;
@@ -761,6 +1050,7 @@
 .open-agent-sessions-search {
 	width: 100%;
 	font-size: var(--font-ui-small);
+	height: 26px;
 }
 
 .open-agent-sessions-list {
@@ -776,13 +1066,15 @@
 	align-items: center;
 	gap: 0.4rem;
 	padding: 0.3rem 0.5rem;
-	border-radius: 3px;
+	border-radius: 4px;
 	cursor: pointer;
 	font-size: var(--font-ui-small);
+	color: var(--oa-text-sub);
 }
-.open-agent-session-item:hover { background: var(--background-modifier-hover); }
+.open-agent-session-item:hover { background: var(--oa-bg-hover); color: var(--oa-text); }
 .open-agent-session-item-active {
-	background: var(--background-modifier-hover);
+	background: var(--oa-bg-active);
+	color: var(--oa-text);
 	font-weight: 600;
 }
 .open-agent-session-item-title {
@@ -796,23 +1088,15 @@
 	width: 7px;
 	height: 7px;
 	border-radius: 50%;
-	background: var(--interactive-accent);
+	background: var(--oa-accent);
 	animation: open-agent-blink 1.2s step-start infinite;
 }
 
 .open-agent-sessions-empty {
 	font-size: var(--font-ui-smaller);
-	color: var(--text-muted);
+	color: var(--oa-text-faint);
 	padding: 0.25rem 0.5rem;
 	font-style: italic;
-}
-
-/* User turn header row */
-.open-agent-turn-header-row {
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	gap: 0.5rem;
 }
 
 /* Edit / retry */
@@ -824,6 +1108,24 @@
 	flex-shrink: 0;
 }
 .open-agent-turn-edit-btn:hover { opacity: 1; }
+
+/* Retry button floats at the top-right of an errored assistant turn */
+.open-agent-turn {
+	position: relative;
+}
+.open-agent-turn-retry-btn {
+	position: absolute;
+	top: 0;
+	right: 0.15rem;
+	opacity: 0;
+	transition: opacity 120ms ease;
+}
+.open-agent-turn:hover .open-agent-turn-retry-btn {
+	opacity: 0.6;
+}
+.open-agent-turn .open-agent-turn-retry-btn:hover {
+	opacity: 1;
+}
 
 .open-agent-turn-edit-area {
 	width: 100%;
@@ -839,4 +1141,972 @@
 	gap: 0.5rem;
 	justify-content: flex-end;
 	margin-top: 0.25rem;
+}
+
+/* ─── Codex-like conversation polish ────────────────────────────────
+   Keep the existing Obsidian-native layout, but give the chat a calmer
+   hierarchy: messages are the focus, reasoning is a quiet status line, and
+   the composer reads as one continuous control surface. */
+.open-agent-view {
+	gap: 0;
+	padding: 0 0.7rem 0.45rem;
+	color-scheme: light dark;
+	--oa-composer-bg: color-mix(in srgb, var(--background-secondary) 88%, var(--background-primary));
+	--oa-composer-hover: color-mix(in srgb, var(--background-modifier-hover) 72%, transparent);
+	--oa-composer-border: color-mix(in srgb, var(--background-modifier-border) 78%, transparent);
+	--oa-radius-lg: 16px;
+}
+
+.theme-light .open-agent-view { color-scheme: light; }
+
+.open-agent-hint {
+	font-size: 11px;
+	padding: 0.35rem 0.1rem 0.1rem;
+	min-height: 0;
+}
+
+.open-agent-header {
+	border-bottom: 0;
+	padding: 0.15rem 0 0.25rem;
+	background: transparent;
+}
+
+.open-agent-toolbar {
+	min-height: 38px;
+	padding: 0;
+	gap: 0.2rem;
+}
+
+.open-agent-session-title {
+	font-size: 12px;
+	font-weight: 600;
+	letter-spacing: -0.01em;
+	padding: 0.3rem 0.45rem;
+}
+
+.open-agent-toolbar .open-agent-icon-btn {
+	width: 30px;
+	height: 30px;
+	border-radius: 8px;
+	color: var(--oa-text-sub);
+}
+
+.open-agent-toolbar .open-agent-icon-btn:hover {
+	background: var(--oa-composer-hover);
+}
+
+.open-agent-transcript {
+	gap: 1.15rem;
+	padding: 0.7rem 0.15rem 1rem;
+	scroll-behavior: smooth;
+}
+
+.open-agent-turn {
+	gap: 0.45rem;
+}
+
+.open-agent-turn-user {
+	max-width: min(82%, 720px);
+}
+
+.open-agent-turn-user .open-agent-turn-body {
+	border: 1px solid color-mix(in srgb, var(--oa-border) 54%, transparent);
+	border-radius: 15px;
+	background: color-mix(in srgb, var(--background-secondary) 72%, transparent);
+	padding: 0.55rem 0.78rem;
+	font-size: 13px;
+	line-height: 1.5;
+}
+
+.open-agent-turn-assistant .open-agent-turn-body {
+	font-size: 13.5px;
+	line-height: 1.62;
+	max-width: 100%;
+}
+
+.open-agent-turn-assistant .open-agent-turn-body p {
+	margin: 0 0 0.65rem;
+}
+
+.open-agent-turn-assistant .open-agent-turn-body p:last-child {
+	margin-bottom: 0;
+}
+
+/* Thinking is a status row while active, and a quiet disclosure after
+   completion. Neither state should look like a primary action button. */
+.open-agent-thinking-block {
+	gap: 0.5rem;
+	margin: 0 0 0.15rem;
+	padding-left: 0.05rem;
+}
+
+.open-agent-thinking-status,
+.open-agent-thinking-toggle {
+	min-height: 38px;
+	gap: 0.55rem;
+	border: 1px solid color-mix(in srgb, var(--oa-border) 82%, transparent);
+	border-radius: 11px;
+	background: color-mix(in srgb, var(--background-secondary) 78%, var(--background-primary));
+	padding: 0.42rem 0.62rem;
+	font-size: 11px;
+	line-height: 1.25;
+	box-shadow: 0 2px 10px color-mix(in srgb, #000 10%, transparent);
+}
+
+.open-agent-thinking-status {
+	display: inline-flex;
+	width: min(100%, 560px);
+	cursor: default;
+}
+
+.open-agent-thinking-surface {
+	color: var(--oa-text-sub);
+	box-sizing: border-box;
+	width: min(100%, 560px);
+	transition: border-color 160ms ease, background-color 160ms ease, box-shadow 160ms ease, color 160ms ease;
+}
+
+.open-agent-thinking-surface-active {
+	animation: open-agent-thinking-breathe 2.4s ease-in-out infinite;
+}
+
+.open-agent-thinking-surface-complete:hover {
+	background: color-mix(in srgb, var(--background-modifier-hover) 78%, var(--background-secondary));
+	border-color: color-mix(in srgb, var(--oa-accent) 30%, var(--oa-border));
+	color: var(--oa-text);
+}
+
+.open-agent-thinking-label {
+	font-size: 11px;
+	font-weight: 500;
+	letter-spacing: 0;
+	animation: none;
+}
+
+.open-agent-thinking-card-icon {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	flex: 0 0 auto;
+	width: 21px;
+	height: 21px;
+	border-radius: 6px;
+	background: color-mix(in srgb, var(--background-primary) 72%, var(--background-secondary));
+	color: var(--oa-text-sub);
+	font-size: 11px;
+	font-weight: 600;
+}
+
+.open-agent-thinking-surface-active .open-agent-thinking-card-icon {
+	color: var(--oa-text);
+	animation: open-agent-thinking-icon-breathe 2.4s ease-in-out infinite;
+}
+
+.open-agent-thinking-card-icon + .open-agent-thinking-chevron {
+	margin-left: -0.3rem;
+}
+
+.open-agent-thinking-meta {
+	font-size: 10.5px;
+	font-style: normal;
+	color: var(--oa-text-faint);
+}
+
+.open-agent-thinking-spinner {
+	width: 11px;
+	height: 11px;
+	border: 1.5px solid color-mix(in srgb, var(--oa-accent) 28%, transparent);
+	border-top-color: var(--oa-accent);
+	border-radius: 50%;
+	animation: open-agent-thinking-spin 800ms linear infinite;
+}
+
+.open-agent-thinking-block.is-done .open-agent-thinking-spinner {
+	display: none;
+}
+
+.open-agent-thinking-chevron {
+	font-size: 10px;
+	line-height: 1;
+	color: var(--oa-text-faint);
+}
+
+.open-agent-thinking-details {
+	gap: 0.55rem;
+	margin: 0.05rem 0 0.1rem 0.35rem;
+	padding: 0.25rem 0 0.25rem 0.75rem;
+	border-left: 1px solid color-mix(in srgb, var(--oa-border) 72%, transparent);
+}
+
+.open-agent-thinking-content {
+	border-left: 0;
+	margin-left: 0;
+	padding: 0;
+	font-size: 11px;
+	line-height: 1.55;
+	color: var(--oa-text-faint);
+}
+
+.open-agent-thinking-live-tools,
+.open-agent-thinking-details {
+	max-width: 100%;
+}
+
+@keyframes open-agent-thinking-spin {
+	to { transform: rotate(360deg); }
+}
+
+@keyframes open-agent-thinking-breathe {
+	0%, 100% {
+		border-color: color-mix(in srgb, var(--oa-border) 82%, transparent);
+		background: color-mix(in srgb, var(--background-secondary) 78%, var(--background-primary));
+		box-shadow: 0 2px 10px color-mix(in srgb, #000 10%, transparent);
+	}
+	50% {
+		border-color: color-mix(in srgb, var(--oa-text-muted, var(--text-muted)) 42%, var(--oa-border));
+		background: color-mix(in srgb, var(--background-secondary) 90%, var(--background-primary));
+		box-shadow: 0 3px 14px color-mix(in srgb, #fff 7%, transparent);
+	}
+}
+
+@keyframes open-agent-thinking-icon-breathe {
+	0%, 100% { color: var(--oa-text-faint); transform: scale(0.96); }
+	50% { color: var(--oa-text); transform: scale(1); }
+}
+
+/* Tool cards sit inside the reasoning rail rather than competing with the
+   assistant answer. */
+.open-agent-tool-card {
+	width: min(100%, 520px);
+	border-color: color-mix(in srgb, var(--oa-border) 76%, transparent);
+	border-radius: 8px;
+	background: color-mix(in srgb, var(--background-secondary) 46%, transparent);
+	padding: 0.28rem 0.5rem;
+	font-size: 11px;
+}
+
+.open-agent-tool-summary {
+	gap: 0.4rem;
+	min-height: 19px;
+}
+
+/* Composer */
+.open-agent-composer {
+	gap: 0.35rem;
+	margin: 0.15rem 0 0;
+	border: 1px solid var(--oa-composer-border);
+	border-radius: var(--oa-radius-lg);
+	background: var(--oa-composer-bg);
+	box-shadow: 0 7px 24px color-mix(in srgb, #000 16%, transparent);
+	padding: 0.62rem 0.7rem 0.48rem;
+	transition: border-color 140ms ease, box-shadow 140ms ease, background-color 140ms ease;
+}
+
+.open-agent-composer:focus-within {
+	border-color: color-mix(in srgb, var(--oa-accent) 58%, var(--oa-composer-border));
+	box-shadow: 0 0 0 2px color-mix(in srgb, var(--oa-accent) 13%, transparent), 0 7px 24px color-mix(in srgb, #000 16%, transparent);
+}
+
+.open-agent-input-shell {
+	min-height: 1.4rem;
+}
+
+.open-agent-input {
+	min-height: 1.4rem;
+	max-height: 28vh;
+	padding: 0.05rem 0.1rem 0.18rem;
+	font-size: 13.5px;
+	line-height: 1.5;
+}
+
+.open-agent-input::placeholder {
+	color: color-mix(in srgb, var(--oa-text-faint) 88%, transparent);
+}
+
+.open-agent-composer-toolbar {
+	margin-top: 0.1rem;
+	padding-top: 0.2rem;
+	border-top: 1px solid color-mix(in srgb, var(--oa-border) 28%, transparent);
+}
+
+.open-agent-composer-selectors {
+	gap: 0.3rem;
+	min-width: 0;
+}
+
+.open-agent-selector-pill {
+	display: inline-flex;
+	position: relative;
+	align-items: center;
+	min-width: 0;
+	border-radius: 8px;
+	color: var(--oa-text-sub);
+	transition: background-color 120ms ease, color 120ms ease;
+}
+
+.open-agent-selector-pill:hover,
+.open-agent-selector-pill:focus-within {
+	background: var(--oa-composer-hover);
+	color: var(--oa-text);
+}
+
+.open-agent-selector-icon {
+	flex: 0 0 auto;
+	margin-left: 0.42rem;
+	font-size: 11px;
+	color: var(--oa-text-faint);
+}
+
+.open-agent-model-icon {
+	font-size: 10px;
+}
+
+.open-agent-mode-select,
+.open-agent-model-input {
+	max-width: 150px;
+	min-width: 0;
+	padding: 0.32rem 1.05rem 0.32rem 0.28rem;
+	font-size: 11px;
+	font-weight: 500;
+	line-height: 1.2;
+	color: inherit;
+	background: transparent !important;
+	border: 0 !important;
+	border-radius: 8px;
+	appearance: none;
+	-webkit-appearance: none;
+}
+
+.open-agent-mode-wrap::after,
+.open-agent-model-wrap::after {
+	content: "⌄";
+	position: absolute;
+	right: 0.38rem;
+	top: 50%;
+	transform: translateY(-54%);
+	font-size: 11px;
+	color: var(--oa-text-faint);
+	pointer-events: none;
+}
+
+.open-agent-model-wrap {
+	max-width: 180px;
+}
+
+.open-agent-composer-actions {
+	gap: 0.3rem;
+}
+
+.open-agent-send-btn,
+.open-agent-stop-btn {
+	width: 30px;
+	height: 30px;
+	border-radius: 10px;
+	font-size: 15px;
+	font-weight: 650;
+	line-height: 1;
+	transition: transform 120ms ease, background-color 120ms ease, opacity 120ms ease;
+}
+
+.open-agent-send-btn:hover:not(:disabled),
+.open-agent-stop-btn:hover:not(:disabled) {
+	transform: translateY(-1px);
+}
+
+.open-agent-send-btn:disabled,
+.open-agent-stop-btn:disabled {
+	opacity: 0.38;
+}
+
+.open-agent-stop-btn {
+	background: var(--oa-composer-hover);
+	color: var(--oa-text);
+}
+
+.open-agent-statusbar {
+	height: 18px;
+	padding: 0.05rem 0.25rem 0;
+	font-size: 10px;
+	color: var(--oa-text-faint);
+}
+
+@media (max-width: 520px) {
+	.open-agent-view { padding-inline: 0.45rem; }
+	.open-agent-turn-user { max-width: 88%; }
+	.open-agent-model-wrap { max-width: 145px; }
+	.open-agent-mode-select,
+	.open-agent-model-input { max-width: 118px; }
+}
+
+/* ─── Ordered assistant timeline ─────────────────────────────────────
+   Thinking and tools are independent events. They share a quiet card
+   surface, while tool approval remains visible in the main timeline. */
+.open-agent-thinking-segment {
+	display: block;
+	width: min(100%, 560px);
+	box-sizing: border-box;
+	margin: 0.05rem 0 0.35rem;
+	border: 1px solid color-mix(in srgb, var(--oa-border) 82%, transparent);
+	border-radius: 10px;
+	background: color-mix(in srgb, var(--background-secondary) 76%, var(--background-primary));
+	box-shadow: 0 2px 10px color-mix(in srgb, #000 9%, transparent);
+	color: var(--oa-text-sub);
+	overflow: hidden;
+	transition: border-color 160ms ease, background-color 160ms ease, box-shadow 160ms ease;
+}
+
+.open-agent-thinking-segment.open-agent-thinking-surface-active {
+	animation: open-agent-thinking-breathe 2.4s ease-in-out infinite;
+}
+
+.open-agent-thinking-segment-summary {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	min-height: 34px;
+	box-sizing: border-box;
+	padding: 0.38rem 0.55rem;
+	list-style: none;
+	cursor: pointer;
+	user-select: none;
+}
+
+.open-agent-thinking-segment-summary::-webkit-details-marker {
+	display: none;
+}
+
+.open-agent-thinking-segment[open] > .open-agent-thinking-segment-summary {
+	border-bottom: 1px solid color-mix(in srgb, var(--oa-border) 42%, transparent);
+}
+
+.open-agent-thinking-segment-content {
+	max-height: 240px;
+	overflow: auto;
+	padding: 0.55rem 0.72rem 0.68rem;
+	color: var(--oa-text-faint);
+	font-size: 11px;
+	line-height: 1.55;
+	white-space: pre-wrap;
+}
+
+.open-agent-thinking-segment > .open-agent-thinking-spinner {
+	margin: 0.65rem 0 0.65rem 0.7rem;
+}
+
+.open-agent-tool-card {
+	width: min(100%, 560px);
+	box-sizing: border-box;
+	margin: 0.1rem 0 0.35rem;
+	border: 1px solid color-mix(in srgb, var(--oa-border) 78%, transparent);
+	border-radius: 9px;
+	background: color-mix(in srgb, var(--background-secondary) 58%, var(--background-primary));
+	box-shadow: 0 1px 6px color-mix(in srgb, #000 8%, transparent);
+	font-size: 11px;
+	overflow: hidden;
+}
+
+.open-agent-tool-card > .open-agent-tool-summary {
+	min-height: 30px;
+	box-sizing: border-box;
+	padding: 0.34rem 0.55rem;
+	list-style: none;
+}
+
+.open-agent-tool-card > .open-agent-tool-summary::-webkit-details-marker {
+	display: none;
+}
+
+.open-agent-tool-card[open] > .open-agent-tool-summary {
+	border-bottom: 1px solid color-mix(in srgb, var(--oa-border) 42%, transparent);
+}
+
+.open-agent-tool-card.open-agent-tool-consent {
+	border-color: color-mix(in srgb, var(--oa-accent) 42%, var(--oa-border));
+	background: color-mix(in srgb, var(--background-secondary) 76%, var(--background-primary));
+}
+
+.open-agent-tool-card.open-agent-tool-running .open-agent-tool-status-icon {
+	animation: open-agent-thinking-breathe-icon 1.6s ease-in-out infinite;
+}
+
+/* A real button reset is needed because Obsidian applies its native button
+   elevation to any button nested in a view. */
+.open-agent-thinking-toggle,
+.open-agent-thinking-segment-summary,
+.open-agent-tool-summary {
+	-webkit-appearance: none;
+	appearance: none;
+	border: 0;
+	background: transparent;
+	box-shadow: none;
+	font: inherit;
+	text-align: left;
+}
+
+@keyframes open-agent-thinking-breathe-icon {
+	0%, 100% { opacity: 0.45; }
+	50% { opacity: 1; }
+}
+
+/* Unified transcript surfaces
+   Tool events and approval controls use the same quiet surface as Thought
+   process. Status colors remain available, but no tool action gets the
+   raised Obsidian button treatment. */
+.open-agent-thinking-segment,
+.open-agent-tool-card {
+	width: min(100%, 560px);
+	box-sizing: border-box;
+	border: 1px solid color-mix(in srgb, var(--oa-border) 82%, transparent);
+	border-radius: 10px;
+	background: color-mix(in srgb, var(--background-secondary) 76%, var(--background-primary));
+	box-shadow: 0 2px 10px color-mix(in srgb, #000 9%, transparent);
+	color: var(--oa-text-sub);
+	transition: border-color 160ms ease, background-color 160ms ease, box-shadow 160ms ease, color 160ms ease;
+}
+
+.open-agent-tool-card {
+	margin: 0.05rem 0 0.35rem;
+	padding: 0;
+	font-size: 11px;
+	overflow: hidden;
+}
+
+.open-agent-tool-card > .open-agent-tool-summary {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	min-height: 34px;
+	box-sizing: border-box;
+	padding: 0.38rem 0.55rem;
+	list-style: none;
+	cursor: pointer;
+	user-select: none;
+}
+
+.open-agent-tool-card > .open-agent-tool-summary::-webkit-details-marker {
+	display: none;
+}
+
+.open-agent-tool-card[open] > .open-agent-tool-summary {
+	border-bottom: 1px solid color-mix(in srgb, var(--oa-border) 42%, transparent);
+}
+
+.open-agent-tool-status-icon {
+	width: 1em;
+	flex: 0 0 auto;
+	font-size: 11px;
+}
+
+.open-agent-tool-name {
+	font-weight: 500;
+	color: var(--oa-text-sub);
+}
+
+.open-agent-tool-args {
+	color: var(--oa-text-faint);
+}
+
+.open-agent-tool-card.open-agent-tool-consent {
+	border-color: color-mix(in srgb, var(--oa-accent) 42%, var(--oa-border));
+	background: color-mix(in srgb, var(--background-secondary) 76%, var(--background-primary));
+}
+
+.open-agent-tool-card.open-agent-tool-running .open-agent-tool-status-icon {
+	animation: open-agent-thinking-breathe-icon 1.6s ease-in-out infinite;
+}
+
+.open-agent-consent-diff-area {
+	max-height: 40vh;
+	overflow: auto;
+	margin: 0.35rem 0.55rem 0;
+	padding: 0.5rem 0.05rem 0.05rem;
+	border: 0;
+	border-top: 1px solid color-mix(in srgb, var(--oa-border) 42%, transparent);
+	border-radius: 0;
+	background: transparent;
+	font-size: var(--font-ui-smaller);
+}
+
+.open-agent-consent-inline-buttons {
+	display: flex;
+	gap: 0.45rem;
+	justify-content: flex-end;
+	flex-wrap: wrap;
+	margin: 0;
+	padding: 0.55rem;
+	border-top: 1px solid color-mix(in srgb, var(--oa-border) 42%, transparent);
+}
+
+.open-agent-consent-inline-buttons button,
+.open-agent-tool-more,
+.open-agent-tool-open,
+.open-agent-diff-more {
+	-webkit-appearance: none;
+	appearance: none;
+	border: 1px solid color-mix(in srgb, var(--oa-border) 82%, transparent);
+	border-radius: 9px;
+	background: color-mix(in srgb, var(--background-secondary) 76%, var(--background-primary));
+	box-shadow: none;
+	color: var(--oa-text-sub);
+	font: inherit;
+	font-size: 11px;
+	line-height: 1.25;
+	padding: 0.42rem 0.68rem;
+	transition: border-color 160ms ease, background-color 160ms ease, color 160ms ease, box-shadow 160ms ease;
+}
+
+.open-agent-consent-inline-buttons button:hover,
+.open-agent-tool-more:hover,
+.open-agent-tool-open:hover,
+.open-agent-diff-more:hover {
+	border-color: color-mix(in srgb, var(--oa-text-muted, var(--text-muted)) 42%, var(--oa-border));
+	background: color-mix(in srgb, var(--background-secondary) 90%, var(--background-primary));
+	color: var(--oa-text);
+	box-shadow: 0 3px 14px color-mix(in srgb, #fff 7%, transparent);
+}
+
+.open-agent-consent-inline-buttons button.mod-cta {
+	border-color: color-mix(in srgb, var(--oa-accent) 48%, var(--oa-border));
+	background: color-mix(in srgb, var(--oa-accent) 16%, var(--background-secondary));
+	color: var(--oa-text);
+}
+
+.open-agent-consent-inline-buttons button.mod-cta:hover {
+	border-color: color-mix(in srgb, var(--oa-accent) 68%, var(--oa-border));
+	background: color-mix(in srgb, var(--oa-accent) 24%, var(--background-secondary));
+}
+
+.open-agent-tool-args-full,
+.open-agent-tool-result pre,
+.open-agent-diff-context-body,
+.open-agent-diff-add-block {
+	border: 1px solid color-mix(in srgb, var(--oa-border) 58%, transparent);
+	border-radius: 8px;
+	background: color-mix(in srgb, var(--background-primary) 64%, var(--background-secondary));
+}
+
+/* Toolbar and transcript controls use the same surface language too. The
+   old native-looking raised controls were the remaining visual outliers. */
+.open-agent-view {
+	--oa-surface-border: color-mix(in srgb, var(--oa-border) 82%, transparent);
+	--oa-surface-bg: color-mix(in srgb, var(--background-secondary) 76%, var(--background-primary));
+	--oa-surface-bg-hover: color-mix(in srgb, var(--background-secondary) 90%, var(--background-primary));
+	--oa-surface-shadow: 0 2px 10px color-mix(in srgb, #000 9%, transparent);
+	--oa-surface-radius: 10px;
+	font-size: 12px;
+	-webkit-user-select: text;
+	user-select: text;
+}
+
+.open-agent-transcript,
+.open-agent-turn,
+.open-agent-turn-body,
+.open-agent-thinking-segment-content,
+.open-agent-tool-args-full,
+.open-agent-tool-result,
+.open-agent-tool-result pre,
+.open-agent-consent-diff-area,
+.open-agent-diff-table,
+.open-agent-pack-result,
+.open-agent-pack-step-details,
+.open-agent-claim,
+.open-agent-claim-details {
+	-webkit-user-select: text;
+	user-select: text;
+}
+
+.open-agent-thinking-segment-summary,
+.open-agent-tool-summary,
+.open-agent-pack-step-header,
+.open-agent-pack-step-summary {
+	-webkit-user-select: none;
+	user-select: none;
+}
+
+.open-agent-session-title,
+.open-agent-menu-item,
+.open-agent-input,
+.open-agent-turn-user .open-agent-turn-body,
+.open-agent-turn-assistant .open-agent-turn-body,
+.open-agent-pack-result-body {
+	font-size: 12px;
+}
+
+.open-agent-session-title,
+.open-agent-menu-item {
+	font-size: 11px;
+}
+
+.open-agent-turn-assistant .open-agent-turn-body {
+	line-height: 1.55;
+}
+
+.open-agent-view button {
+	-webkit-appearance: none;
+	appearance: none;
+	box-shadow: none;
+	font: inherit;
+}
+
+.open-agent-view .open-agent-icon-btn,
+.open-agent-composer .open-agent-send-btn,
+.open-agent-composer .open-agent-stop-btn,
+.open-agent-edit-buttons button,
+.open-agent-turn-edit-btn,
+.open-agent-claim-toggle,
+.open-agent-claim-open,
+.open-agent-pack-retry {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	box-sizing: border-box;
+	border: 1px solid var(--oa-surface-border);
+	border-radius: var(--oa-surface-radius);
+	background: var(--oa-surface-bg);
+	box-shadow: var(--oa-surface-shadow);
+	color: var(--oa-text-sub);
+	font-size: 11px;
+	font-weight: 500;
+	line-height: 1.25;
+	transition: border-color 160ms ease, background-color 160ms ease, color 160ms ease, box-shadow 160ms ease;
+}
+
+.open-agent-toolbar .open-agent-icon-btn {
+	width: 30px;
+	height: 30px;
+	padding: 0;
+	border-radius: var(--oa-surface-radius);
+	font-size: 12px;
+}
+
+.open-agent-composer .open-agent-send-btn,
+.open-agent-composer .open-agent-stop-btn {
+	width: 30px;
+	height: 30px;
+	padding: 0;
+	border-radius: var(--oa-surface-radius);
+	font-size: 13px;
+}
+
+.open-agent-view .open-agent-icon-btn:hover,
+.open-agent-composer .open-agent-send-btn:hover:not(:disabled),
+.open-agent-composer .open-agent-stop-btn:hover:not(:disabled),
+.open-agent-edit-buttons button:hover,
+.open-agent-turn-edit-btn:hover,
+.open-agent-claim-toggle:hover,
+.open-agent-claim-open:hover,
+.open-agent-pack-retry:hover {
+	border-color: color-mix(in srgb, var(--oa-text-muted, var(--text-muted)) 42%, var(--oa-border));
+	background: var(--oa-surface-bg-hover);
+	box-shadow: 0 3px 14px color-mix(in srgb, #fff 7%, transparent);
+	color: var(--oa-text);
+}
+
+.open-agent-toolbar .open-agent-icon-btn.mod-cta,
+.open-agent-composer .open-agent-send-btn.mod-cta {
+	border-color: color-mix(in srgb, var(--oa-accent) 48%, var(--oa-border));
+	background: color-mix(in srgb, var(--oa-accent) 16%, var(--background-secondary));
+	color: var(--oa-text);
+}
+
+.open-agent-toolbar .open-agent-icon-btn.mod-cta:hover,
+.open-agent-composer .open-agent-send-btn.mod-cta:hover:not(:disabled) {
+	border-color: color-mix(in srgb, var(--oa-accent) 68%, var(--oa-border));
+	background: color-mix(in srgb, var(--oa-accent) 24%, var(--background-secondary));
+}
+
+.open-agent-menu,
+.open-agent-sessions-panel {
+	border-color: var(--oa-surface-border);
+	border-radius: var(--oa-surface-radius);
+	background: var(--oa-surface-bg);
+	box-shadow: var(--oa-surface-shadow);
+}
+
+.open-agent-menu-item {
+	width: 100%;
+	border: 1px solid transparent;
+	border-radius: 8px;
+	background: transparent;
+	box-shadow: none;
+	color: var(--oa-text-sub);
+}
+
+.open-agent-menu-item:hover {
+	border-color: var(--oa-surface-border);
+	background: var(--oa-surface-bg-hover);
+	color: var(--oa-text);
+}
+
+.open-agent-turn-edit-btn {
+	width: 28px;
+	height: 28px;
+	padding: 0;
+	opacity: 0.55;
+}
+
+.open-agent-turn-edit-btn:hover {
+	opacity: 1;
+}
+
+.open-agent-view :is(.open-agent-session-rename, .open-agent-sessions-search, .open-agent-turn-edit-area) {
+	border: 1px solid var(--oa-surface-border);
+	border-radius: var(--oa-surface-radius);
+	background: var(--oa-surface-bg);
+	box-shadow: none;
+	color: var(--oa-text);
+}
+
+/* Compact VS Code-inspired composer controls.
+   Keep the conversation viewport generous while making the input rail a
+   quiet, single-purpose control strip instead of a large card. */
+.open-agent-transcript {
+	gap: 0.68rem;
+	padding: 0.35rem 0.1rem 0.55rem;
+	scroll-behavior: auto;
+}
+
+.open-agent-turn {
+	gap: 0.28rem;
+}
+
+.open-agent-composer {
+	gap: 0.12rem;
+	margin: 0.08rem 0 0;
+	border-radius: 12px;
+	padding: 0.34rem 0.48rem 0.25rem;
+}
+
+.open-agent-input-shell {
+	min-height: 2.15rem;
+}
+
+.open-agent-input {
+	height: 2.15rem;
+	min-height: 2.15rem;
+	max-height: 20vh;
+	padding: 0 0.08rem 0.08rem;
+	font-size: 12.5px;
+	line-height: 1.45;
+}
+
+.open-agent-composer-toolbar {
+	margin-top: 0.02rem;
+	padding-top: 0.1rem;
+}
+
+.open-agent-composer-selectors {
+	gap: 0.18rem;
+}
+
+.open-agent-selector-pill {
+	border-radius: 7px;
+}
+
+.open-agent-selector-icon {
+	margin-left: 0.32rem;
+	font-size: 10px;
+}
+
+.open-agent-mode-select,
+.open-agent-model-input {
+	max-width: 145px;
+	padding: 0.22rem 0.9rem 0.22rem 0.2rem;
+	font-size: 10.5px;
+	border-radius: 7px;
+}
+
+.open-agent-composer-actions {
+	gap: 0.2rem;
+}
+
+.open-agent-composer .open-agent-send-btn,
+.open-agent-composer .open-agent-stop-btn {
+	width: 27px;
+	height: 27px;
+	border-radius: 9px;
+	font-size: 12px;
+}
+
+.open-agent-statusbar {
+	height: 17px;
+	min-height: 17px;
+	gap: 0.28rem;
+	padding: 0 0.2rem;
+	font-size: 10px;
+}
+
+.open-agent-status-chip,
+.open-agent-status-control {
+	display: inline-flex;
+	align-items: center;
+	min-width: 0;
+	border-radius: 6px;
+	color: var(--oa-text-faint);
+}
+
+.open-agent-status-chip {
+	padding: 0.12rem 0.28rem;
+	background: color-mix(in srgb, var(--background-secondary) 45%, transparent);
+}
+
+.open-agent-status-separator {
+	color: var(--oa-text-faint);
+	opacity: 0.7;
+}
+
+.open-agent-status-control {
+	position: relative;
+	background: color-mix(in srgb, var(--background-secondary) 45%, transparent);
+}
+
+.open-agent-status-control-label {
+	padding-left: 0.28rem;
+	font-size: 9px;
+	color: var(--oa-text-faint);
+	pointer-events: none;
+}
+
+.open-agent-permission-select {
+	max-width: 92px;
+	padding: 0.12rem 0.82rem 0.12rem 0.24rem;
+	border: 0 !important;
+	border-radius: 6px;
+	background: transparent !important;
+	box-shadow: none !important;
+	color: var(--oa-text-sub);
+	font: inherit;
+	font-size: 10px;
+	line-height: 1.1;
+	appearance: none;
+	-webkit-appearance: none;
+	cursor: pointer;
+}
+
+.open-agent-status-control::after {
+	content: "⌄";
+	position: absolute;
+	right: 0.28rem;
+	top: 50%;
+	transform: translateY(-55%);
+	color: var(--oa-text-faint);
+	pointer-events: none;
+}
+
+.open-agent-permission-select:hover,
+.open-agent-permission-select:focus {
+	color: var(--oa-text);
+	background: var(--oa-composer-hover) !important;
+}
+
+.open-agent-permission-select option {
+	background: var(--background-secondary);
+	color: var(--oa-text);
+}
+
+@media (max-width: 520px) {
+	.open-agent-view { padding-inline: 0.45rem; }
+	.open-agent-model-wrap { max-width: 138px; }
+	.open-agent-mode-select,
+	.open-agent-model-input { max-width: 112px; }
 }

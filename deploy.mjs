@@ -1,10 +1,11 @@
 import { copyFileSync, mkdirSync, readFileSync, existsSync } from "fs";
-import { join } from "path";
+import { fileURLToPath } from "url";
+import { dirname, join } from "path";
 
 function getVaultPath() {
 	const env = process.env.OBSIDIAN_VAULT;
 	if (env) return env.trim();
-	const localFile = new URL(".vault-path", import.meta.url).pathname;
+	const localFile = join(dirname(fileURLToPath(import.meta.url)), ".vault-path");
 	if (existsSync(localFile)) {
 		return readFileSync(localFile, "utf8").trim();
 	}

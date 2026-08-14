@@ -65,10 +65,14 @@ describe("runTurn", () => {
 		}
 
 		expect(toolRun).toHaveBeenCalledWith({ path: "Notes/alpha.md" }, { signal: undefined });
-		expect(seenMessages[0]).toEqual([
-			{ role: "system", content: "Be concise" },
-			{ role: "user", content: "Tell me about Alpha" },
-		]);
+		expect(seenMessages[0]?.[0]).toEqual({
+			role: "system",
+			content: expect.stringContaining("Be concise"),
+		});
+		expect(seenMessages[0]?.[1]).toEqual({
+			role: "user",
+			content: "Tell me about Alpha",
+		});
 		expect(events).toEqual([
 			{
 				kind: "tool_call_started",

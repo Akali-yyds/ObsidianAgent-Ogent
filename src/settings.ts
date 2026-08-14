@@ -5,6 +5,7 @@ import { loadPacks } from "./packs/loader";
 import type { AgentPack } from "./packs/types";
 import type { OpenAICompatibleConfig } from "./provider-config";
 import type { ConsentMode } from "./types";
+import type { WebSearchProvider } from "./tools/web-search";
 
 export type ProviderId = "openai-compatible";
 
@@ -14,6 +15,8 @@ export interface PluginSettings {
 	apiKey: string;
 	model: string;
 	systemPrompt: string;
+	webSearchProvider: WebSearchProvider;
+	webSearchApiKey: string;
 	consent: ConsentSettings;
 	packProviderOverrides: Record<string, Record<string, Partial<OpenAICompatibleConfig>>>;
 }
@@ -24,6 +27,8 @@ export const DEFAULT_SETTINGS: PluginSettings = {
 	apiKey: "",
 	model: "gpt-4o-mini",
 	systemPrompt: "",
+	webSearchProvider: "tavily",
+	webSearchApiKey: "",
 	consent: { ...DEFAULT_CONSENT },
 	packProviderOverrides: {},
 };
@@ -115,6 +120,33 @@ export class OpenAgentSettingsTab extends PluginSettingTab {
 					.setValue(this.plugin.settings.apiKey)
 					.onChange(async (v) => {
 						this.plugin.settings.apiKey = v;
+						await this.plugin.saveSettings();
+					});
+				txt.inputEl.type = "password";
+				txt.inputEl.autocomplete = "off";
+			});
+
+		new Setting(containerEl)
+			.setName("Web search provider")
+			.setDesc("Used for current and time-sensitive information. Tavily is selected by default.")
+			.addDropdown((drop) => {
+				drop.addOption("tavily", "Tavily");
+				drop.addOption("brave", "Brave Search");
+				drop.setValue(this.plugin.settings.webSearchProvider);
+				drop.onChange(async (v) => {
+					this.plugin.settings.webSearchProvider = v as WebSearchProvider;
+					await this.plugin.saveSettings();
+				});
+			});
+
+		new Setting(containerEl)
+			.setName("Web search API key")
+			.setDesc("Optional. Required to use web_search; stored in the plugin data file.")
+			.addText((txt) => {
+				txt.setPlaceholder("Paste Tavily or Brave API key")
+					.setValue(this.plugin.settings.webSearchApiKey)
+					.onChange(async (v) => {
+						this.plugin.settings.webSearchApiKey = v.trim();
 						await this.plugin.saveSettings();
 					});
 				txt.inputEl.type = "password";

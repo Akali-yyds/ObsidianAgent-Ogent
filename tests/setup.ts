@@ -140,6 +140,7 @@ export interface MockAdapter {
 	list: ReturnType<typeof vi.fn>;
 	read: ReturnType<typeof vi.fn>;
 	write: ReturnType<typeof vi.fn>;
+	stat: ReturnType<typeof vi.fn>;
 	remove: ReturnType<typeof vi.fn>;
 	rename: ReturnType<typeof vi.fn>;
 }
@@ -167,6 +168,7 @@ export function createMockAdapter(initialFiles: Record<string, string> = {}): Mo
 		write: vi.fn(async (path: string, text: string) => {
 			files.set(path, text);
 		}),
+		stat: vi.fn(async (path: string) => (files.has(path) ? { mtime: Date.now(), ctime: Date.now(), size: files.get(path)?.length ?? 0 } : null)),
 		remove: vi.fn(async (path: string) => {
 			files.delete(path);
 		}),

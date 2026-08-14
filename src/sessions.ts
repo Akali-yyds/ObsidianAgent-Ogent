@@ -1,4 +1,6 @@
 import type { PackCitation, PackRunTransparency } from "./packs/runtime";
+import type { DiffRow } from "./consent/diff";
+import type { ToolResult } from "./types";
 
 export interface SessionMeta {
 	id: string;
@@ -60,9 +62,26 @@ export interface StoredPackTurnData {
 export type StoredPackTurnTransparency = PackRunTransparency;
 export type StoredPackCitation = PackCitation;
 
+export type StoredAssistantSegment =
+	| { kind: "thinking"; text: string }
+	| { kind: "text"; text: string }
+	| { kind: "tool"; id: string };
+
+export interface StoredToolCall {
+	id: string;
+	name: string;
+	args: unknown;
+	mutates: boolean;
+	status: "running" | "awaiting-consent" | "ok" | "error" | "denied";
+	result?: ToolResult;
+	diffRows?: DiffRow[];
+}
+
 export interface StoredTurn {
 	role: "user" | "assistant";
 	content: string;
+	segments?: StoredAssistantSegment[];
+	toolCalls?: StoredToolCall[];
 	packTurn?: StoredPackTurnData;
 }
 
@@ -324,12 +343,77 @@ function sanitizeStoredTurns(turns: unknown[]): StoredTurn[] {
 }
 
 function sanitizeStoredTurn(turn: unknown): StoredTurn {
-	if (!turn || typeof turn !== "object") return turn as StoredTurn;
-	const packTurn = (turn as { packTurn?: unknown }).packTurn;
-	if (!packTurn || typeof packTurn !== "object") return turn as StoredTurn;
+	if (!isRecord(turn)) return turn as StoredTurn;
+	const sanitized = { ...turn } as StoredTurn & Record<string, unknown>;
+	if (Object.prototype.hasOwnProperty.call(turn, "segments")) {
+		const segments = sanitizeOptionalAssistantSegments(turn.segments);
+		if (segments === undefined) delete sanitized.segments;
+		else sanitized.segments = segments;
+	}
+	if (Object.prototype.hasOwnProperty.call(turn, "toolCalls")) {
+		const toolCalls = sanitizeOptionalToolCalls(turn.toolCalls);
+		if (toolCalls === undefined) delete sanitized.toolCalls;
+		else sanitized.toolCalls = toolCalls;
+	}
+	const packTurn = turn.packTurn;
+	if (packTurn && typeof packTurn === "object") sanitized.packTurn = sanitizeStoredPackTurn(packTurn);
+	return sanitized as StoredTurn;
+}
+
+function sanitizeOptionalAssistantSegments(value: unknown): StoredAssistantSegment[] | undefined {
+	if (value === undefined) return undefined;
+	if (!Array.isArray(value)) return undefined;
+	const segments = value.map((segment) => {
+		if (!isRecord(segment)) return null;
+		if ((segment.kind === "thinking" || segment.kind === "text") && typeof segment.text === "string") {
+			return { kind: segment.kind, text: segment.text } as StoredAssistantSegment;
+		}
+		if (segment.kind === "tool" && typeof segment.id === "string") {
+			return { kind: "tool", id: segment.id } as StoredAssistantSegment;
+		}
+		return null;
+	});
+	return segments.every((segment): segment is StoredAssistantSegment => segment !== null) ? segments : undefined;
+}
+
+function sanitizeOptionalToolCalls(value: unknown): StoredToolCall[] | undefined {
+	if (value === undefined) return undefined;
+	if (!Array.isArray(value)) return undefined;
+	const toolCalls = value.map((call) => {
+		if (!isRecord(call) || typeof call.id !== "string" || typeof call.name !== "string" || typeof call.mutates !== "boolean") {
+			return null;
+		}
+		const status = sanitizeToolCallStatus(call.status);
+		if (!status) return null;
+		const result = call.result === undefined ? undefined : sanitizeToolResult(call.result);
+		if (call.result !== undefined && result === undefined) return null;
+		return {
+			id: call.id,
+			name: call.name,
+			args: call.args,
+			mutates: call.mutates,
+			status,
+			...(result !== undefined ? { result } : {}),
+			...(Array.isArray(call.diffRows) ? { diffRows: call.diffRows as DiffRow[] } : {}),
+		} satisfies StoredToolCall;
+	});
+	return toolCalls.every((call): call is StoredToolCall => call !== null) ? toolCalls : undefined;
+}
+
+function sanitizeToolCallStatus(value: unknown): StoredToolCall["status"] | null {
+	return value === "running" || value === "awaiting-consent" || value === "ok" || value === "error" || value === "denied"
+		? value
+		: null;
+}
+
+function sanitizeToolResult(value: unknown): ToolResult | undefined {
+	if (!isRecord(value) || typeof value.ok !== "boolean") return undefined;
+	if (value.ok) return { ok: true, value: value.value };
+	if (typeof value.error !== "string") return undefined;
 	return {
-		...(turn as StoredTurn),
-		packTurn: sanitizeStoredPackTurn(packTurn),
+		ok: false,
+		error: value.error,
+		...(value.details !== undefined ? { details: value.details } : {}),
 	};
 }
 
