@@ -1,4 +1,7 @@
-# OpenAgent for Obsidian
+# ObsidianAgent-Ogent
+
+This project is a personal fork and customization of [OpenAgent for Obsidian](https://github.com/nikitaclicks/obsidian-openagent).
+The upstream project and its original license are retained as the foundation; this repository contains my ongoing UI, agent, and tool improvements.
 
 An AI agent that lives inside your vault — vault-aware, tool-capable, BYOK, and cross-platform (desktop + mobile).
 
