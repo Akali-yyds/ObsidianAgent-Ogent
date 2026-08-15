@@ -138,18 +138,15 @@ async function* executeAgentLoop(
 				continue;
 			}
 
-			if (toolDef.mutates) {
-				if (opts.executionMode === "plan") {
-					yield { kind: "plan_preview", id: call.id, name: call.name, args: validated.value };
-					const result: ToolResult = {
-						ok: false,
-						error: "PlanModePreview",
-						details: "This write was previewed in Plan mode and was not executed. Switch to Ask or Full access to apply it.",
-					};
-					yield { kind: "tool_call_finished", id: call.id, result };
-					messages.push(toolMessage(call, result));
-					continue;
-				}
+			if (toolDef.mutates && opts.executionMode === "read") {
+				const result: ToolResult = {
+					ok: false,
+					error: "ReadOnlyMode",
+					details: "Read mode allows read-only tools only. Switch to Agent or Full mode to modify the vault.",
+				};
+				yield { kind: "tool_call_finished", id: call.id, result };
+				messages.push(toolMessage(call, result));
+				continue;
 			}
 
 			const requiresApproval = toolDef.mutates || toolDef.requiresApproval === true || toolDef.category === "network_read";

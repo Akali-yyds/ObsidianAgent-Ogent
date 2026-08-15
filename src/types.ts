@@ -69,7 +69,8 @@ export interface ProviderCapabilities {
 	vision: boolean;
 }
 
-export type AgentExecutionMode = "ask" | "plan" | "full-access";
+/** Product-level operating mode for the current Agent chat. */
+export type AgentExecutionMode = "read" | "agent" | "full";
 
 // JSON Schema (subset we support)
 export interface JsonSchemaProperty {
@@ -102,7 +103,7 @@ export type PermissionClass =
 	| "external_write"
 	| "system_command";
 
-// Kept as an alias for existing pack and third-party tool definitions.
+// Compatibility alias for tool definitions.
 export type ToolCategory = PermissionClass;
 
 export type ToolResult =

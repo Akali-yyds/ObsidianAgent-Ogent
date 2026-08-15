@@ -43,7 +43,7 @@ export class ConsentManager {
 		if (!this.pending || this.pending.category !== category) return;
 
 		// If a write is already waiting for approval, changing the control to
-		// Full access should continue that write instead of leaving the stream
+		// Full mode should continue that write instead of leaving the stream
 		// apparently stuck behind an obsolete approval prompt.
 		if (mode === "always") {
 			const resolve = this.pending.resolve;

@@ -1,115 +1,115 @@
 # ObsidianAgent-Ogent
 
-This project is a personal fork and customization of [OpenAgent for Obsidian](https://github.com/nikitaclicks/obsidian-openagent).
-The upstream project and its original license are retained as the foundation; this repository contains my ongoing UI, agent, and tool improvements.
+An Obsidian vault-aware AI agent with streaming output, safe file tools, and bring-your-own-key provider support.
 
-An AI agent that lives inside your vault — vault-aware, tool-capable, BYOK, and cross-platform (desktop + mobile).
+This repository is a personal fork and ongoing customization of [OpenAgent for Obsidian](https://github.com/nikitaclicks/obsidian-openagent). The upstream project and its MIT license remain the foundation; the changes in this repository focus on a lightweight, practical Agent for an Obsidian knowledge base.
 
-> **Hackathon build:** See [hackathon/README.md](./hackathon/README.md) for the Gemma 4 hackathon submission story, local MLX setup, eval results, and demo assets.
+## What it does
 
-## Features
+- **Vault context**: automatically provides the current Markdown note, folder, selection, current heading, tags, Properties, and linked notes as context.
+- **Three execution modes**:
+  - **Read**: inspect and search the vault with read-only tools.
+  - **Agent**: read and modify the vault, with approval before writes and network access.
+  - **Full**: reduce repeated approval prompts for the session; vault writes still use the visible safety flow.
+- **Vault tools**: list and read notes, search note content, inspect metadata and links, write, append, edit, rename, move, delete, and restore notes.
+- **Write safety**: vault-relative path checks, tool approval, undo snapshots, Agent-turn checkpoints, and recovery from failed session data.
+- **Streaming conversations**: incremental thinking and answer output, ordered tool traces, copyable text, context compaction, queued messages, stop controls, and session recovery after restarting Obsidian.
+- **Web research**: optional Tavily or Brave Search through `web_search`, followed by public HTML/plain-text retrieval through `web_fetch`. Results include source metadata and fetched pages are treated as untrusted reference material.
+- **Provider compatibility**: OpenAI-compatible endpoints, including hosted providers and local servers that expose the same API shape. The plugin negotiates supported streaming, thinking, and tool-call behavior where the endpoint reports incompatibilities.
+- **Tool management**: enable or disable individual tools and configure read, write, and network consent in the plugin settings.
 
-- **Context-aware Agent**: current note, folder, selection, heading, tags, Properties, and linked notes are shown as removable context chips.
-- **Plan and safety modes**: Ask, Plan, and Full access modes with vault-relative path checks, Diff previews, session approval, and undo snapshots.
-- **Web research**: Tavily/Brave search plus public HTML fetching with citation metadata, SSRF protections, and untrusted-content boundaries.
-- **Session reliability**: streaming event traces, restart recovery, context meter, compaction, queueing, and Markdown copying.
+## Scope
 
-- **OpenAI-compatible provider** — works with OpenAI, Anthropic (via proxy), Ollama, LM Studio, or any OpenAI-compatible endpoint
-- **Vault tools** — read, write, edit, append, search, list notes, manage frontmatter and links
-- **Consent & safety** — per-action confirmation dialogs with diff previews before any destructive write
-- **BYOK** — bring your own API key; no data leaves your vault except to the endpoint you configure
-- **Cross-platform** — same bundle runs on desktop (macOS / Windows / Linux) and mobile (iOS / Android)
+This project intentionally keeps the core Agent small. Grounded Research, MLX/local embedding packs, and the former hackathon/evaluation data are not part of the current project. They can be developed as separate projects if needed later.
+
+The plugin does not provide arbitrary terminal commands or external system writes.
 
 ## Installation
 
-### From Obsidian Community Plugins
+This fork is currently intended for manual installation while it is under development. It is not yet published as an official Obsidian Community Plugin.
 
-Search for **OpenAgent** in Settings → Community Plugins → Browse.
-Or simply open this page and press 'Add to Obsidian': https://community.obsidian.md/plugins/open-agent
+1. Download `main.js`, `manifest.json`, and `styles.css` from a release, or build them locally.
+2. Create `<vault>/.obsidian/plugins/open-agent/` if it does not exist.
+3. Copy the three files into that directory.
+4. In Obsidian, open **Settings → Community plugins**, enable community plugins if necessary, and enable **OpenAgent**.
 
-### Manual install
-
-1. Download `main.js`, `styles.css`, and `manifest.json` from the [latest release](../../releases/latest).
-2. Copy them into `<vault>/.obsidian/plugins/open-agent/`.
-3. In Obsidian: Settings → Community Plugins → enable **OpenAgent**.
-
-### Mobile
-
-Sync the plugin folder to your mobile vault's `.obsidian/plugins/open-agent/` via Obsidian Sync or any file-sync tool.
+For mobile, sync the same plugin files into the mobile vault's `.obsidian/plugins/open-agent/` directory.
 
 ## Configuration
 
-Open Settings → OpenAgent and fill in:
+Open **Settings → OpenAgent** and configure:
 
-| Field | Description | Default |
-|-------|-------------|---------|
-| Agent memory | Plugin-local stable preferences and decisions | `empty` |
-| Network access | Approval policy for public web search and fetching | `Ask` |
-| Base URL | Your provider's API endpoint | `https://api.openai.com/v1` |
-| API Key | Your API key | — |
-| Model | Model name to use | `gpt-4o-mini` |
-| System prompt | Optional system-level instruction | — |
+| Setting | Description |
+| --- | --- |
+| Provider | Currently an OpenAI-compatible endpoint. |
+| Base URL | The provider API base URL, for example `https://api.openai.com/v1`. |
+| API key | The key used by the configured model provider. |
+| Model | A model name accepted by the endpoint; models can be fetched from `/models`. |
+| Web search provider | `Tavily` or `Brave Search`. |
+| Web search API key | Optional until the Agent needs `web_search`; required for web search calls. |
+| System prompt | Optional instruction prepended to conversations. |
+| Agent memory | Optional plugin-local preferences. Do not store secrets here. |
+| Tool consent | Separate defaults for vault reads, vault writes, and network reads. |
+| Enabled tools | Per-tool enable/disable controls. |
 
-## Privacy & network use
+When current or time-sensitive information is needed, the Agent can search the public web and then fetch a selected page. Web access is approval-controlled and does not make DeepSeek or another model's native knowledge current by itself; the search tools supply the current sources.
 
-The plugin may contact the configured LLM endpoint, the selected web search provider (Tavily or Brave), the Obsidian community plugin directory, and public URLs explicitly fetched through `web_fetch`.
+## Privacy and security
 
-
-With vault tools enabled, the agent may transmit note bodies, paths, frontmatter, and tags to that endpoint — only use endpoints you trust.
-
-Your API keys are stored in `.obsidian/plugins/open-agent/data.json`. If you sync your `.obsidian/` folder (e.g. via Obsidian Sync), the keys travel with it. Never commit this file or paste keys into `OpenAgent.md`, Agent memory, notes, or issue reports.
+- The plugin sends conversation content and any attached vault context to the LLM endpoint you configure. Use an endpoint you trust.
+- Web search sends the search query to the selected Tavily or Brave service. `web_fetch` accepts only HTTP(S) URLs and blocks local, loopback, private, and link-local hosts.
+- Fetched web pages are reference data, not instructions. The Agent is told not to execute instructions contained in web content.
+- Vault writes require the configured consent policy and use a visible tool flow. Deleted notes use Obsidian's trash behavior where supported.
+- API keys are stored in the plugin data file at `.obsidian/plugins/open-agent/data.json`. This file is ignored by Git. Never commit it, put keys in notes or `OpenAgent.md`, or include them in bug reports and exported sessions.
 
 ## Development
 
-```bash
-git clone https://github.com/nikitaclicks/obsidian-openagent.git
-cd obsidian-openagent
+Requirements: Node.js and npm.
+
+```powershell
+git clone https://github.com/Akali-yyds/ObsidianAgent-Ogent.git
+cd ObsidianAgent-Ogent
 npm install
-npm run dev        # esbuild watch → writes main.js
+
+# Development/watch build
+npm run dev
+
+# Verification
+npm run build
+npm run lint
+npm test -- --run
 ```
 
-Then copy `main.js`, `styles.css`, and `manifest.json` into a test vault at `<vault>/.obsidian/plugins/open-agent/` and enable the plugin.
+To deploy a production build into a local test vault, set `.vault-path` to the vault path (the file is ignored by Git), or set the `OBSIDIAN_VAULT` environment variable, then run:
 
-```bash
-npm run build      # production bundle
-npm run lint       # TypeScript ESLint
+```powershell
+npm run deploy
 ```
 
-### Project layout
+The deploy script copies `main.js`, `manifest.json`, and `styles.css` into the vault's `open-agent` plugin directory. Do not copy `data.json` from a personal vault into the repository.
 
-```
+## Project layout
+
+```text
 src/
-  main.ts          # plugin entry point
-  settings.ts      # settings tab + defaults
-  view.ts          # chat panel UI
-  loop.ts          # agent run loop
-  provider.ts      # OpenAI-compatible HTTP client
-  types.ts         # shared types
-  tools/
-    registry.ts    # tool registration
-    vault/         # read / write / edit / search / list / frontmatter / links
-  consent/
-    manager.ts     # per-action consent state
-    modal.ts       # confirmation dialogs
-    render-diff.ts # diff previews
+  main.ts                 Plugin entry point and Obsidian integration
+  settings.ts             Provider, web, consent, and tool settings
+  view.ts                 Chat panel, context chips, controls, and rendering
+  loop.ts                 Agent system prompt and execution entry point
+  provider.ts             OpenAI-compatible streaming provider
+  sessions.ts             Persistent sessions and event recovery
+  compaction.ts           Conversation context compaction
+  consent/                Approval, diff, checkpoint, and undo logic
+  tools/vault/            Vault read/write/path tools
+  tools/web-search.ts     Tavily and Brave Search integration
+  tools/web-fetch.ts      Safe public-page fetching and text extraction
+  ui/                     Compact Agent controls and menus
 ```
 
 ## Contributing
 
-Pull requests are welcome. For larger changes, open an issue first to discuss what you'd like to change.
+Issues and pull requests are welcome. Please avoid including API keys, private vault content, `data.json`, generated bundles, or personal session files in reports or patches. Run the lint and test commands before opening a pull request.
 
-1. Fork the repo and create a branch from `main`.
-2. Make your changes with tests where applicable.
-3. Run `npm run lint` and fix any issues.
-4. Open a PR — describe what changed and why.
+## Attribution and license
 
-## Roadmap
-
-- [ ] Additional providers (Anthropic native, Google Gemini)
-- [ ] MCP server support
-- [ ] Inline agent commands
-- [ ] Tool call history / audit log
-
-## License
-
-[MIT](LICENSE)
+This project is derived from [nikitaclicks/obsidian-openagent](https://github.com/nikitaclicks/obsidian-openagent). See [LICENSE](LICENSE) for the MIT License.

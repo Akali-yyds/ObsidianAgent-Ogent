@@ -5,7 +5,7 @@ import { ToolRegistry } from "../src/tools/registry";
 import type { ChatMessage, ModelProvider, ToolDef } from "../src/types";
 
 describe("runTurn", () => {
-	it("keeps the classic wrapper behavior-safe while delegating through Agent", async () => {
+	it("keeps the Agent wrapper behavior-safe while delegating through the loop", async () => {
 		const toolRun = vi.fn(async () => ({ ok: true as const, value: "Alpha body" }));
 		const registry = new ToolRegistry();
 		registry.register({
@@ -48,7 +48,7 @@ describe("runTurn", () => {
 						name: "vault_read",
 						content: JSON.stringify({ ok: true, value: "Alpha body" }),
 					});
-					yield { kind: "text" as const, text: "Answer from classic mode" };
+					yield { kind: "text" as const, text: "Answer from Agent mode" };
 					yield { kind: "done" as const, finishReason: "stop" as const };
 				}
 				streamCount += 1;
@@ -86,12 +86,12 @@ describe("runTurn", () => {
 				id: "call-1",
 				result: { ok: true, value: "Alpha body" },
 			},
-			{ kind: "text", text: "Answer from classic mode", degraded: undefined },
+			{ kind: "text", text: "Answer from Agent mode", degraded: undefined },
 			{ kind: "done" },
 		]);
 	});
 
-	it("preserves classic consent-denial behavior for mutating tools", async () => {
+	it("preserves consent-denial behavior for mutating tools", async () => {
 		const registry = new ToolRegistry();
 		registry.register({
 			name: "vault_write",
@@ -154,6 +154,87 @@ describe("runTurn", () => {
 					details: "User rejected this operation.",
 				},
 			},
+			{ kind: "done" },
+		]);
+	});
+
+	it("blocks mutating tools in Read mode before they run", async () => {
+		const toolRun = vi.fn(async () => ({ ok: true as const, value: null }));
+		const registry = new ToolRegistry();
+		registry.register({
+			name: "vault_write",
+			description: "Write a note",
+			schema: {
+				type: "object",
+				properties: { path: { type: "string" }, content: { type: "string" } },
+				required: ["path", "content"],
+				additionalProperties: false,
+			},
+			category: "vault_write",
+			mutates: true,
+			run: toolRun,
+		} satisfies ToolDef<{ path: string; content: string }>);
+
+		let streamCount = 0;
+		const provider: ModelProvider = {
+			stream: async function* (messages) {
+				if (streamCount === 0) {
+					yield {
+						kind: "tool_call_assembled" as const,
+						calls: [{
+							id: "call-read-write",
+							name: "vault_write",
+							arguments: { path: "Notes/a.md", content: "Alpha" },
+							rawArguments: '{"path":"Notes/a.md","content":"Alpha"}',
+						}],
+					};
+					yield { kind: "done" as const, finishReason: "tool_calls" as const };
+				} else {
+					expect(messages.at(-1)).toEqual({
+						role: "tool",
+						tool_call_id: "call-read-write",
+						name: "vault_write",
+						content: JSON.stringify({
+							ok: false,
+							error: "ReadOnlyMode",
+							details: "Read mode allows read-only tools only. Switch to Agent or Full mode to modify the vault.",
+						}),
+					});
+					yield { kind: "text" as const, text: "Read mode cannot modify the vault." };
+					yield { kind: "done" as const, finishReason: "stop" as const };
+				}
+				streamCount += 1;
+			},
+		};
+
+		const events = [];
+		for await (const event of runTurn(
+			[{ role: "user", content: "Write this down" }],
+			provider,
+			{ tools: registry, executionMode: "read" },
+		)) {
+			events.push(event);
+		}
+
+		expect(toolRun).not.toHaveBeenCalled();
+		expect(events).toEqual([
+			{
+				kind: "tool_call_started",
+				id: "call-read-write",
+				name: "vault_write",
+				args: { path: "Notes/a.md", content: "Alpha" },
+				mutates: true,
+			},
+			{
+				kind: "tool_call_finished",
+				id: "call-read-write",
+				result: {
+					ok: false,
+					error: "ReadOnlyMode",
+					details: "Read mode allows read-only tools only. Switch to Agent or Full mode to modify the vault.",
+				},
+			},
+			{ kind: "text", text: "Read mode cannot modify the vault." },
 			{ kind: "done" },
 		]);
 	});

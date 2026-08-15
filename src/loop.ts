@@ -23,9 +23,9 @@ When a search returns no results:
 - Try alternative search terms or strategies (e.g. different keywords, broader queries)
 - After exhausting reasonable alternatives, clearly tell the user nothing was found`;
 
-const classicAgent = new Agent({
-	id: "classic",
-	name: "Classic",
+const agent = new Agent({
+	id: "agent",
+	name: "Agent",
 	systemPrompt: BASE_SYSTEM_PROMPT,
 });
 
@@ -34,7 +34,7 @@ export async function* runTurn(
 	provider: ModelProvider,
 	opts: RunTurnOptions = {},
 ): AsyncIterable<LoopEvent> {
-	yield* classicAgent.run({
+	yield* agent.run({
 		messages: userMessages,
 		provider,
 		signal: opts.signal,

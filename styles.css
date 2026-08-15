@@ -6,13 +6,16 @@
 	flex-direction: column;
 	height: 100%;
 	min-height: 0;
+	position: relative;
+	overflow: visible;
 	gap: 0.3rem;
 	margin: 0;
 	padding: 0.25rem 0.5rem 0;
 	min-width: 280px;
 	box-sizing: border-box;
-	/* Force dark form controls (native <select> dropdowns) to match dark themes. */
-	color-scheme: dark;
+	/* Native controls follow the active Obsidian theme. Theme-specific overrides
+	   are declared at the end of this stylesheet for Chromium's popup menu. */
+	color-scheme: normal;
 	--oa-bg-page: var(--background-primary);
 	--oa-bg-panel: var(--background-secondary);
 	--oa-bg-hover: var(--background-modifier-hover);
@@ -36,10 +39,7 @@
 .view-content:has(> .open-agent-view) {
 	padding-bottom: 0 !important;
 }
-/* Light themes: keep the dropdown dark regardless of active theme for a consistent IDE feel. */
-.theme-light .open-agent-view {
-	color-scheme: dark;
-}
+/* The final select rules below also cover Chromium's native option popup. */
 
 .open-agent-hint {
 	font-size: var(--font-ui-small);
@@ -318,7 +318,6 @@
 	align-items: center;
 	max-width: 150px;
 }
-.open-agent-mode-select,
 .open-agent-model-input {
 	font-size: 11px;
 	font-weight: 500;
@@ -334,12 +333,10 @@
 	appearance: none;
 	-webkit-appearance: none;
 }
-.open-agent-mode-select:hover,
 .open-agent-model-input:hover {
 	background: var(--oa-bg-hover);
 	color: var(--oa-text);
 }
-.open-agent-mode-select option,
 .open-agent-model-input option {
 	background: var(--oa-bg-panel);
 	color: var(--oa-text);
@@ -561,6 +558,11 @@
 	font-style: italic;
 	padding: 0.25rem;
 }
+.open-agent-consent-info {
+	color: var(--text-muted);
+	font-style: italic;
+	padding: 0.25rem;
+}
 .open-agent-consent-inline-buttons {
 	display: flex;
 	gap: 0.5rem;
@@ -616,421 +618,12 @@
 	position: relative;
 }
 
-.open-agent-pack-summary {
-	display: flex;
-	flex-direction: column;
-	gap: 0.25rem;
-	padding: 0.75rem;
-	background: var(--background-secondary);
-	border-radius: 6px;
-}
-
-.open-agent-pack-name {
-	font-size: 16px;
-	font-weight: 600;
-	line-height: 1.25;
-}
-
-.open-agent-pack-models,
-.open-agent-pack-hint,
-.open-agent-pack-model-footer {
-	font-size: 12px;
-	color: var(--text-muted);
-	line-height: 1.3;
-}
-
-.open-agent-pack-recovery,
-.open-agent-pack-mobile-banner,
 .open-agent-session-recovery {
 	display: flex;
 	flex-wrap: wrap;
 	gap: 0.5rem;
 	align-items: center;
 }
-
-.open-agent-pack-banner {
-	font-size: 14px;
-	padding: 0.5rem 0.75rem;
-	border-radius: 6px;
-	background: var(--background-secondary);
-	border-left: 3px solid var(--interactive-accent);
-}
-
-.open-agent-pack-banner-error {
-	border-left-color: var(--text-error);
-	color: var(--text-error);
-}
-
-.open-agent-pack-progress {
-	display: flex;
-	flex-direction: column;
-	gap: 0.5rem;
-	margin-bottom: 1rem;
-}
-
-.open-agent-pack-result {
-	margin-bottom: 0.75rem;
-	padding: 0.75rem;
-	border-radius: 8px;
-	border: 1px solid var(--background-modifier-border);
-	background: var(--background-secondary);
-}
-
-.open-agent-pack-step {
-	display: flex;
-	flex-direction: column;
-	align-items: stretch;
-	gap: 0.5rem;
-	width: 100%;
-	min-height: 44px;
-	padding: 0.5rem 0.75rem;
-	border-radius: 6px;
-	background: var(--background-primary);
-	border: 1px solid var(--background-modifier-border);
-	text-align: left;
-	white-space: normal;
-	overflow-wrap: anywhere;
-	transition: border-color 120ms ease, background-color 120ms ease, box-shadow 120ms ease;
-}
-
-.open-agent-pack-result-body {
-	margin-top: 0.35rem;
-}
-
-.open-agent-pack-step.is-expandable {
-	cursor: pointer;
-}
-
-.open-agent-pack-step-header,
-.open-agent-pack-step-summary,
-.open-agent-pack-result-meta {
-	display: flex;
-	flex-wrap: wrap;
-	align-items: center;
-	gap: 0.5rem;
-}
-
-.open-agent-pack-step-header {
-	justify-content: space-between;
-}
-
-.open-agent-pack-step-heading {
-	display: flex;
-	align-items: center;
-	gap: 0.5rem;
-	min-width: 0;
-	flex: 1 1 auto;
-}
-
-.open-agent-pack-step-label {
-	font-size: 14px;
-	font-weight: 600;
-}
-
-.open-agent-pack-step-meta,
-.open-agent-pack-result-meta {
-	font-size: 12px;
-	line-height: 1.3;
-	color: var(--text-muted);
-}
-
-.open-agent-pack-progress-title {
-	font-size: 11px;
-	font-weight: 700;
-	letter-spacing: 0.04em;
-	text-transform: uppercase;
-	color: var(--text-muted);
-	margin: 0.25rem 0 0.5rem;
-}
-
-.open-agent-pack-progress-title.is-stopping {
-	color: #d8a13c;
-}
-
-.open-agent-pack-step-meta {
-	margin-left: auto;
-	gap: 0.35rem;
-	flex: 0 0 auto;
-}
-
-.open-agent-pack-step-state {
-	display: inline-flex;
-	align-items: center;
-	padding: 0.15rem 0.45rem;
-	border-radius: 999px;
-	border: 1px solid var(--background-modifier-border);
-	background: var(--background-secondary);
-	font-weight: 600;
-}
-
-.open-agent-pack-step-duration {
-	white-space: nowrap;
-}
-
-.open-agent-pack-step-disclosure {
-	color: var(--text-muted);
-	font-size: 14px;
-	line-height: 1;
-}
-
-.open-agent-pack-step.is-static {
-	cursor: default;
-}
-
-.open-agent-pack-step.is-expanded {
-	background: var(--background-secondary);
-	box-shadow: inset 0 0 0 1px var(--background-modifier-border);
-}
-
-.open-agent-pack-step-pending { color: var(--text-muted); }
-.open-agent-pack-step-state-pending { color: var(--text-muted); }
-.open-agent-pack-step-running,
-.open-agent-pack-step-state-running {
-	border-color: var(--interactive-accent);
-	color: var(--interactive-accent);
-}
-.open-agent-pack-step.is-stopping,
-.open-agent-pack-step-state-stopping {
-	border-color: #d8a13c;
-	color: #d8a13c;
-}
-.open-agent-pack-step.is-stopped,
-.open-agent-pack-step-state-stopped {
-	border-color: var(--text-muted);
-	color: var(--text-muted);
-}
-.open-agent-pack-step-complete,
-.open-agent-pack-step-state-complete {
-	border-color: var(--color-green);
-	color: var(--color-green);
-}
-.open-agent-pack-step-failed,
-.open-agent-pack-step-state-failed {
-	border-color: var(--text-error);
-	color: var(--text-error);
-}
-
-.open-agent-pack-step-details {
-	display: flex;
-	flex-direction: column;
-	gap: 0.75rem;
-	padding-top: 0.25rem;
-}
-
-.open-agent-pack-step-empty {
-	font-size: 12px;
-	line-height: 1.3;
-	color: var(--text-muted);
-}
-
-.open-agent-citation-link {
-	font-size: 12px;
-	line-height: 1.3;
-	padding: 0;
-	margin-left: 0.25rem;
-	border: none;
-	background: none;
-	color: var(--interactive-accent);
-	text-decoration: underline;
-	cursor: pointer;
-}
-
-.open-agent-pack-retry,
-.open-agent-pack-step-message {
-	font-size: 12px;
-	color: var(--text-muted);
-	margin-top: 0.25rem;
-}
-
-.open-agent-pack-section-title {
-	font-size: 16px;
-	font-weight: 600;
-	margin: 1rem 0 0.5rem;
-}
-
-.open-agent-work-summary {
-	display: flex;
-	flex-wrap: wrap;
-	align-items: center;
-	gap: 0.5rem;
-}
-
-.open-agent-work-summary-text,
-.open-agent-work-muted,
-.open-agent-work-run-label,
-.open-agent-work-run-value,
-.open-agent-work-verifier-claim,
-.open-agent-work-verifier-source,
-.open-agent-work-verifier-explanation,
-.open-agent-work-raw-json-label,
-.open-agent-work-empty {
-	font-size: 12px;
-	line-height: 1.3;
-}
-
-.open-agent-work-muted,
-.open-agent-work-run-label,
-.open-agent-work-verifier-source,
-.open-agent-work-raw-json-label {
-	color: var(--text-muted);
-}
-
-.open-agent-work-note-path {
-	font-size: 12px;
-	line-height: 1.3;
-	padding: 0.25rem 0.5rem;
-	border-radius: 999px;
-	border: 1px solid var(--background-modifier-border);
-	background: var(--background-primary);
-	color: var(--interactive-accent);
-	max-width: 100%;
-	overflow-wrap: anywhere;
-}
-
-.open-agent-work-brief {
-	font-size: 14px;
-	line-height: 1.5;
-	white-space: pre-wrap;
-	word-break: break-word;
-}
-
-.open-agent-work-chip {
-	display: inline-flex;
-	align-items: center;
-	gap: 0.25rem;
-	padding: 0.25rem 0.5rem;
-	border-radius: 999px;
-	font-size: 12px;
-	font-weight: 600;
-	line-height: 1.3;
-	background: var(--background-primary);
-	border: 1px solid var(--background-modifier-border);
-}
-
-.open-agent-work-chip-verified { color: var(--color-green); }
-.open-agent-work-chip-unsupported { color: #d8a13c; }
-.open-agent-work-chip-quote-missing { color: var(--text-error); }
-
-.open-agent-work-verifier-row {
-	display: flex;
-	flex-wrap: wrap;
-	align-items: center;
-	gap: 0.5rem;
-}
-
-.open-agent-work-verifier-claim {
-	font-size: 14px;
-	line-height: 1.5;
-}
-
-.open-agent-work-verifier-explanation {
-	flex-basis: 100%;
-	font-size: 14px;
-	line-height: 1.5;
-}
-
-.open-agent-work-run-row {
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	gap: 0.5rem;
-}
-
-.open-agent-work-run-state {
-	font-size: 14px;
-	font-weight: 600;
-	line-height: 1.5;
-}
-
-.open-agent-work-raw-json {
-	font-family: var(--font-monospace);
-	font-size: 12px;
-	line-height: 1.5;
-	padding: 0.75rem;
-	border-radius: 6px;
-	background: var(--background-secondary);
-	max-height: 240px;
-	overflow-x: auto;
-	overflow-y: auto;
-	white-space: pre;
-}
-
-@media (max-width: 767px) {
-	.open-agent-work-raw-json {
-		max-height: 30vh;
-	}
-}
-
-.open-agent-claim {
-	display: flex;
-	flex-direction: column;
-	gap: 0.5rem;
-	padding: 0.75rem;
-	border-radius: 6px;
-	border: 1px solid var(--background-modifier-border);
-	background: var(--background-primary);
-	margin-top: 0.5rem;
-}
-
-.open-agent-claim-verified { border-color: var(--color-green); }
-.open-agent-claim-unsupported { border-color: #d8a13c; }
-.open-agent-claim-quote-missing { border-color: var(--text-error); }
-
-.open-agent-claim-header {
-	display: flex;
-	flex-direction: column;
-	gap: 0.5rem;
-}
-
-.open-agent-claim-badge {
-	font-size: 12px;
-	font-weight: 600;
-	line-height: 1.3;
-}
-
-.open-agent-claim-text {
-	font-size: 14px;
-	line-height: 1.5;
-}
-
-.open-agent-claim-meta {
-	display: flex;
-	flex-wrap: wrap;
-	gap: 0.5rem;
-	align-items: center;
-}
-
-.open-agent-claim-source,
-.open-agent-claim-toggle,
-.open-agent-claim-open,
-.open-agent-claim-explanation,
-.open-agent-claim-quote {
-	font-size: 12px;
-	line-height: 1.3;
-}
-
-.open-agent-claim-toggle {
-	min-height: 32px;
-	padding: 0.25rem 0.5rem;
-	border-radius: 4px;
-	border: 1px solid var(--background-modifier-border);
-	background: var(--background-secondary);
-}
-
-.open-agent-claim-details {
-	display: flex;
-	flex-direction: column;
-	gap: 0.5rem;
-	padding-top: 0.25rem;
-}
-
-.open-agent-claim-quote {
-	white-space: pre-wrap;
-	background: var(--background-secondary);
-	padding: 0.5rem;
-	border-radius: 4px;
-}
-
 .is-hidden {
 	display: none !important;
 }
@@ -1150,7 +743,7 @@
 .open-agent-view {
 	gap: 0;
 	padding: 0 0.7rem 0.45rem;
-	color-scheme: light dark;
+	color-scheme: normal;
 	--oa-composer-bg: color-mix(in srgb, var(--background-secondary) 88%, var(--background-primary));
 	--oa-composer-hover: color-mix(in srgb, var(--background-modifier-hover) 72%, transparent);
 	--oa-composer-border: color-mix(in srgb, var(--background-modifier-border) 78%, transparent);
@@ -1461,7 +1054,6 @@
 	font-size: 10px;
 }
 
-.open-agent-mode-select,
 .open-agent-model-input {
 	max-width: 150px;
 	min-width: 0;
@@ -1477,7 +1069,6 @@
 	-webkit-appearance: none;
 }
 
-.open-agent-mode-wrap::after,
 .open-agent-model-wrap::after {
 	content: "⌄";
 	position: absolute;
@@ -1534,7 +1125,6 @@
 	.open-agent-view { padding-inline: 0.45rem; }
 	.open-agent-turn-user { max-width: 88%; }
 	.open-agent-model-wrap { max-width: 145px; }
-	.open-agent-mode-select,
 	.open-agent-model-input { max-width: 118px; }
 }
 
@@ -1765,6 +1355,35 @@
 	margin: 0.65rem 0 0.65rem 0.7rem;
 }
 
+.open-agent-thinking-status-line {
+	display: flex;
+	align-items: center;
+	gap: 0.45rem;
+	width: min(100%, 560px);
+	min-height: 24px;
+	box-sizing: border-box;
+	margin: 0.05rem 0 0.35rem;
+	padding: 0.28rem 0.55rem;
+	border: 1px solid color-mix(in srgb, var(--oa-border) 82%, transparent);
+	border-radius: 10px;
+	background: color-mix(in srgb, var(--background-secondary) 76%, var(--background-primary));
+	box-shadow: 0 2px 10px color-mix(in srgb, #000 9%, transparent);
+	color: var(--oa-text-sub);
+	font-size: 11px;
+	line-height: 1.2;
+	overflow: hidden;
+	transition: border-color 160ms ease, background-color 160ms ease, box-shadow 160ms ease;
+}
+
+.open-agent-thinking-status-line.open-agent-thinking-surface-active {
+	animation: open-agent-thinking-breathe 2.4s ease-in-out infinite;
+}
+
+.open-agent-thinking-status-line > .open-agent-thinking-spinner {
+	flex: 0 0 auto;
+	margin: 0;
+}
+
 .open-agent-tool-card {
 	width: min(100%, 560px);
 	box-sizing: border-box;
@@ -1978,19 +1597,13 @@
 .open-agent-tool-result,
 .open-agent-tool-result pre,
 .open-agent-consent-diff-area,
-.open-agent-diff-table,
-.open-agent-pack-result,
-.open-agent-pack-step-details,
-.open-agent-claim,
-.open-agent-claim-details {
+.open-agent-diff-table {
 	-webkit-user-select: text;
 	user-select: text;
 }
 
 .open-agent-thinking-segment-summary,
-.open-agent-tool-summary,
-.open-agent-pack-step-header,
-.open-agent-pack-step-summary {
+.open-agent-tool-summary {
 	-webkit-user-select: none;
 	user-select: none;
 }
@@ -1999,8 +1612,7 @@
 .open-agent-menu-item,
 .open-agent-input,
 .open-agent-turn-user .open-agent-turn-body,
-.open-agent-turn-assistant .open-agent-turn-body,
-.open-agent-pack-result-body {
+.open-agent-turn-assistant .open-agent-turn-body {
 	font-size: 12px;
 }
 
@@ -2024,10 +1636,7 @@
 .open-agent-composer .open-agent-send-btn,
 .open-agent-composer .open-agent-stop-btn,
 .open-agent-edit-buttons button,
-.open-agent-turn-edit-btn,
-.open-agent-claim-toggle,
-.open-agent-claim-open,
-.open-agent-pack-retry {
+.open-agent-turn-edit-btn {
 	display: inline-flex;
 	align-items: center;
 	justify-content: center;
@@ -2064,10 +1673,7 @@
 .open-agent-composer .open-agent-send-btn:hover:not(:disabled),
 .open-agent-composer .open-agent-stop-btn:hover:not(:disabled),
 .open-agent-edit-buttons button:hover,
-.open-agent-turn-edit-btn:hover,
-.open-agent-claim-toggle:hover,
-.open-agent-claim-open:hover,
-.open-agent-pack-retry:hover {
+.open-agent-turn-edit-btn:hover {
 	border-color: color-mix(in srgb, var(--oa-text-muted, var(--text-muted)) 42%, var(--oa-border));
 	background: var(--oa-surface-bg-hover);
 	box-shadow: 0 3px 14px color-mix(in srgb, #fff 7%, transparent);
@@ -2191,7 +1797,6 @@
 	font-size: 10px;
 }
 
-.open-agent-mode-select,
 .open-agent-model-input {
 	max-width: 145px;
 	padding: 0.22rem 0.9rem 0.22rem 0.2rem;
@@ -2298,7 +1903,6 @@
 @media (max-width: 520px) {
 	.open-agent-view { padding-inline: 0.45rem; }
 	.open-agent-model-wrap { max-width: 138px; }
-	.open-agent-mode-select,
 	.open-agent-model-input { max-width: 112px; }
 }
 
@@ -2324,4 +1928,119 @@
 
 .open-agent-sessions-list {
 	max-height: min(220px, 38vh);
+}
+
+/* Native select popup contrast.
+   Chromium renders the popup outside the plugin DOM, so styling only the
+   closed control is not enough. Keep the popup palette tied to Obsidian's
+   variables and explicitly style the selected/hovered option in both themes.
+   This applies to every select rendered by the Agent view: model, mode, and
+   access permission. */
+.theme-dark .open-agent-view,
+.open-agent-view {
+	--oa-select-popup-bg: var(--background-secondary);
+	--oa-select-popup-text: var(--text-normal);
+	--oa-select-popup-hover: var(--background-modifier-hover);
+	--oa-select-popup-hover-text: var(--text-normal);
+}
+
+.theme-dark .open-agent-view {
+	color-scheme: dark;
+}
+
+.theme-light .open-agent-view {
+	--oa-select-popup-bg: var(--background-primary);
+	--oa-select-popup-text: var(--text-normal);
+	--oa-select-popup-hover: var(--background-modifier-hover);
+	--oa-select-popup-hover-text: var(--text-normal);
+	color-scheme: light;
+}
+
+.open-agent-view :is(
+	.open-agent-model-input,
+	.open-agent-execution-mode-select,
+	.open-agent-permission-select
+) {
+	color: var(--oa-text-sub) !important;
+	color-scheme: inherit;
+}
+
+.open-agent-view :is(
+	.open-agent-model-input,
+	.open-agent-execution-mode-select,
+	.open-agent-permission-select
+) option,
+.open-agent-view :is(
+	.open-agent-model-input,
+	.open-agent-execution-mode-select,
+	.open-agent-permission-select
+) optgroup {
+	color: var(--oa-select-popup-text) !important;
+	-webkit-text-fill-color: var(--oa-select-popup-text) !important;
+	background-color: var(--oa-select-popup-bg) !important;
+}
+
+.open-agent-view :is(
+	.open-agent-model-input,
+	.open-agent-execution-mode-select,
+	.open-agent-permission-select
+) option:hover,
+.open-agent-view :is(
+	.open-agent-model-input,
+	.open-agent-execution-mode-select,
+	.open-agent-permission-select
+) option:focus,
+.open-agent-view :is(
+	.open-agent-model-input,
+	.open-agent-execution-mode-select,
+	.open-agent-permission-select
+) option:active {
+	color: var(--oa-select-popup-text) !important;
+	background-color: var(--oa-select-popup-hover) !important;
+}
+
+/* Keep the currently selected item readable even while the pointer is over
+   it. Chromium otherwise combines its native blue highlight with the select
+   text color, which produces blue/black in dark themes and washed-out text in
+   light themes. */
+.open-agent-view :is(
+	.open-agent-model-input,
+	.open-agent-execution-mode-select,
+	.open-agent-permission-select
+) option:checked,
+.open-agent-view :is(
+	.open-agent-model-input,
+	.open-agent-execution-mode-select,
+	.open-agent-permission-select
+) option:checked:hover {
+	color: var(--text-on-accent, #ffffff) !important;
+	-webkit-text-fill-color: var(--text-on-accent, #ffffff) !important;
+	background-color: var(--interactive-accent) !important;
+}
+
+/* Composer dropdown triggers use Obsidian's native Menu API for the popup.
+   Keep only the trigger styling here; popup ownership and dismissal belong to
+   Obsidian so the view cannot accidentally close it during the opening event. */
+.open-agent-dropdown-trigger {
+	display: inline-flex;
+	align-items: center;
+	justify-content: flex-start;
+	box-sizing: border-box;
+	min-width: 0;
+	margin: 0;
+	border: 0 !important;
+	outline: none;
+	box-shadow: none !important;
+	background: transparent !important;
+	font: inherit;
+	text-align: left;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	cursor: pointer;
+}
+
+.open-agent-dropdown-trigger:focus-visible {
+	outline: 1px solid color-mix(in srgb, var(--oa-accent) 72%, transparent);
+	outline-offset: -1px;
 }

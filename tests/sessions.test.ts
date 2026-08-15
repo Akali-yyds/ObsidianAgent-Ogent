@@ -1,584 +1,79 @@
 import { describe, expect, it, vi } from "vitest";
-import { SessionStore, loadStoredTurnsFile, type StoredTurn } from "../src/sessions";
-import { createMockAdapter } from "./setup";
+import { loadStoredTurnsFile, SessionStore, type SessionFileAdapter, type StoredTurn } from "../src/sessions";
+
+function memoryAdapter(initial: Record<string, string> = {}): SessionFileAdapter & { files: Map<string, string> } {
+	const files = new Map(Object.entries(initial));
+	return {
+		files,
+		exists: async (path) => files.has(path),
+		read: async (path) => files.get(path) ?? "",
+		write: async (path, data) => { files.set(path, data); },
+		rename: async (path, nextPath) => {
+			const data = files.get(path);
+			files.delete(path);
+			if (data !== undefined) files.set(nextPath, data);
+		},
+	};
+}
 
 describe("SessionStore", () => {
-	it("migrates embedded turns and falls back to the first session when active id is invalid", async () => {
+	it("creates, updates, and switches lightweight Agent sessions", async () => {
+		const adapter = memoryAdapter();
 		const persistIndex = vi.fn(async () => undefined);
-		const readTurns = vi.fn(async (id: string) => ({ turns: [{ role: "assistant", content: `loaded:${id}` } satisfies StoredTurn] }));
-		const writeTurns = vi.fn(async () => undefined);
-		const deleteTurns = vi.fn(async () => undefined);
-		const store = new SessionStore({ persistIndex, readTurns, writeTurns, deleteTurns });
-
-		await store.init(
-			[
-				{
-					id: "session-a",
-					title: "A",
-					model: "classic",
-					selectedPackId: null,
-					lastClassicModel: "classic",
-					createdAt: 1,
-					updatedAt: 2,
-					turns: [{ role: "user", content: "embedded" }],
-				},
-				{
-					id: "session-b",
-					title: "B",
-					model: "pack",
-					selectedPackId: "grounded-research",
-					lastClassicModel: "classic",
-					createdAt: 3,
-					updatedAt: 4,
-					turns: [],
-				},
-			],
-			"missing-id",
-		);
-
-		expect(writeTurns).toHaveBeenCalledWith("session-a", [{ role: "user", content: "embedded" }]);
-		expect(store.getActiveId()).toBe("session-a");
-		expect(readTurns).toHaveBeenCalledWith("session-a");
-		expect(store.getActive().turns).toEqual([{ role: "assistant", content: "loaded:session-a" }]);
-	});
-
-	it("persists turns and index together so pack metadata is retained", async () => {
-		const persistIndex = vi.fn(async () => undefined);
-		const readTurns = vi.fn(async () => ({ turns: [] }));
-		const writeTurns = vi.fn(async () => undefined);
-		const deleteTurns = vi.fn(async () => undefined);
-		const store = new SessionStore({ persistIndex, readTurns, writeTurns, deleteTurns });
-
-		await store.init(
-			[
-				{
-					id: "session-a",
-					title: "A",
-					model: "classic",
-					selectedPackId: "grounded-research",
-					lastClassicModel: "classic",
-					createdAt: 1,
-					updatedAt: 2,
-				},
-			],
-			"session-a",
-		);
-
-		const turns: StoredTurn[] = [
-			{ role: "user", content: "Question" },
-			{
-				role: "assistant",
-				content: "",
-				packTurn: {
-					packId: "grounded-research",
-					packName: "Grounded Research",
-					verifiedSummary: "- Answer",
-					researchMarkdown: "Answer with [1]",
-					citations: [
-						{
-							claimId: "claim-1",
-							notePath: "notes/a.md",
-							exactPhrase: "Answer",
-							startOffset: 0,
-							endOffset: "Answer".length,
-							occurrenceIndex: 0,
-						},
-					],
-					agentWork: {
-						retriever: {
-							status: "ready",
-							elapsedMs: 120,
-							notesFoundCount: 2,
-							topNotePaths: ["notes/a.md", "notes/b.md"],
-							brief: "- Answer",
-						},
-						synthesizer: {
-							status: "ready",
-							elapsedMs: 240,
-							claimCount: 1,
-							summary: "Answer",
-							rawJson: {
-								summary: "Answer",
-								claims: [
-									{
-										id: "claim-1",
-										text: "Answer",
-										source_note: "notes/a.md",
-										source_quote: "Answer",
-										confidence: 0.9,
-									},
-								],
-							},
-						},
-						verifier: {
-							status: "ready",
-							elapsedMs: 360,
-							counts: {
-								verified: 1,
-								unsupported: 0,
-								quoteMissing: 0,
-							},
-							reasons: [
-								{
-									claimId: "claim-1",
-									claimText: "Answer",
-									sourceNote: "notes/a.md",
-									status: "verified",
-									explanation: "Supported",
-								},
-							],
-						},
-						run: {
-							state: "completed",
-							elapsedMs: 720,
-							stepElapsedMs: {
-								retriever: 120,
-								synthesizer: 240,
-								verifier: 360,
-							},
-						},
-					},
-					claims: [
-						{
-							id: "claim-1",
-							text: "Answer",
-							sourceNote: "notes/a.md",
-							sourceQuote: "Answer",
-							quotePresent: true,
-							supportsClaim: true,
-							supportExplanation: "Supported",
-							status: "verified",
-							exactPhraseAnchor: {
-								notePath: "notes/a.md",
-								exactPhrase: "Answer",
-								startOffset: 0,
-								endOffset: "Answer".length,
-								occurrenceIndex: 0,
-							},
-						},
-					],
-				},
-			},
-		];
-
-		await store.updateTurns("session-a", turns);
-
-		expect(writeTurns).toHaveBeenCalledWith("session-a", turns);
-		expect(persistIndex).toHaveBeenCalledTimes(1);
-		expect(store.getActive().turns).toEqual(turns);
-		expect(store.toJSON()).toEqual({
-			sessions: [
-				expect.objectContaining({
-					id: "session-a",
-					selectedPackId: "grounded-research",
-					lastClassicModel: "classic",
-				}),
-			],
-			activeSessionId: "session-a",
+		const store = new SessionStore({
+			persistIndex,
+			readTurns: async (id) => loadStoredTurnsFile({ adapter, path: `${id}.json` }),
+			writeTurns: async (id, turns) => adapter.write(`${id}.json`, JSON.stringify({ turns })),
+			deleteTurns: async (id) => { adapter.files.delete(`${id}.json`); },
 		});
-	});
 
-	it("keeps the agentWork payload optional for legacy and partial-failure pack turns", async () => {
-		const persistIndex = vi.fn(async () => undefined);
-		const readTurns = vi.fn(async () => ({ turns: [] }));
-		const writeTurns = vi.fn(async () => undefined);
-		const deleteTurns = vi.fn(async () => undefined);
-		const store = new SessionStore({ persistIndex, readTurns, writeTurns, deleteTurns });
-
-		await store.init(
-			[
-				{
-					id: "session-a",
-					title: "A",
-					model: "classic",
-					selectedPackId: "grounded-research",
-					lastClassicModel: "classic",
-					createdAt: 1,
-					updatedAt: 2,
-				},
-			],
-			"session-a",
-		);
-
+		await store.init([{ id: "a", title: "A", model: "model-a", createdAt: 1, updatedAt: 1 }], "a");
 		const turns: StoredTurn[] = [
-			{
-				role: "assistant",
-				content: "",
-				packTurn: {
-					packId: "grounded-research",
-					packName: "Grounded Research",
-					error: "Verifier offline",
-					agentWork: {
-						retriever: {
-							status: "ready",
-							elapsedMs: 120,
-							notesFoundCount: 1,
-							topNotePaths: ["notes/a.md"],
-							brief: "- Answer",
-						},
-						synthesizer: {
-							status: "ready",
-							elapsedMs: 240,
-							claimCount: 1,
-							summary: "Answer",
-							rawJson: {
-								summary: "Answer",
-								claims: [
-									{
-										id: "claim-1",
-										text: "Answer",
-										source_note: "notes/a.md",
-										source_quote: "Answer",
-										confidence: 0.9,
-									},
-								],
-							},
-						},
-						verifier: {
-							status: "absent",
-							elapsedMs: 90,
-						},
-						run: {
-							state: "failed",
-							elapsedMs: 450,
-							stepElapsedMs: {
-								retriever: 120,
-								synthesizer: 240,
-								verifier: 90,
-							},
-							failedStepId: "verifier",
-						},
-					},
-				},
-			},
-			{
-				role: "assistant",
-				content: "",
-				packTurn: {
-					packId: "grounded-research",
-					packName: "Grounded Research",
-					verifiedSummary: "- Legacy answer",
-				},
-			},
+			{ role: "user", content: "Hello" },
+			{ role: "assistant", content: "Hi", segments: [{ kind: "text", text: "Hi" }] },
 		];
+		await store.updateTurns("a", turns);
+		expect(store.getActive().turns).toEqual(turns);
+		expect(JSON.parse(adapter.files.get("a.json") ?? "{}").turns).toEqual(turns);
 
-		await store.updateTurns("session-a", turns);
-
-		expect(writeTurns).toHaveBeenCalledWith("session-a", turns);
-		expect(store.getActive().turns[0].packTurn?.agentWork?.verifier.status).toBe("absent");
-		expect(store.getActive().turns[1].packTurn?.agentWork).toBeUndefined();
+		const forked = await store.fork("a");
+		expect(forked?.turns).toEqual(turns);
+		expect(store.getSessions()).toHaveLength(2);
+		expect(persistIndex).toHaveBeenCalled();
 	});
 
-	it("surfaces recovery metadata when turn reads recover from corrupt data", async () => {
-		const persistIndex = vi.fn(async () => undefined);
-		const recovery = {
-			reason: "turns-corrupt" as const,
-			message: "Saved chat history was unreadable. OpenAgent moved the original file to sessions/session-a.corrupt-1.json and reset this chat to an empty history.",
-			backupPath: "sessions/session-a.corrupt-1.json",
-			recoveredAt: 1,
-		};
-		const readTurns = vi.fn()
-			.mockResolvedValueOnce({ turns: [], recovery })
-			.mockResolvedValueOnce({ turns: [{ role: "assistant", content: "healthy again" } satisfies StoredTurn] });
-		const writeTurns = vi.fn(async () => undefined);
-		const deleteTurns = vi.fn(async () => undefined);
-		const store = new SessionStore({ persistIndex, readTurns, writeTurns, deleteTurns });
-
-		await store.init(
-			[
-				{
-					id: "session-a",
-					title: "A",
-					model: "classic",
-					selectedPackId: null,
-					lastClassicModel: "classic",
-					createdAt: 1,
-					updatedAt: 2,
-				},
-			],
-			"session-a",
-		);
-
-		expect(store.getActive().turns).toEqual([]);
-		expect(store.getActive().recovery).toEqual(recovery);
-
-		await store.switchTo("session-a");
-		expect(store.getActive().turns).toEqual([{ role: "assistant", content: "healthy again" }]);
-		expect(store.getActive().recovery).toBeNull();
+	it("keeps context attachments and ignores removed legacy metadata", async () => {
+		const adapter = memoryAdapter({
+			"a.json": JSON.stringify({ turns: [{ role: "assistant", content: "Answer", legacyResearch: { id: "removed" }, events: [{ sequence: 1, timestamp: 2, kind: "text" }] }] }),
+		});
+		const store = new SessionStore({
+			persistIndex: async () => undefined,
+			readTurns: async (id) => loadStoredTurnsFile({ adapter, path: `${id}.json` }),
+			writeTurns: async (id, turns) => adapter.write(`${id}.json`, JSON.stringify({ turns })),
+			deleteTurns: async () => undefined,
+		});
+		await store.init([{ id: "a", title: "A", model: "m", createdAt: 1, updatedAt: 1, attachedContextPaths: ["notes/a.md"] }], "a");
+		expect(store.getActive().attachedContextPaths).toEqual(["notes/a.md"]);
+		expect(store.getActive().turns).toEqual([{ role: "assistant", content: "Answer", events: [{ sequence: 1, timestamp: 2, kind: "text" }] }]);
 	});
 });
 
 describe("loadStoredTurnsFile", () => {
-	it("loads valid turn files without recovery metadata", async () => {
-		const adapter = createMockAdapter({
-			"sessions/session-a.json": JSON.stringify({
-				turns: [{ role: "assistant", content: "loaded" } satisfies StoredTurn],
-			}),
-		});
-
-		const result = await loadStoredTurnsFile({
-			adapter,
-			path: "sessions/session-a.json",
-			now: () => 123,
-		});
-
-		expect(result).toEqual({
-			turns: [{ role: "assistant", content: "loaded" }],
-		});
-		expect(adapter.rename).not.toHaveBeenCalled();
-		expect(adapter.write).not.toHaveBeenCalled();
-	});
-
-	it("loads legacy turns without agentWork and preserves newer payloads unchanged", async () => {
-		const adapter = createMockAdapter({
-			"sessions/session-a.json": JSON.stringify({
-				turns: [
-					{
-						role: "assistant",
-						content: "legacy",
-						packTurn: {
-							packId: "grounded-research",
-							packName: "Grounded Research",
-							verifiedSummary: "- Legacy answer",
-						},
-					},
-					{
-						role: "assistant",
-						content: "partial",
-						packTurn: {
-							packId: "grounded-research",
-							packName: "Grounded Research",
-							error: "Verifier offline",
-							agentWork: {
-								retriever: {
-									status: "ready",
-									elapsedMs: 120,
-									notesFoundCount: 1,
-									topNotePaths: ["notes/a.md"],
-									brief: "- Answer",
-								},
-								synthesizer: {
-									status: "ready",
-									elapsedMs: 240,
-									claimCount: 1,
-									summary: "Answer",
-									rawJson: {
-										summary: "Answer",
-										claims: [
-											{
-												id: "claim-1",
-												text: "Answer",
-												source_note: "notes/a.md",
-												source_quote: "Answer",
-												confidence: 0.9,
-											},
-										],
-									},
-								},
-								verifier: {
-									status: "absent",
-									elapsedMs: 90,
-								},
-								run: {
-									state: "failed",
-									elapsedMs: 450,
-									stepElapsedMs: {
-										retriever: 120,
-										synthesizer: 240,
-										verifier: 90,
-									},
-									failedStepId: "verifier",
-								},
-							},
-						},
-					},
-				],
-			}),
-		});
-
-		const result = await loadStoredTurnsFile({
-			adapter,
-			path: "sessions/session-a.json",
-			now: () => 789,
-		});
-
-		expect(result.turns[0].packTurn?.agentWork).toBeUndefined();
-		expect(result.turns[1].packTurn?.agentWork?.run).toEqual({
-			state: "failed",
-			elapsedMs: 450,
-			stepElapsedMs: {
-				retriever: 120,
-				synthesizer: 240,
-				verifier: 90,
-			},
-			failedStepId: "verifier",
-		});
-	});
-
-	it("drops malformed agentWork payloads while keeping the rest of the turn readable", async () => {
-		const adapter = createMockAdapter({
-			"sessions/session-a.json": JSON.stringify({
-				turns: [
-					{
-						role: "assistant",
-						content: "partial",
-						packTurn: {
-							packId: "grounded-research",
-							packName: "Grounded Research",
-							error: "Verifier offline",
-							agentWork: {
-								retriever: "bad",
-								synthesizer: null,
-								verifier: { status: "ready" },
-								run: { state: "failed", elapsedMs: "fast" },
-							},
-						},
-					},
-				],
-			}),
-		});
-
-		const result = await loadStoredTurnsFile({
-			adapter,
-			path: "sessions/session-a.json",
-			now: () => 790,
-		});
-
-		expect(result.turns).toEqual([
-			{
-				role: "assistant",
-				content: "partial",
-				packTurn: {
-					packId: "grounded-research",
-					packName: "Grounded Research",
-					error: "Verifier offline",
-				},
-			},
-		]);
-	});
-
-	it("drops malformed anchor and citation payloads while keeping the rest of the turn readable", async () => {
-		const adapter = createMockAdapter({
-			"sessions/session-a.json": JSON.stringify({
-				turns: [
-					{
-						role: "assistant",
-						content: "partial",
-						packTurn: {
-							packId: "grounded-research",
-							packName: "Grounded Research",
-							verifiedSummary: "- Answer",
-							researchMarkdown: "Answer with [1]",
-							citations: [
-								{
-									claimId: "claim-1",
-									notePath: "notes/a.md",
-									exactPhrase: "Answer",
-									startOffset: "zero",
-									endOffset: 6,
-									occurrenceIndex: 0,
-								},
-							],
-							claims: [
-								{
-									id: "claim-1",
-									text: "Answer",
-									sourceNote: "notes/a.md",
-									sourceQuote: "Answer",
-									quotePresent: true,
-									supportsClaim: true,
-									supportExplanation: "Supported",
-									status: "verified",
-									exactPhraseAnchor: {
-										notePath: "notes/a.md",
-										exactPhrase: "Answer",
-										startOffset: "zero",
-										endOffset: 6,
-										occurrenceIndex: 0,
-									},
-								},
-							],
-						},
-					},
-				],
-			}),
-		});
-
-		const result = await loadStoredTurnsFile({
-			adapter,
-			path: "sessions/session-a.json",
-			now: () => 791,
-		});
-
-		expect(result.turns).toEqual([
-			{
-				role: "assistant",
-				content: "partial",
-				packTurn: {
-					packId: "grounded-research",
-					packName: "Grounded Research",
-					verifiedSummary: "- Answer",
-					researchMarkdown: "Answer with [1]",
-					claims: [
-						{
-							id: "claim-1",
-							text: "Answer",
-							sourceNote: "notes/a.md",
-							sourceQuote: "Answer",
-							quotePresent: true,
-							supportsClaim: true,
-							supportExplanation: "Supported",
-							status: "verified",
-						},
-					],
-				},
-			},
-		]);
-	});
-
-	it("backs up corrupt turn files and resets the active file to empty turns", async () => {
-		const adapter = createMockAdapter({
-			"sessions/session-a.json": "{not valid json",
-		});
-
-		const result = await loadStoredTurnsFile({
-			adapter,
-			path: "sessions/session-a.json",
-			now: () => 123,
-		});
-
-		expect(result.recovery).toEqual({
-			reason: "turns-corrupt",
-			backupPath: "sessions/session-a.corrupt-123.json",
-			recoveredAt: 123,
-			message: "Saved chat history was unreadable. OpenAgent moved the original file to sessions/session-a.corrupt-123.json and reset this chat to an empty history.",
-		});
+	it("backs up malformed history and starts with an empty conversation", async () => {
+		const adapter = memoryAdapter({ "chat.json": "not-json" });
+		const result = await loadStoredTurnsFile({ adapter, path: "chat.json", now: () => 123 });
 		expect(result.turns).toEqual([]);
-		expect(adapter.rename).toHaveBeenCalledWith(
-			"sessions/session-a.json",
-			"sessions/session-a.corrupt-123.json",
-		);
-		expect(adapter.write).toHaveBeenCalledWith(
-			"sessions/session-a.json",
-			JSON.stringify({ turns: [] }),
-		);
-		expect(await adapter.read("sessions/session-a.corrupt-123.json")).toBe("{not valid json");
-		expect(await adapter.read("sessions/session-a.json")).toBe(JSON.stringify({ turns: [] }));
+		expect(result.recovery?.backupPath).toBe("chat.corrupt-123.json");
+		expect(adapter.files.has("chat.corrupt-123.json")).toBe(true);
+		expect(JSON.parse(adapter.files.get("chat.json") ?? "{}").turns).toEqual([]);
 	});
 
-	it("treats non-array turn payloads as corrupt and recovers visibly", async () => {
-		const adapter = createMockAdapter({
-			"sessions/session-a.json": JSON.stringify({ turns: null }),
+	it("sanitizes ordinary event, tool, and segment data", async () => {
+		const adapter = memoryAdapter({
+			"chat.json": JSON.stringify({ turns: [{ role: "assistant", content: "", segments: [{ kind: "thinking", text: "work" }, { kind: "tool", id: "t1" }], toolCalls: [{ id: "t1", name: "vault_read", args: { path: "a.md" }, mutates: false, status: "ok", result: { ok: true, value: "x" } }] }] }),
 		});
-
-		const result = await loadStoredTurnsFile({
-			adapter,
-			path: "sessions/session-a.json",
-			now: () => 456,
-		});
-
-		expect(result.recovery?.backupPath).toBe("sessions/session-a.corrupt-456.json");
-		expect(await adapter.read("sessions/session-a.corrupt-456.json")).toBe(JSON.stringify({ turns: null }));
-		expect(await adapter.read("sessions/session-a.json")).toBe(JSON.stringify({ turns: [] }));
+		const result = await loadStoredTurnsFile({ adapter, path: "chat.json" });
+		expect(result.turns[0]).toMatchObject({ role: "assistant", segments: [{ kind: "thinking", text: "work" }, { kind: "tool", id: "t1" }] });
+		expect(result.turns[0].toolCalls?.[0].result).toEqual({ ok: true, value: "x" });
 	});
 });

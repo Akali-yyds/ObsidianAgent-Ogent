@@ -1,7 +1,4 @@
 import { Notice, Platform, Plugin, TFile, Workspace, WorkspaceLeaf } from "obsidian";
-import { ensureDefaultPacks, loadPacks } from "./packs/loader";
-import { runPack, type PackRuntimeEvent, type PackRunResult } from "./packs/runtime";
-import type { AgentPack } from "./packs/types";
 import { ConsentManager } from "./consent/manager";
 import { UndoBuffer } from "./consent/undo";
 import { OpenAgentSettingsTab, DEFAULT_SETTINGS, type PluginSettings } from "./settings";
@@ -79,8 +76,6 @@ export default class OpenAgentPlugin extends Plugin {
 		} else if (recoveryIssues.length > 1) {
 			new Notice(`Recovered ${recoveryIssues.length} unreadable chat histories. Open OpenAgent to review the backup locations.`);
 		}
-		await ensureDefaultPacks(this.app, pluginDir);
-
 		this.toolRegistry = new ToolRegistry();
 		this.undo = new UndoBuffer(50);
 		this.toolRegistry.registerAll(vaultTools(this.app, { undo: this.undo }));
@@ -101,14 +96,12 @@ export default class OpenAgentPlugin extends Plugin {
 				consent,
 				undo: this.undo,
 				sessionStore: this.sessionStore,
-				getPacks: () => this.getPacks(),
 				getCurrentContext: () => this.getCurrentContext(),
 				getVaultRules: () => loadVaultRules(this.app),
 				loadDocumentContent: async (path: string) => {
 					const file = this.app.vault.getAbstractFileByPath(path);
 					return file instanceof TFile ? this.app.vault.cachedRead(file) : null;
 				},
-				runPack: (pack, query, signal, onEvent) => this.runPack(pack, query, signal, onEvent),
 			});
 		});
 
@@ -151,10 +144,14 @@ export default class OpenAgentPlugin extends Plugin {
 		const data = (await this.loadData()) as (Partial<PluginSettings> & {
 			sessions?: unknown;
 			activeSessionId?: unknown;
+			packProviderOverrides?: unknown;
 		}) | null;
+		const hadRemovedPackSettings = Boolean(data && Object.prototype.hasOwnProperty.call(data, "packProviderOverrides"));
+		const settingsData = data ? { ...data } : {};
+		delete settingsData.packProviderOverrides;
 		this.settings = {
 			...DEFAULT_SETTINGS,
-			...(data ?? {}),
+			...settingsData,
 			consent: { ...DEFAULT_SETTINGS.consent, ...(data?.consent ?? {}) },
 		};
 		const rawSessions = Array.isArray(data?.sessions)
@@ -162,6 +159,7 @@ export default class OpenAgentPlugin extends Plugin {
 			: [];
 		const activeId = typeof data?.activeSessionId === "string" ? data.activeSessionId : "";
 		await this.sessionStore.init(rawSessions, activeId);
+		if (hadRemovedPackSettings) await this.saveData({ ...this.settings, ...this.sessionStore.toJSON() });
 	}
 
 	async saveSettings(): Promise<void> {
@@ -219,27 +217,6 @@ export default class OpenAgentPlugin extends Plugin {
 		const setting = (this.app as unknown as { setting: { open(): void; openTabById(id: string): void } }).setting;
 		setting.open();
 		setting.openTabById(this.manifest.id);
-	}
-
-	private async getPacks(): Promise<AgentPack[]> {
-		return loadPacks(this.app, this.manifest.dir ?? this.manifest.id);
-	}
-
-	private async runPack(
-		pack: AgentPack,
-		query: string,
-		signal?: AbortSignal,
-		onEvent?: (event: PackRuntimeEvent) => void | Promise<void>,
-	): Promise<PackRunResult> {
-		return runPack({
-			app: this.app,
-			pack,
-			query,
-			activeFilePath: this.getCurrentContext().activeFilePath,
-			signal,
-			onEvent,
-			providerOverrides: this.settings.packProviderOverrides[pack.id],
-		});
 	}
 
 	private async undoLastCheckpoint(): Promise<void> {
