@@ -18,7 +18,7 @@ function getVaultPath() {
 }
 
 const vault = getVaultPath();
-const dest = join(vault, ".obsidian", "plugins", "obsidian-agent-ogent");
+const dest = join(vault, ".obsidian", "plugins", "agent-ogent");
 mkdirSync(dest, { recursive: true });
 
 for (const file of ["main.js", "styles.css", "manifest.json"]) {

@@ -53,7 +53,7 @@ export function webFetchTool() {
 					method: "GET",
 					headers: {
 						Accept: "text/html, text/plain;q=0.9, application/xhtml+xml;q=0.8",
-						"User-Agent": "OpenAgent/0.1 (Obsidian knowledge assistant)",
+						"User-Agent": "Ogent/0.1 (Obsidian knowledge assistant)",
 					},
 					throw: false,
 				});

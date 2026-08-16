@@ -59,7 +59,7 @@ export function webSearchTool(getConfig: () => WebSearchConfig) {
 			const config = getConfig();
 			const apiKey = config.apiKey.trim();
 			if (!apiKey) {
-				return fail("Web search is not configured. Add a Tavily or Brave API key in OpenAgent settings.");
+				return fail("Web search is not configured. Add a Tavily or Brave API key in Ogent settings.");
 			}
 
 			const limit = clampLimit(args.limit);

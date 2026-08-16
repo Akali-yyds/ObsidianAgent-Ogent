@@ -69,7 +69,7 @@ describe("web_search", () => {
 
 		expect(result).toEqual({
 			ok: false,
-			error: "Web search is not configured. Add a Tavily or Brave API key in OpenAgent settings.",
+			error: "Web search is not configured. Add a Tavily or Brave API key in Ogent settings.",
 		});
 		expect(requestUrlMock).not.toHaveBeenCalled();
 	});

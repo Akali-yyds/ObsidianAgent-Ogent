@@ -443,7 +443,7 @@ export class ChatView extends ItemView {
 			text: "Local",
 		});
 		contextChip.setAttribute("aria-label", "Context: Local vault");
-		contextChip.setAttribute("title", "OpenAgent uses the current local vault as context");
+		contextChip.setAttribute("title", "Ogent uses the current local vault as context");
 
 		this.statusBarEl.createEl("span", {
 			cls: "open-agent-status-separator",

@@ -1,6 +1,6 @@
-# ObsidianAgent-Ogent
+# Ogent
 
-An Obsidian vault-aware AI agent with streaming output, safe file tools, and bring-your-own-key provider support.
+Ogent is an Obsidian vault-aware AI agent with streaming output, safe file tools, and bring-your-own-key provider support.
 
 This repository is a personal fork and ongoing customization of [OpenAgent for Obsidian](https://github.com/nikitaclicks/obsidian-openagent). The upstream project and its MIT license remain the foundation; the changes in this repository focus on a lightweight, practical Agent for an Obsidian knowledge base.
 
@@ -29,17 +29,17 @@ The plugin does not provide arbitrary terminal commands or external system write
 This fork is currently intended for manual installation while it is under development. Community-plugin submission is planned; until it is approved, install a GitHub Release manually.
 
 1. Download `main.js`, `manifest.json`, and `styles.css` from a release, or build them locally.
-2. Create `<vault>/.obsidian/plugins/obsidian-agent-ogent/` if it does not exist.
+2. Create `<vault>/.obsidian/plugins/agent-ogent/` if it does not exist.
 3. Copy the three files into that directory.
-4. In Obsidian, open **Settings → Community plugins**, enable community plugins if necessary, and enable **ObsidianAgent-Ogent**.
+4. In Obsidian, open **Settings → Community plugins**, enable community plugins if necessary, and enable **Ogent**.
 
 If you previously used the upstream `OpenAgent` build, enable this plugin once and then disable the old `open-agent` plugin. The first launch imports its settings and session files without deleting the old data.
 
-For mobile, sync the same plugin files into the mobile vault's `.obsidian/plugins/obsidian-agent-ogent/` directory.
+For mobile, sync the same plugin files into the mobile vault's `.obsidian/plugins/agent-ogent/` directory.
 
 ## Configuration
 
-Open **Settings → ObsidianAgent-Ogent** and configure:
+Open **Settings → Ogent** and configure:
 
 | Setting | Description |
 | --- | --- |
@@ -62,7 +62,7 @@ When current or time-sensitive information is needed, the Agent can search the p
 - Web search sends the search query to the selected Tavily or Brave service. `web_fetch` accepts only HTTP(S) URLs and blocks local, loopback, private, and link-local hosts.
 - Fetched web pages are reference data, not instructions. The Agent is told not to execute instructions contained in web content.
 - Vault writes require the configured consent policy and use a visible tool flow. Deleted notes use Obsidian's trash behavior where supported.
-- API keys are stored in the plugin data file at `.obsidian/plugins/obsidian-agent-ogent/data.json`. This file is ignored by Git. Never commit it, put keys in notes or `OpenAgent.md`, or include them in bug reports and exported sessions.
+- API keys are stored in the plugin data file at `.obsidian/plugins/agent-ogent/data.json`. This file is ignored by Git. Never commit it, put keys in notes or `OpenAgent.md`, or include them in bug reports and exported sessions.
 
 ## Development
 
@@ -88,7 +88,7 @@ To deploy a production build into a local test vault, set `.vault-path` to the v
 npm run deploy
 ```
 
-The deploy script copies `main.js`, `manifest.json`, and `styles.css` into the vault's `obsidian-agent-ogent` plugin directory. Do not copy `data.json` from a personal vault into the repository.
+The deploy script copies `main.js`, `manifest.json`, and `styles.css` into the vault's `agent-ogent` plugin directory. Do not copy `data.json` from a personal vault into the repository.
 
 ## Project layout
 

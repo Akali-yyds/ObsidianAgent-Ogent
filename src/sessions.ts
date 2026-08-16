@@ -93,7 +93,7 @@ async function recoverCorruptTurnsFile(adapter: SessionFileAdapter, path: string
 			reason: "turns-corrupt",
 			backupPath,
 			recoveredAt,
-			message: `Saved chat history was unreadable. OpenAgent moved the original file to ${backupPath} and reset this chat to an empty history.`,
+			message: `Saved chat history was unreadable. Ogent moved the original file to ${backupPath} and reset this chat to an empty history.`,
 		},
 	};
 }

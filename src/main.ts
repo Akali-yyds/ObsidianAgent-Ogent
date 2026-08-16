@@ -13,7 +13,7 @@ import { loadVaultRules } from "./rules";
 import { CHAT_VIEW_TYPE, ChatView } from "./view";
 
 const SETTINGS_CHANGED_EVENT = "open-agent:settings-changed";
-const LEGACY_PLUGIN_ID = "open-agent";
+const LEGACY_PLUGIN_DIRS = ["obsidian-agent-ogent", "open-agent"];
 
 export default class OpenAgentPlugin extends Plugin {
 	settings: PluginSettings = DEFAULT_SETTINGS;
@@ -74,7 +74,7 @@ export default class OpenAgentPlugin extends Plugin {
 		if (recoveryIssues.length === 1) {
 			new Notice(recoveryIssues[0].message);
 		} else if (recoveryIssues.length > 1) {
-			new Notice(`Recovered ${recoveryIssues.length} unreadable chat histories. Open ObsidianAgent-Ogent to review the backup locations.`);
+			new Notice(`Recovered ${recoveryIssues.length} unreadable chat histories. Open Ogent to review the backup locations.`);
 		}
 		this.toolRegistry = new ToolRegistry();
 		this.undo = new UndoBuffer(50);
@@ -172,24 +172,29 @@ export default class OpenAgentPlugin extends Plugin {
 		const adapter = this.app.vault.adapter;
 		const configDir = this.app.vault.configDir;
 		const currentDataPath = `${configDir}/plugins/${pluginDir}/data.json`;
-		const legacyDataPath = `${configDir}/plugins/${LEGACY_PLUGIN_ID}/data.json`;
 		let importedSettings = false;
 		let migratedSessions = 0;
 
-		if (!(await adapter.exists(currentDataPath)) && await adapter.exists(legacyDataPath)) {
-			try {
-				const parsed = JSON.parse(await adapter.read(legacyDataPath)) as unknown;
-				if (isRecord(parsed)) {
-					await adapter.write(currentDataPath, JSON.stringify(parsed));
-					importedSettings = true;
+		if (!(await adapter.exists(currentDataPath))) {
+			for (const legacyDir of LEGACY_PLUGIN_DIRS) {
+				const legacyDataPath = `${configDir}/plugins/${legacyDir}/data.json`;
+				if (!(await adapter.exists(legacyDataPath))) continue;
+				try {
+					const parsed = JSON.parse(await adapter.read(legacyDataPath)) as unknown;
+					if (isRecord(parsed)) {
+						await adapter.write(currentDataPath, JSON.stringify(parsed));
+						importedSettings = true;
+						break;
+					}
+				} catch {
+					// Try the next legacy location if this file is malformed.
 				}
-			} catch {
-				// A malformed legacy data file should not prevent the new plugin from loading.
 			}
 		}
 
-		const legacySessionsDir = `${configDir}/plugins/${LEGACY_PLUGIN_ID}/sessions`;
-		if (await adapter.exists(legacySessionsDir)) {
+		for (const legacyDir of LEGACY_PLUGIN_DIRS) {
+			const legacySessionsDir = `${configDir}/plugins/${legacyDir}/sessions`;
+			if (!(await adapter.exists(legacySessionsDir))) continue;
 			try {
 				if (!(await adapter.exists(sessionsDir))) await adapter.mkdir(sessionsDir);
 				const listing = await adapter.list(legacySessionsDir);
@@ -203,7 +208,7 @@ export default class OpenAgentPlugin extends Plugin {
 					migratedSessions++;
 				}
 			} catch {
-				// Session migration is best-effort; the legacy installation remains intact.
+				// Session migration is best-effort; legacy installations remain intact.
 			}
 		}
 
@@ -212,7 +217,7 @@ export default class OpenAgentPlugin extends Plugin {
 				importedSettings ? "settings" : "",
 				migratedSessions > 0 ? `${migratedSessions} chat file${migratedSessions === 1 ? "" : "s"}` : "",
 			].filter(Boolean).join(" and ");
-			new Notice(`Migrated ${details} from the previous OpenAgent installation. You can disable the old plugin now.`);
+			new Notice(`Migrated ${details} from the previous plugin installation. You can disable the old plugin now.`);
 		}
 	}
 
