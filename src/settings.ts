@@ -73,7 +73,8 @@ export class OpenAgentSettingsTab extends PluginSettingTab {
 
 		const keyNotice = containerEl.createDiv({ cls: "open-agent-notice" });
 		keyNotice.createEl("strong", { text: "Key storage: " });
-		keyNotice.appendText(`Your API key is stored in ${this.app.vault.configDir}/plugins/open-agent/data.json. Keep this file private.`);
+		const pluginDir = this.plugin.manifest.dir ?? this.plugin.manifest.id;
+		keyNotice.appendText(`Your API key is stored in ${this.app.vault.configDir}/plugins/${pluginDir}/data.json. Keep this file private.`);
 
 		new Setting(containerEl)
 			.setName("Provider")

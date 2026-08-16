@@ -13,6 +13,7 @@ import { loadVaultRules } from "./rules";
 import { CHAT_VIEW_TYPE, ChatView } from "./view";
 
 const SETTINGS_CHANGED_EVENT = "open-agent:settings-changed";
+const LEGACY_PLUGIN_ID = "open-agent";
 
 export default class OpenAgentPlugin extends Plugin {
 	settings: PluginSettings = DEFAULT_SETTINGS;
@@ -24,6 +25,7 @@ export default class OpenAgentPlugin extends Plugin {
 	async onload(): Promise<void> {
 		const pluginDir = this.manifest.dir ?? this.manifest.id;
 		const sessionsDir = `${pluginDir}/sessions`;
+		await this.migrateLegacyPluginData(pluginDir, sessionsDir);
 		let sessionsDirEnsured = false;
 		const ensureSessionsDir = async () => {
 			if (sessionsDirEnsured) return;
@@ -72,7 +74,7 @@ export default class OpenAgentPlugin extends Plugin {
 		if (recoveryIssues.length === 1) {
 			new Notice(recoveryIssues[0].message);
 		} else if (recoveryIssues.length > 1) {
-			new Notice(`Recovered ${recoveryIssues.length} unreadable chat histories. Open OpenAgent to review the backup locations.`);
+			new Notice(`Recovered ${recoveryIssues.length} unreadable chat histories. Open ObsidianAgent-Ogent to review the backup locations.`);
 		}
 		this.toolRegistry = new ToolRegistry();
 		this.undo = new UndoBuffer(50);
@@ -159,6 +161,59 @@ export default class OpenAgentPlugin extends Plugin {
 	async saveSettings(): Promise<void> {
 		await this.saveData({ ...this.settings, ...this.sessionStore.toJSON() });
 		window.dispatchEvent(new CustomEvent(SETTINGS_CHANGED_EVENT));
+	}
+
+	/**
+	 * The plugin was originally deployed as `open-agent`. Keep that installation
+	 * intact, but import its settings and session files when the fork is first
+	 * installed under its own community-plugin id.
+	 */
+	private async migrateLegacyPluginData(pluginDir: string, sessionsDir: string): Promise<void> {
+		const adapter = this.app.vault.adapter;
+		const configDir = this.app.vault.configDir;
+		const currentDataPath = `${configDir}/plugins/${pluginDir}/data.json`;
+		const legacyDataPath = `${configDir}/plugins/${LEGACY_PLUGIN_ID}/data.json`;
+		let importedSettings = false;
+		let migratedSessions = 0;
+
+		if (!(await adapter.exists(currentDataPath)) && await adapter.exists(legacyDataPath)) {
+			try {
+				const parsed = JSON.parse(await adapter.read(legacyDataPath)) as unknown;
+				if (isRecord(parsed)) {
+					await adapter.write(currentDataPath, JSON.stringify(parsed));
+					importedSettings = true;
+				}
+			} catch {
+				// A malformed legacy data file should not prevent the new plugin from loading.
+			}
+		}
+
+		const legacySessionsDir = `${configDir}/plugins/${LEGACY_PLUGIN_ID}/sessions`;
+		if (await adapter.exists(legacySessionsDir)) {
+			try {
+				if (!(await adapter.exists(sessionsDir))) await adapter.mkdir(sessionsDir);
+				const listing = await adapter.list(legacySessionsDir);
+				for (const legacyPath of listing.files) {
+					if (!legacyPath.startsWith(`${legacySessionsDir}/`)) continue;
+					const fileName = legacyPath.slice(legacySessionsDir.length + 1);
+					if (!fileName || fileName.includes("/")) continue;
+					const newPath = `${sessionsDir}/${fileName}`;
+					if (await adapter.exists(newPath)) continue;
+					await adapter.write(newPath, await adapter.read(legacyPath));
+					migratedSessions++;
+				}
+			} catch {
+				// Session migration is best-effort; the legacy installation remains intact.
+			}
+		}
+
+		if (importedSettings || migratedSessions > 0) {
+			const details = [
+				importedSettings ? "settings" : "",
+				migratedSessions > 0 ? `${migratedSessions} chat file${migratedSessions === 1 ? "" : "s"}` : "",
+			].filter(Boolean).join(" and ");
+			new Notice(`Migrated ${details} from the previous OpenAgent installation. You can disable the old plugin now.`);
+		}
 	}
 
 	private async activateView(): Promise<ChatView | null> {
@@ -328,6 +383,10 @@ export default class OpenAgentPlugin extends Plugin {
 		const file = (leaf.view as unknown as { file?: unknown }).file;
 		return file instanceof TFile ? file : null;
 	}
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function focusLeaf(workspace: Workspace, leaf: WorkspaceLeaf): void {
