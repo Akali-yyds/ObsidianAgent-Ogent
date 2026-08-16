@@ -1,6 +1,6 @@
 {
   "name": "obsidian-agent-ogent",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "Vault-aware AI agent with tools and your own API keys.",
   "main": "main.js",
   "scripts": {
