@@ -20,6 +20,13 @@ interface VaultWriteArgs {
 	body: string;
 	frontmatter?: Record<string, unknown>;
 }
+interface VaultRenameArgs {
+	oldPath: string;
+	newPath: string;
+}
+interface VaultDeleteArgs {
+	path: string;
+}
 
 export class ConsentModal extends Modal {
 	private resolve: (choice: ConsentChoice) => void = () => undefined;
@@ -118,6 +125,19 @@ export class ConsentModal extends Modal {
 				renderWriteDiff(parent, beforeFm, afterFm, beforeBody, a.body);
 				const _stitched = stitchFrontmatter(afterFm, a.body);
 				void _stitched;
+				return;
+			}
+			if (this.tool.name === "vault_rename" || this.tool.name === "vault_move") {
+				const a = this.args as VaultRenameArgs;
+				const pathDiff = `Path: ${a.oldPath}\n→ Path: ${a.newPath}`;
+				parent.createEl("pre", { text: pathDiff });
+				return;
+			}
+			if (this.tool.name === "vault_delete") {
+				const a = this.args as VaultDeleteArgs;
+				const file = this.app.vault.getAbstractFileByPath(a.path);
+				const before = file instanceof TFile ? await this.app.vault.read(file) : "";
+				renderEditDiff(parent, before, "");
 				return;
 			}
 			parent.createEl("pre", { text: JSON.stringify(this.args, null, 2) });

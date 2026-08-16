@@ -6,7 +6,7 @@ This repository is a personal fork and ongoing customization of [OpenAgent for O
 
 ## What it does
 
-- **Vault context**: automatically provides the current Markdown note, folder, selection, current heading, tags, Properties, and linked notes as context.
+- **Vault awareness without automatic note loading**: provides lightweight current-note and current-folder metadata for path resolution, but does not send note bodies or editor selections automatically. The Agent can read a note body only when the user asks it to use a vault read tool.
 - **Three execution modes**:
   - **Read**: inspect and search the vault with read-only tools.
   - **Agent**: read and modify the vault, with approval before writes and network access.
@@ -15,7 +15,7 @@ This repository is a personal fork and ongoing customization of [OpenAgent for O
 - **Write safety**: vault-relative path checks, tool approval, undo snapshots, Agent-turn checkpoints, and recovery from failed session data.
 - **Streaming conversations**: incremental thinking and answer output, ordered tool traces, copyable text, context compaction, queued messages, stop controls, and session recovery after restarting Obsidian.
 - **Web research**: optional Tavily or Brave Search through `web_search`, followed by public HTML/plain-text retrieval through `web_fetch`. Results include source metadata and fetched pages are treated as untrusted reference material.
-- **Provider compatibility**: OpenAI-compatible endpoints, including hosted providers and local servers that expose the same API shape. The plugin negotiates supported streaming, thinking, and tool-call behavior where the endpoint reports incompatibilities.
+- **Provider compatibility**: OpenAI-compatible endpoints, including hosted providers and local servers that expose the same API shape. Runtime fallbacks handle endpoints that reject streaming, structured output, or required tool-choice parameters.
 - **Tool management**: enable or disable individual tools and configure read, write, and network consent in the plugin settings.
 
 ## Scope
@@ -56,7 +56,7 @@ When current or time-sensitive information is needed, the Agent can search the p
 
 ## Privacy and security
 
-- The plugin sends conversation content and any attached vault context to the LLM endpoint you configure. Use an endpoint you trust.
+- The plugin sends conversation content and any note content returned by an explicitly approved vault tool to the LLM endpoint you configure. Use an endpoint you trust.
 - Web search sends the search query to the selected Tavily or Brave service. `web_fetch` accepts only HTTP(S) URLs and blocks local, loopback, private, and link-local hosts.
 - Fetched web pages are reference data, not instructions. The Agent is told not to execute instructions contained in web content.
 - Vault writes require the configured consent policy and use a visible tool flow. Deleted notes use Obsidian's trash behavior where supported.
@@ -94,7 +94,7 @@ The deploy script copies `main.js`, `manifest.json`, and `styles.css` into the v
 src/
   main.ts                 Plugin entry point and Obsidian integration
   settings.ts             Provider, web, consent, and tool settings
-  view.ts                 Chat panel, context chips, controls, and rendering
+  view.ts                 Chat panel, controls, and rendering
   loop.ts                 Agent system prompt and execution entry point
   provider.ts             OpenAI-compatible streaming provider
   sessions.ts             Persistent sessions and event recovery

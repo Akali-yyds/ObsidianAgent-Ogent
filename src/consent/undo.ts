@@ -4,7 +4,11 @@ export interface WriteOp {
 	before: string | null; // null = file didn't exist before
 	after: string;
 	timestamp: number;
-	kind?: "write" | "delete";
+	kind?: "write" | "delete" | "rename";
+	/** Original path for a rename/move operation. */
+	beforePath?: string;
+	/** Destination path for a rename/move operation. */
+	afterPath?: string;
 	checkpointId?: string;
 }
 

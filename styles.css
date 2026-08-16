@@ -1128,135 +1128,6 @@
 	.open-agent-model-input { max-width: 118px; }
 }
 
-/* P0/P1 context and execution controls. These controls intentionally share
-   the composer surface instead of native raised button styling. */
-.open-agent-context-chips {
-	display: flex;
-	align-items: center;
-	gap: 6px;
-	flex-wrap: wrap;
-	padding: 8px 12px 0;
-	color: var(--text-muted);
-	font-size: var(--font-ui-smaller);
-}
-
-.open-agent-context-chip {
-	border: 1px solid var(--oa-composer-border, var(--background-modifier-border));
-	border-radius: 999px;
-	background: transparent;
-	color: var(--text-muted);
-	padding: 2px 8px;
-	cursor: pointer;
-}
-
-.open-agent-context-chip:hover,
-.open-agent-context-chip:focus-visible {
-	background: var(--oa-composer-hover, var(--background-modifier-hover));
-	color: var(--text-normal);
-}
-
-.open-agent-context-add {
-	border: 0;
-	background: transparent;
-	color: var(--text-muted);
-	min-height: 0;
-	height: auto;
-	padding: 1px 6px;
-	line-height: 1.25;
-	cursor: pointer;
-}
-
-.open-agent-context-add:hover,
-.open-agent-context-add:focus-visible {
-	color: var(--text-normal);
-}
-
-.open-agent-context-modal-help {
-	color: var(--text-muted);
-	font-size: var(--font-ui-smaller);
-}
-
-.open-agent-context-file-list {
-	display: flex;
-	flex-direction: column;
-	gap: 2px;
-	max-height: 55vh;
-	overflow: auto;
-	margin-top: 10px;
-}
-
-.open-agent-context-breadcrumb {
-	display: flex;
-	align-items: center;
-	gap: 4px;
-	flex-wrap: wrap;
-	margin-top: 10px;
-	color: var(--text-muted);
-	font-size: var(--font-ui-smaller);
-}
-
-.open-agent-context-breadcrumb-button {
-	border: 0;
-	background: transparent;
-	color: var(--text-muted);
-	padding: 2px 4px;
-	cursor: pointer;
-}
-
-.open-agent-context-breadcrumb-button:hover:not(:disabled),
-.open-agent-context-breadcrumb-button:focus-visible:not(:disabled) {
-	color: var(--text-normal);
-	background: var(--background-modifier-hover);
-}
-
-.open-agent-context-breadcrumb-button:disabled {
-	color: var(--text-normal);
-	cursor: default;
-}
-
-.open-agent-context-breadcrumb-separator {
-	color: var(--text-faint);
-}
-
-.open-agent-context-folder-item {
-	border: 0;
-	border-radius: 6px;
-	background: transparent;
-	color: var(--text-muted);
-	text-align: left;
-	padding: 6px 8px;
-	cursor: pointer;
-}
-
-.open-agent-context-folder-item:hover,
-.open-agent-context-folder-item:focus-visible {
-	background: var(--background-modifier-hover);
-	color: var(--text-normal);
-}
-
-.open-agent-context-file-item {
-	border: 0;
-	border-radius: 6px;
-	background: transparent;
-	color: var(--text-normal);
-	text-align: left;
-	padding: 6px 8px;
-	cursor: pointer;
-}
-
-.open-agent-context-file-item:hover,
-.open-agent-context-file-item:focus-visible {
-	background: var(--background-modifier-hover);
-}
-
-.open-agent-context-chip-current {
-	color: var(--text-normal);
-}
-
-.open-agent-context-empty {
-	opacity: .7;
-}
-
 .open-agent-execution-mode-select,
 .open-agent-permission-select {
 	border: 0;
@@ -1755,17 +1626,6 @@
 	padding: 0.12rem 0.28rem 0.08rem;
 }
 
-.open-agent-context-chips {
-	gap: 2px;
-	padding: 1px 4px 0;
-	line-height: 1.1;
-}
-
-.open-agent-context-chip {
-	padding: 0 5px;
-	line-height: 1.1;
-}
-
 .open-agent-input-shell {
 	min-height: 1.55rem;
 }
@@ -2043,4 +1903,73 @@
 .open-agent-dropdown-trigger:focus-visible {
 	outline: 1px solid color-mix(in srgb, var(--oa-accent) 72%, transparent);
 	outline-offset: -1px;
+}
+
+/* Keep history editing visually identical to the normal user bubble. The
+   textarea is an input layer inside the same surface, not a second kind of
+   conversation card. */
+.open-agent-turn-user.open-agent-turn-editing {
+	align-self: flex-end;
+	width: min(82%, 720px);
+	max-width: min(82%, 720px);
+}
+
+.open-agent-turn-edit-surface {
+	box-sizing: border-box;
+	width: 100%;
+	border: 1px solid color-mix(in srgb, var(--oa-border) 54%, transparent);
+	border-radius: 15px;
+	background: color-mix(in srgb, var(--background-secondary) 72%, transparent);
+	padding: 0.55rem 0.78rem;
+	font-size: 12px;
+	line-height: 1.5;
+}
+
+.open-agent-turn-edit-area {
+	display: block;
+	box-sizing: border-box;
+	width: 100%;
+	min-height: 2.25em;
+	max-height: 30vh;
+	margin: 0;
+	padding: 0;
+	resize: vertical;
+	border: 0 !important;
+	border-radius: 0;
+	outline: none !important;
+	background: transparent !important;
+	box-shadow: none !important;
+	color: var(--oa-text);
+	-webkit-text-fill-color: var(--oa-text);
+	font-family: inherit;
+	font-size: inherit;
+	line-height: inherit;
+	white-space: pre-wrap;
+	overflow-y: auto;
+}
+
+.open-agent-turn-edit-area:focus {
+	border: 0 !important;
+	outline: none !important;
+	box-shadow: none !important;
+}
+
+.open-agent-turn-edit-surface .open-agent-edit-buttons {
+	gap: 0.35rem;
+	margin-top: 0.45rem;
+	padding-top: 0.35rem;
+	border-top: 1px solid color-mix(in srgb, var(--oa-border) 42%, transparent);
+}
+
+.open-agent-turn-edit-surface .open-agent-edit-buttons button {
+	min-height: 24px;
+	padding: 0.22rem 0.55rem;
+	border-radius: 8px;
+	font-size: 11px;
+}
+
+.open-agent-turn-edit-surface .open-agent-edit-buttons button.mod-cta {
+	border-color: color-mix(in srgb, var(--oa-accent) 48%, var(--oa-border));
+	background: color-mix(in srgb, var(--oa-accent) 16%, var(--background-secondary));
+	color: var(--oa-text);
 }

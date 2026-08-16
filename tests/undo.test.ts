@@ -14,4 +14,22 @@ describe("UndoBuffer checkpoints", () => {
 		expect(operations.map((operation) => operation.path)).toEqual(["b.md", "a.md"]);
 		expect(undo.size()).toBe(0);
 	});
+
+	it("retains both paths for rename and move rollback", () => {
+		const undo = new UndoBuffer();
+		const operation = undo.record({
+			path: "Archive/a.md",
+			before: "",
+			after: "",
+			kind: "rename",
+			beforePath: "Notes/a.md",
+			afterPath: "Archive/a.md",
+		});
+
+		expect(operation).toMatchObject({
+			kind: "rename",
+			beforePath: "Notes/a.md",
+			afterPath: "Archive/a.md",
+		});
+	});
 });

@@ -7,14 +7,19 @@ export function validateArgs(args: unknown, schema: JsonSchema): ValidationResul
 		return { ok: false, error: "expected object arguments" };
 	}
 	const obj = args as Record<string, unknown>;
+	if (schema.additionalProperties === false) {
+		for (const key of Object.keys(obj)) {
+			if (!hasOwn(schema.properties, key)) return { ok: false, error: `unknown field '${key}'` };
+		}
+	}
 
 	for (const key of schema.required ?? []) {
-		if (!(key in obj)) return { ok: false, error: `missing required field '${key}'` };
+		if (!hasOwn(obj, key)) return { ok: false, error: `missing required field '${key}'` };
 	}
 
 	for (const [key, value] of Object.entries(obj)) {
 		const propSchema = schema.properties[key];
-		if (!propSchema) continue;
+		if (!hasOwn(schema.properties, key)) continue;
 		const r = validateProp(value, propSchema, key);
 		if (!r.ok) return r;
 	}
@@ -44,12 +49,17 @@ function validateProp(value: unknown, schema: JsonSchemaProperty, path: string):
 		}
 		if (schema.properties) {
 			const obj = value as Record<string, unknown>;
+			if (schema.additionalProperties === false) {
+				for (const key of Object.keys(obj)) {
+					if (!hasOwn(schema.properties, key)) return { ok: false, error: `unknown field '${path}.${key}'` };
+				}
+			}
 			for (const k of schema.required ?? []) {
-				if (!(k in obj)) return { ok: false, error: `field '${path}.${k}' is required` };
+				if (!hasOwn(obj, k)) return { ok: false, error: `field '${path}.${k}' is required` };
 			}
 			for (const [k, v] of Object.entries(obj)) {
 				const sub = schema.properties[k];
-				if (!sub) continue;
+				if (!hasOwn(schema.properties, k)) continue;
 				const r = validateProp(v, sub, `${path}.${k}`);
 				if (!r.ok) return r;
 			}
@@ -86,4 +96,8 @@ function jsType(v: unknown): string {
 	if (v === null) return "null";
 	if (Array.isArray(v)) return "array";
 	return typeof v;
+}
+
+function hasOwn(value: object, key: string): boolean {
+	return Object.prototype.hasOwnProperty.call(value, key);
 }

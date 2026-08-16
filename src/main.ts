@@ -13,7 +13,6 @@ import { loadVaultRules } from "./rules";
 import { CHAT_VIEW_TYPE, ChatView } from "./view";
 
 const SETTINGS_CHANGED_EVENT = "open-agent:settings-changed";
-const CONTEXT_CHANGED_EVENT = "open-agent:context-changed";
 
 export default class OpenAgentPlugin extends Plugin {
 	settings: PluginSettings = DEFAULT_SETTINGS;
@@ -59,16 +58,15 @@ export default class OpenAgentPlugin extends Plugin {
 
 		await this.loadSettings();
 		this.lastMarkdownPath = this.findCurrentMarkdownFile()?.path ?? null;
-		const publishContextChanged = (file: TFile | null): void => {
+		const rememberCurrentMarkdown = (file: TFile | null): void => {
 			if (!file) return;
 			this.lastMarkdownPath = file.path;
-			window.dispatchEvent(new CustomEvent(CONTEXT_CHANGED_EVENT, { detail: { path: file.path } }));
 		};
 		this.registerEvent(this.app.workspace.on("active-leaf-change", (leaf) => {
-			publishContextChanged(leaf ? this.fileFromLeaf(leaf) : null);
+			rememberCurrentMarkdown(leaf ? this.fileFromLeaf(leaf) : null);
 		}));
 		this.registerEvent(this.app.workspace.on("file-open", (file) => {
-			publishContextChanged(file);
+			rememberCurrentMarkdown(file);
 		}));
 		const recoveryIssues = this.sessionStore.getRecoveryIssues();
 		if (recoveryIssues.length === 1) {
@@ -98,10 +96,6 @@ export default class OpenAgentPlugin extends Plugin {
 				sessionStore: this.sessionStore,
 				getCurrentContext: () => this.getCurrentContext(),
 				getVaultRules: () => loadVaultRules(this.app),
-				loadDocumentContent: async (path: string) => {
-					const file = this.app.vault.getAbstractFileByPath(path);
-					return file instanceof TFile ? this.app.vault.cachedRead(file) : null;
-				},
 			});
 		});
 
@@ -199,6 +193,14 @@ export default class OpenAgentPlugin extends Plugin {
 			return;
 		}
 		try {
+			if (op.kind === "rename" && op.beforePath && op.afterPath) {
+				const renamed = this.app.vault.getAbstractFileByPath(op.afterPath);
+				if (!(renamed instanceof TFile)) throw new Error(`File not found: ${op.afterPath}`);
+				if (this.app.vault.getAbstractFileByPath(op.beforePath)) throw new Error(`Destination already exists: ${op.beforePath}`);
+				await this.app.vault.rename(renamed, op.beforePath);
+				new Notice(`Reverted ${op.afterPath} to ${op.beforePath}`);
+				return;
+			}
 			const file = this.app.vault.getAbstractFileByPath(op.path);
 			if (op.before === null) {
 				if (file instanceof TFile) await this.app.vault.trash(file, true);
@@ -227,6 +229,13 @@ export default class OpenAgentPlugin extends Plugin {
 		}
 		try {
 			for (const op of operations) {
+				if (op.kind === "rename" && op.beforePath && op.afterPath) {
+					const renamed = this.app.vault.getAbstractFileByPath(op.afterPath);
+					if (!(renamed instanceof TFile)) throw new Error(`File not found: ${op.afterPath}`);
+					if (this.app.vault.getAbstractFileByPath(op.beforePath)) throw new Error(`Destination already exists: ${op.beforePath}`);
+					await this.app.vault.rename(renamed, op.beforePath);
+					continue;
+				}
 				const file = this.app.vault.getAbstractFileByPath(op.path);
 				if (op.before === null) {
 					if (file instanceof TFile) await this.app.vault.trash(file, true);

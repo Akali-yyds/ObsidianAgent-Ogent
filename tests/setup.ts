@@ -372,6 +372,7 @@ vi.mock("obsidian", () => ({
 	TFile: MockTFile,
 	WorkspaceLeaf: MockWorkspaceLeaf,
 	requestUrl: requestUrlMock,
+	normalizePath: (path: string) => path.replace(/\\/g, "/").replace(/\/+/g, "/"),
 }));
 
 export function setMobileMode(isMobile: boolean): void {

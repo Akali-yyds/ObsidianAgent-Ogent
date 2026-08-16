@@ -16,7 +16,7 @@ interface RestoreArgs {
 	path: string;
 }
 
-export function renameTool(app: App) {
+export function renameTool(app: App, undo?: UndoBuffer) {
 	return defineTool<RenameArgs>({
 		name: "vault_rename",
 		description: "Rename a vault note without changing its content. Both paths must be vault-relative.",
@@ -24,12 +24,12 @@ export function renameTool(app: App) {
 		mutates: true,
 		schema: renameSchema(),
 		async run(args) {
-			return renamePath(app, args.oldPath, args.newPath);
+			return renamePath(app, args.oldPath, args.newPath, undo);
 		},
 	});
 }
 
-export function moveTool(app: App) {
+export function moveTool(app: App, undo?: UndoBuffer) {
 	return defineTool<RenameArgs>({
 		name: "vault_move",
 		description: "Move a vault note to another folder. This is equivalent to a safe vault-relative rename.",
@@ -37,7 +37,7 @@ export function moveTool(app: App) {
 		mutates: true,
 		schema: renameSchema(),
 		async run(args) {
-			return renamePath(app, args.oldPath, args.newPath);
+			return renamePath(app, args.oldPath, args.newPath, undo);
 		},
 	});
 }
@@ -111,7 +111,7 @@ function renameSchema() {
 	};
 }
 
-async function renamePath(app: App, oldInput: string, newInput: string) {
+async function renamePath(app: App, oldInput: string, newInput: string, undo?: UndoBuffer) {
 	let oldPath: string;
 	let newPath: string;
 	try {
@@ -126,6 +126,14 @@ async function renamePath(app: App, oldInput: string, newInput: string) {
 	if (app.vault.getAbstractFileByPath(newPath)) return fail(`AlreadyExists: ${newPath}`);
 	await ensureParentFolder(app, newPath);
 	await app.vault.rename(file, newPath);
+	undo?.record({
+		path: newPath,
+		before: "",
+		after: "",
+		kind: "rename",
+		beforePath: oldPath,
+		afterPath: newPath,
+	});
 	return ok({ oldPath, newPath });
 }
 
