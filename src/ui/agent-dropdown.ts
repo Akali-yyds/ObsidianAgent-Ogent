@@ -128,32 +128,10 @@ export class AgentDropdown {
 		this.trigger.setAttribute("aria-expanded", "true");
 		menu.showAtPosition({
 			x: Math.round(rect.left),
-			y: Math.round(rect.top),
+			y: Math.round(rect.bottom),
 			width: Math.max(80, Math.round(rect.width)),
-			overlap: true,
+			overlap: false,
 		});
-		window.requestAnimationFrame(() => this.alignVisibleMenu(menu, rect));
-	}
-
-	private alignVisibleMenu(menu: Menu, triggerRect: DOMRect): void {
-		if (this.activeMenu !== menu) return;
-		const candidates = Array.from(document.querySelectorAll<HTMLElement>(".menu"))
-			.filter((element) => element.offsetWidth > 0 && element.offsetHeight > 0);
-		const menuElement = candidates[candidates.length - 1];
-		if (!menuElement) return;
-
-		const margin = 6;
-		const menuWidth = menuElement.offsetWidth;
-		const menuHeight = menuElement.offsetHeight;
-		const openAbove = triggerRect.top >= menuHeight + margin || window.innerHeight - triggerRect.bottom < menuHeight + margin;
-		const top = openAbove ? triggerRect.top - menuHeight - margin : triggerRect.bottom + margin;
-		const left = Math.max(margin, Math.min(triggerRect.left, window.innerWidth - menuWidth - margin));
-		menuElement.style.setProperty("position", "fixed", "important");
-		menuElement.style.setProperty("left", `${left}px`, "important");
-		menuElement.style.setProperty("top", `${Math.max(margin, top)}px`, "important");
-		menuElement.style.setProperty("right", "auto", "important");
-		menuElement.style.setProperty("bottom", "auto", "important");
-		menuElement.style.setProperty("transform", "none", "important");
 	}
 
 	private closeMenu(): void {

@@ -6,6 +6,8 @@ on:
 
 permissions:
   contents: write
+  id-token: write
+  attestations: write
 
 jobs:
   upload-assets:
@@ -23,6 +25,13 @@ jobs:
       - run: npm ci
 
       - run: npm run build
+
+      - name: Attest release assets
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            main.js
+            styles.css
 
       - uses: softprops/action-gh-release@v2
         with:

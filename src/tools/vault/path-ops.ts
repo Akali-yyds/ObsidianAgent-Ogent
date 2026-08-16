@@ -63,7 +63,7 @@ export function deleteTool(app: App, undo: UndoBuffer) {
 			const file = app.vault.getAbstractFileByPath(path);
 			if (!(file instanceof TFile)) return fail(`NotFound: ${path}`);
 			const before = await app.vault.read(file);
-			await app.vault.trash(file, false);
+			await app.fileManager.trashFile(file);
 			undo.record({ path, before, after: "", kind: "delete" });
 			return ok({ path, trashed: true, recoverableThisSession: true });
 		},

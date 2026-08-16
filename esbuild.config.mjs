@@ -3,7 +3,9 @@ import process from "node:process";
 
 const isProd = process.argv[2] === "production";
 
-const banner = `/* obsidian-ai-agent — built ${new Date().toISOString()} */`;
+// Keep production output deterministic so the community scanner can reproduce
+// the exact release asset from the tagged source and lockfile.
+const banner = "/* Ogent - deterministic production build */";
 
 const ctx = await esbuild.context({
   banner: { js: banner },

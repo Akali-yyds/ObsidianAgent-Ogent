@@ -1,7 +1,7 @@
 {
   "id": "agent-ogent",
   "name": "Ogent",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "minAppVersion": "1.5.0",
   "description": "Run a vault-aware AI agent with streaming output, safe file tools, and configurable OpenAI-compatible providers.",
   "author": "Akali-yyds",

@@ -263,7 +263,7 @@ export default class OpenAgentPlugin extends Plugin {
 			}
 			const file = this.app.vault.getAbstractFileByPath(op.path);
 			if (op.before === null) {
-				if (file instanceof TFile) await this.app.vault.trash(file, true);
+				if (file instanceof TFile) await this.app.fileManager.trashFile(file);
 			} else if (file instanceof TFile) {
 				await this.app.vault.modify(file, op.before);
 			} else {
@@ -298,7 +298,7 @@ export default class OpenAgentPlugin extends Plugin {
 				}
 				const file = this.app.vault.getAbstractFileByPath(op.path);
 				if (op.before === null) {
-					if (file instanceof TFile) await this.app.vault.trash(file, true);
+					if (file instanceof TFile) await this.app.fileManager.trashFile(file);
 				} else if (file instanceof TFile) {
 					await this.app.vault.modify(file, op.before);
 				} else {
