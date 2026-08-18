@@ -7,6 +7,10 @@ export interface AgentDropdownOption {
 
 type ChangeListener = () => void;
 
+// Keep the menu visually attached to the trigger while leaving enough room
+// for the focus/hover boundary. This is 60% shorter than the previous 6px gap.
+const DROPDOWN_MENU_GAP_PX = 2.4;
+
 /**
  * Adapter around Obsidian's own Menu API for the compact composer controls.
  *
@@ -132,6 +136,33 @@ export class AgentDropdown {
 			width: Math.max(80, Math.round(rect.width)),
 			overlap: false,
 		});
+		window.requestAnimationFrame(() => this.alignVisibleMenu(menu, rect));
+	}
+
+	private alignVisibleMenu(menu: Menu, triggerRect: DOMRect): void {
+		if (this.activeMenu !== menu) return;
+		const candidates = Array.from(document.querySelectorAll<HTMLElement>(".menu"))
+			.filter((element) => element.offsetWidth > 0 && element.offsetHeight > 0);
+		const menuElement = candidates[candidates.length - 1];
+		if (!menuElement) return;
+
+		const menuWidth = menuElement.offsetWidth;
+		const menuHeight = menuElement.offsetHeight;
+		const openAbove = triggerRect.top >= menuHeight + DROPDOWN_MENU_GAP_PX
+			|| window.innerHeight - triggerRect.bottom < menuHeight + DROPDOWN_MENU_GAP_PX;
+		const top = openAbove
+			? triggerRect.top - menuHeight - DROPDOWN_MENU_GAP_PX
+			: triggerRect.bottom + DROPDOWN_MENU_GAP_PX;
+		const left = Math.max(
+			DROPDOWN_MENU_GAP_PX,
+			Math.min(triggerRect.left, window.innerWidth - menuWidth - DROPDOWN_MENU_GAP_PX),
+		);
+		menuElement.style.setProperty("position", "fixed", "important");
+		menuElement.style.setProperty("left", `${left}px`, "important");
+		menuElement.style.setProperty("top", `${Math.max(DROPDOWN_MENU_GAP_PX, top)}px`, "important");
+		menuElement.style.setProperty("right", "auto", "important");
+		menuElement.style.setProperty("bottom", "auto", "important");
+		menuElement.style.setProperty("transform", "none", "important");
 	}
 
 	private closeMenu(): void {
