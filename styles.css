@@ -29,15 +29,15 @@
 }
 /* Obsidian gives .view-content a default bottom padding (--file-margins). Depending
    on the runtime DOM it lands on this element or its parent, so zero it out either
-   way so the status bar sits flush against the window bottom. !important wins over
-   Obsidian's higher-specificity core rules. */
+   way so the status bar sits flush against the window bottom. */
 .open-agent-view > .open-agent-composer,
 .open-agent-view > .open-agent-statusbar {
 	padding-bottom: 0;
 	margin-bottom: 0;
 }
-.view-content:has(> .open-agent-view) {
-	padding-bottom: 0 !important;
+.view-content.open-agent-view,
+.view-content > .open-agent-view {
+	padding-bottom: 0;
 }
 /* The final select rules below also cover Chromium's native option popup. */
 
@@ -279,10 +279,10 @@
 	resize: none;
 	font-family: var(--font-interface);
 	font-size: 13.5px;
-	background: transparent !important;
-	border: none !important;
-	outline: none !important;
-	box-shadow: none !important;
+	background: transparent;
+	border: none;
+	outline: none;
+	box-shadow: none;
 	padding: 0.1rem 0.1rem 0.15rem;
 	min-height: 1.3em;
 	max-height: 30vh;
@@ -293,9 +293,9 @@
 	color: var(--oa-text-faint);
 }
 .open-agent-input:focus {
-	border: none !important;
-	outline: none !important;
-	box-shadow: none !important;
+	border: none;
+	outline: none;
+	box-shadow: none;
 }
 .open-agent-composer-toolbar {
 	display: flex;
@@ -322,10 +322,10 @@
 	font-size: 11px;
 	font-weight: 500;
 	color: var(--oa-text-sub);
-	background: transparent !important;
-	border: none !important;
-	outline: none !important;
-	box-shadow: none !important;
+	background: transparent;
+	border: none;
+	outline: none;
+	box-shadow: none;
 	padding: 0.15rem 0.25rem;
 	max-width: 140px;
 	cursor: pointer;
@@ -624,8 +624,8 @@
 	gap: 0.5rem;
 	align-items: center;
 }
-.is-hidden {
-	display: none !important;
+.open-agent-view .is-hidden {
+	display: none;
 }
 
 /* Session toggle + panel */
@@ -1062,8 +1062,8 @@
 	font-weight: 500;
 	line-height: 1.2;
 	color: inherit;
-	background: transparent !important;
-	border: 0 !important;
+	background: transparent;
+	border: 0;
 	border-radius: 8px;
 	appearance: none;
 	-webkit-appearance: none;
@@ -1726,10 +1726,10 @@
 .open-agent-permission-select {
 	max-width: 92px;
 	padding: 0.12rem 0.82rem 0.12rem 0.24rem;
-	border: 0 !important;
+	border: 0;
 	border-radius: 6px;
-	background: transparent !important;
-	box-shadow: none !important;
+	background: transparent;
+	box-shadow: none;
 	color: var(--oa-text-sub);
 	font: inherit;
 	font-size: 10px;
@@ -1752,7 +1752,7 @@
 .open-agent-permission-select:hover,
 .open-agent-permission-select:focus {
 	color: var(--oa-text);
-	background: var(--oa-composer-hover) !important;
+	background: var(--oa-composer-hover);
 }
 
 .open-agent-permission-select option {
@@ -1821,7 +1821,7 @@
 	.open-agent-execution-mode-select,
 	.open-agent-permission-select
 ) {
-	color: var(--oa-text-sub) !important;
+	color: var(--oa-text-sub);
 	color-scheme: inherit;
 }
 
@@ -1835,9 +1835,9 @@
 	.open-agent-execution-mode-select,
 	.open-agent-permission-select
 ) optgroup {
-	color: var(--oa-select-popup-text) !important;
-	-webkit-text-fill-color: var(--oa-select-popup-text) !important;
-	background-color: var(--oa-select-popup-bg) !important;
+	color: var(--oa-select-popup-text);
+	-webkit-text-fill-color: var(--oa-select-popup-text);
+	background-color: var(--oa-select-popup-bg);
 }
 
 .open-agent-view :is(
@@ -1855,8 +1855,8 @@
 	.open-agent-execution-mode-select,
 	.open-agent-permission-select
 ) option:active {
-	color: var(--oa-select-popup-text) !important;
-	background-color: var(--oa-select-popup-hover) !important;
+	color: var(--oa-select-popup-text);
+	background-color: var(--oa-select-popup-hover);
 }
 
 /* Keep the currently selected item readable even while the pointer is over
@@ -1873,9 +1873,9 @@
 	.open-agent-execution-mode-select,
 	.open-agent-permission-select
 ) option:checked:hover {
-	color: var(--text-on-accent, #ffffff) !important;
-	-webkit-text-fill-color: var(--text-on-accent, #ffffff) !important;
-	background-color: var(--interactive-accent) !important;
+	color: var(--text-on-accent, #ffffff);
+	-webkit-text-fill-color: var(--text-on-accent, #ffffff);
+	background-color: var(--interactive-accent);
 }
 
 /* Composer dropdown triggers use Obsidian's native Menu API for the popup.
@@ -1888,10 +1888,10 @@
 	box-sizing: border-box;
 	min-width: 0;
 	margin: 0;
-	border: 0 !important;
+	border: 0;
 	outline: none;
-	box-shadow: none !important;
-	background: transparent !important;
+	box-shadow: none;
+	background: transparent;
 	font: inherit;
 	text-align: left;
 	white-space: nowrap;
@@ -1934,11 +1934,11 @@
 	margin: 0;
 	padding: 0;
 	resize: vertical;
-	border: 0 !important;
+	border: 0;
 	border-radius: 0;
-	outline: none !important;
-	background: transparent !important;
-	box-shadow: none !important;
+	outline: none;
+	background: transparent;
+	box-shadow: none;
 	color: var(--oa-text);
 	-webkit-text-fill-color: var(--oa-text);
 	font-family: inherit;
@@ -1949,9 +1949,9 @@
 }
 
 .open-agent-turn-edit-area:focus {
-	border: 0 !important;
-	outline: none !important;
-	box-shadow: none !important;
+	border: 0;
+	outline: none;
+	box-shadow: none;
 }
 
 .open-agent-turn-edit-surface .open-agent-edit-buttons {

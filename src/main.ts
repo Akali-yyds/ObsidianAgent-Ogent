@@ -1,4 +1,4 @@
-import { Notice, Platform, Plugin, TFile, Workspace, WorkspaceLeaf } from "obsidian";
+import { MarkdownView, Notice, Platform, Plugin, TFile, Workspace, WorkspaceLeaf } from "obsidian";
 import { ConsentManager } from "./consent/manager";
 import { UndoBuffer } from "./consent/undo";
 import { OpenAgentSettingsTab, DEFAULT_SETTINGS, type PluginSettings } from "./settings";
@@ -362,12 +362,7 @@ export default class OpenAgentPlugin extends Plugin {
 		getSelection?: () => string;
 		getCursor?: () => { line: number; ch: number };
 	} | null {
-		const activeLeaf = this.app.workspace.activeLeaf;
-		const view = activeLeaf?.view as unknown as { editor?: {
-			getSelection?: () => string;
-			getCursor?: () => { line: number; ch: number };
-		} } | undefined;
-		return view?.editor ?? null;
+		return this.app.workspace.getActiveViewOfType(MarkdownView)?.editor ?? null;
 	}
 
 	private findCurrentMarkdownFile(): TFile | null {

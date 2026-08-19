@@ -157,12 +157,14 @@ export class AgentDropdown {
 			DROPDOWN_MENU_GAP_PX,
 			Math.min(triggerRect.left, window.innerWidth - menuWidth - DROPDOWN_MENU_GAP_PX),
 		);
-		menuElement.style.setProperty("position", "fixed", "important");
-		menuElement.style.setProperty("left", `${left}px`, "important");
-		menuElement.style.setProperty("top", `${Math.max(DROPDOWN_MENU_GAP_PX, top)}px`, "important");
-		menuElement.style.setProperty("right", "auto", "important");
-		menuElement.style.setProperty("bottom", "auto", "important");
-		menuElement.style.setProperty("transform", "none", "important");
+		menuElement.setCssStyles({
+			position: "fixed",
+			left: `${left}px`,
+			top: `${Math.max(DROPDOWN_MENU_GAP_PX, top)}px`,
+			right: "auto",
+			bottom: "auto",
+			transform: "none",
+		});
 	}
 
 	private closeMenu(): void {

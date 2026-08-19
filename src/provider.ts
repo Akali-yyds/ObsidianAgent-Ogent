@@ -278,7 +278,10 @@ async function requestStreamingCompletion(
 	responseFormat: StreamOptions["responseFormat"],
 	signal?: AbortSignal,
 ): Promise<Response> {
-	if (typeof globalThis.fetch !== "function") {
+	const fetchImpl = typeof window !== "undefined"
+		? window.fetch.bind(window)
+		: typeof fetch === "function" ? fetch : undefined;
+	if (typeof fetchImpl !== "function") {
 		throw new Error("Streaming fetch is unavailable");
 	}
 	const body = JSON.stringify({
@@ -288,7 +291,7 @@ async function requestStreamingCompletion(
 		...(tools ? { tools, ...(toolChoice !== undefined ? { tool_choice: toolChoice } : {}) } : {}),
 		...(responseFormat ? { response_format: responseFormat } : {}),
 	});
-	return globalThis.fetch(url, {
+	return fetchImpl(url, {
 		method: "POST",
 		headers,
 		body,

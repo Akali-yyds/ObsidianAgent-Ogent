@@ -381,7 +381,7 @@ export class ChatView extends ItemView {
 			attr: { rows: "2", placeholder: "Ask the agent…" },
 		});
 		this.inputEl.addEventListener("keydown", (e) => {
-			if (e.key !== "Enter" || e.isComposing || e.keyCode === 229) return;
+			if (e.key !== "Enter" || e.isComposing) return;
 			const wantsNewline = e.shiftKey || e.ctrlKey || e.metaKey || e.altKey;
 			if (wantsNewline) return; // 让浏览器默认插入换行
 			e.preventDefault();
