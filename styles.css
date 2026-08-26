@@ -1004,7 +1004,7 @@
 	min-height: 1.4rem;
 }
 
-.open-agent-input {
+.open-agent-view .open-agent-input {
 	min-height: 1.4rem;
 	max-height: 28vh;
 	padding: 0.05rem 0.1rem 0.18rem;
@@ -1080,7 +1080,7 @@
 	pointer-events: none;
 }
 
-.open-agent-model-wrap {
+.open-agent-view .open-agent-model-wrap {
 	max-width: 180px;
 }
 
@@ -1657,7 +1657,7 @@
 	font-size: 10px;
 }
 
-.open-agent-model-input {
+.open-agent-view .open-agent-model-input {
 	max-width: 145px;
 	padding: 0.22rem 0.9rem 0.22rem 0.2rem;
 	font-size: 10.5px;
@@ -1881,7 +1881,7 @@
 /* Composer dropdown triggers use Obsidian's native Menu API for the popup.
    Keep only the trigger styling here; popup ownership and dismissal belong to
    Obsidian so the view cannot accidentally close it during the opening event. */
-.open-agent-dropdown-trigger {
+.open-agent-view .open-agent-dropdown-trigger {
 	display: inline-flex;
 	align-items: center;
 	justify-content: flex-start;
@@ -1972,4 +1972,136 @@
 	border-color: color-mix(in srgb, var(--oa-accent) 48%, var(--oa-border));
 	background: color-mix(in srgb, var(--oa-accent) 16%, var(--background-secondary));
 	color: var(--oa-text);
+}
+
+/* Cross-version layout guardrails.
+   Obsidian's view-content sizing and native button defaults vary with the
+   app version, platform, and display scale. Keep the chat inside its view,
+   then give the input and compact controls explicit, stable dimensions. */
+.open-agent-view {
+	box-sizing: border-box;
+	max-height: 100%;
+	overflow: hidden;
+	padding-bottom: 0;
+}
+
+/* Some Obsidian/Windows window surfaces calculate the view height without
+   accounting for the taskbar overlap. Offset the bottom rail itself so the
+   composer and its Access/Mode status controls stay visibly above it. */
+.open-agent-composer,
+.open-agent-statusbar {
+	position: relative;
+	top: -30px;
+}
+
+.open-agent-transcript {
+	flex: 1 1 auto;
+	min-height: 0;
+}
+
+.open-agent-composer {
+	flex: 0 0 auto;
+	min-height: 0;
+}
+
+.open-agent-input-shell {
+	box-sizing: border-box;
+	min-height: 1.85rem;
+}
+
+.open-agent-view .open-agent-input {
+	box-sizing: border-box;
+	height: 1.85rem;
+	min-height: 1.85rem;
+	padding: 5px 0.04rem 0;
+	line-height: 1.25;
+}
+
+.open-agent-composer-toolbar {
+	flex: 0 0 auto;
+	min-height: 27px;
+}
+
+.open-agent-composer-selectors {
+	flex: 1 1 auto;
+	min-width: 0;
+}
+
+.open-agent-composer-actions {
+	flex: 0 0 auto;
+}
+
+.open-agent-view .open-agent-model-wrap {
+	flex: 0 1 auto;
+	box-sizing: border-box;
+	height: 22px;
+	min-width: 0;
+	min-height: 22px;
+	max-height: 22px;
+}
+
+.open-agent-view .open-agent-model-input {
+	box-sizing: border-box;
+	height: 22px;
+	min-width: 0;
+	min-height: 22px;
+	max-height: 22px;
+	padding: 0 1.05rem 0 0.2rem;
+	line-height: 1;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.open-agent-view .open-agent-dropdown-trigger {
+	min-height: 0;
+}
+
+.open-agent-statusbar {
+	flex: 0 0 17px;
+	box-sizing: border-box;
+	min-height: 17px;
+}
+
+.open-agent-status-control .open-agent-dropdown-trigger {
+	box-sizing: border-box;
+	height: 17px;
+	min-height: 17px;
+	max-height: 17px;
+	line-height: 1;
+}
+
+@media (max-height: 280px) {
+	.open-agent-view {
+		padding-bottom: 0;
+	}
+
+	.open-agent-toolbar {
+		min-height: 32px;
+	}
+
+	.open-agent-composer {
+		padding-top: 0.08rem;
+		padding-bottom: 0.05rem;
+	}
+
+	.open-agent-input-shell,
+	.open-agent-input {
+		height: 1.75rem;
+		min-height: 1.75rem;
+	}
+
+	.open-agent-composer-toolbar,
+	.open-agent-statusbar {
+		min-height: 16px;
+	}
+
+	.open-agent-statusbar {
+		flex-basis: 16px;
+	}
+
+	.open-agent-composer .open-agent-send-btn,
+	.open-agent-composer .open-agent-stop-btn {
+		width: 25px;
+		height: 25px;
+	}
 }
