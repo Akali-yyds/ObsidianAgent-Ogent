@@ -572,7 +572,7 @@ function loadNodeModule<T>(moduleName: string): T {
 	// Obsidian's plugin sandbox commonly exposes CommonJS `require` without
 	// exposing the Node `module` object. Keep the direct reference guarded so
 	// the same bundle remains safe to load on mobile/browser contexts.
-	// eslint-disable-next-line @typescript-eslint/no-var-requires
+	// eslint-disable-next-line @typescript-eslint/no-var-requires -- guarded CommonJS loading is required for Obsidian Desktop's Node modules.
 	const directRequire = typeof require === "function" ? require as unknown as NodeRequire : undefined;
 	const moduleRequire = directRequire ?? (
 		typeof module !== "undefined" && typeof module.require === "function"
