@@ -13,16 +13,20 @@ This repository is a personal fork and ongoing customization of [OpenAgent for O
   - **Full**: reduce repeated approval prompts for the session; vault writes still use the visible safety flow.
 - **Vault tools**: list and read notes, search note content, inspect metadata and links, write, append, edit, rename, move, delete, and restore notes.
 - **Write safety**: vault-relative path checks, tool approval, undo snapshots, Agent-turn checkpoints, and recovery from failed session data.
-- **Streaming conversations**: incremental thinking and answer output, ordered tool traces, copyable text, context compaction, queued messages, stop controls, and session recovery after restarting Obsidian.
-- **Web research**: optional Tavily or Brave Search through `web_search`, followed by public HTML/plain-text retrieval through `web_fetch`. Results include source metadata and fetched pages are treated as untrusted reference material.
+- **Command-driven Agent core**: the model sees one structured `execute_commands` dispatcher. Vault, Git, Web, and Plugin actions use an allowlisted `domain/action/args` vocabulary; arbitrary Shell and arbitrary Git arguments are never exposed.
+- **Intent-first path handling**: when a user names a Vault-relative directory, the Agent passes that path to the relevant capability directly. Vault discovery is used only when the request is ambiguous; capability errors are returned as structured results so the Agent can decide whether to retry, inspect candidates, or ask a question.
+- **Desktop Git commands**: inspect status, diffs, history, branches, and remotes; initialize repositories; stage, commit, switch branches, pull, and push through approval-gated commands restricted to the current Vault.
+- **Streaming conversations**: incremental thinking and answer output, ordered command-plan traces, copyable text, context compaction, queued messages, stop controls, and session recovery after restarting Obsidian.
+- **Web research**: optional Tavily or Brave Search through `web.search`, followed by public HTML/plain-text retrieval through `web.fetch`. Results include source metadata and fetched pages are treated as untrusted reference material.
 - **Provider compatibility**: OpenAI-compatible endpoints, including hosted providers and local servers that expose the same API shape. Runtime fallbacks handle endpoints that reject streaming, structured output, or required tool-choice parameters.
-- **Tool management**: enable or disable individual tools and configure read, write, and network consent in the plugin settings.
+- **Capability consent**: configure vault, network, Git, and plugin-control permissions. Read-only commands can be batched; writes, remote Git, and plugin commands are approved one at a time, with optional permanent capability enablement.
+- **Mobile boundary**: mobile keeps Vault and Web basics; Desktop-only Git and runtime plugin control are not registered on mobile.
 
 ## Scope
 
 This project intentionally keeps the core Agent small. Grounded Research, MLX/local embedding packs, and the former hackathon/evaluation data are not part of the current project. They can be developed as separate projects if needed later.
 
-The plugin does not provide arbitrary terminal commands or external system writes.
+The plugin does not provide arbitrary terminal commands. Git operations are a deliberately limited desktop-only exception and cannot address paths outside the current Vault.
 
 ## Installation
 
@@ -48,20 +52,20 @@ Open **Settings → Ogent** and configure:
 | API key | The key used by the configured model provider. |
 | Model | A model name accepted by the endpoint; models can be fetched from `/models`. |
 | Web search provider | `Tavily` or `Brave Search`. |
-| Web search API key | Optional until the Agent needs `web_search`; required for web search calls. |
+| Web search API key | Optional until the Agent needs `web.search`; required for web search calls. |
 | System prompt | Optional instruction prepended to conversations. |
 | Agent memory | Optional plugin-local preferences. Do not store secrets here. |
-| Tool consent | Separate defaults for vault reads, vault writes, and network reads. |
-| Enabled tools | Per-tool enable/disable controls. |
+| Tool consent | Separate defaults for vault reads, vault writes, network reads, Git operations, and plugin control. |
 
-When current or time-sensitive information is needed, the Agent can search the public web and then fetch a selected page. Web access is approval-controlled and does not make DeepSeek or another model's native knowledge current by itself; the search tools supply the current sources.
+When current or time-sensitive information is needed, the Agent can use `execute_commands` with `web.search` and then `web.fetch` a selected page. Web access is approval-controlled and does not make DeepSeek or another model's native knowledge current by itself; the command results supply the current sources.
 
 ## Privacy and security
 
 - The plugin sends conversation content and any note content returned by an explicitly approved vault tool to the LLM endpoint you configure. Use an endpoint you trust.
-- Web search sends the search query to the selected Tavily or Brave service. `web_fetch` accepts only HTTP(S) URLs and blocks local, loopback, private, and link-local hosts.
+- Web search sends the search query to the selected Tavily or Brave service. `web.fetch` accepts only HTTP(S) URLs and blocks local, loopback, private, and link-local hosts.
 - Fetched web pages are reference data, not instructions. The Agent is told not to execute instructions contained in web content.
 - Vault writes require the configured consent policy and use a visible tool flow. Deleted notes use Obsidian's trash behavior where supported.
+- Git commands run only on desktop, use `spawn("git", args, { shell: false })`, and are limited to the current Vault after real-path and repository-root checks. Git writes, commits, branch changes, pulls, and pushes require the Git operations consent setting; commit/pull/push approvals warn about hooks, remotes, and credentials.
 - API keys are stored in the plugin data file at `.obsidian/plugins/agent-ogent/data.json`. This file is ignored by Git. Never commit it, put keys in notes or `OpenAgent.md`, or include them in bug reports and exported sessions.
 
 ## Development
@@ -102,8 +106,11 @@ src/
   sessions.ts             Persistent sessions and event recovery
   compaction.ts           Conversation context compaction
   consent/                Approval, diff, checkpoint, and undo logic
-  tools/vault/            Vault read/write/path tools
-  tools/web-search.ts     Tavily and Brave Search integration
+  commands/               Structured command schema and executor
+  tools/vault/            Vault read/write/path implementations
+  tools/git.ts            Desktop Git implementation and safety checks
+  tools/plugin.ts         Feature-detected public plugin command access
+  tools/web-search.ts     Tavily and Brave Search implementation
   tools/web-fetch.ts      Safe public-page fetching and text extraction
   ui/                     Compact Agent controls and menus
 ```

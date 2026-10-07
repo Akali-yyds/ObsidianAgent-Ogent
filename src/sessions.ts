@@ -1,5 +1,5 @@
 import type { DiffRow } from "./consent/diff";
-import type { ToolResult } from "./types";
+import type { AgentCommand, CommandResult, CommandRisk, ToolResult } from "./types";
 
 export interface SessionMeta {
 	id: string;
@@ -31,6 +31,25 @@ export interface StoredToolCall {
 	result?: ToolResult;
 	diffRows?: DiffRow[];
 	planPreview?: boolean;
+	commandPlan?: StoredCommandPlan;
+}
+
+export interface StoredCommand {
+	id: string;
+	domain: AgentCommand["domain"];
+	action: string;
+	args: Record<string, unknown>;
+	risk: CommandRisk;
+	status: "pending" | "running" | "awaiting-consent" | "ok" | "error" | "denied";
+	result?: CommandResult;
+	diffRows?: DiffRow[];
+	warning?: string;
+}
+
+export interface StoredCommandPlan {
+	id: string;
+	commands: StoredCommand[];
+	status: "running" | "ok" | "error" | "denied";
 }
 
 export interface StoredTurn {
@@ -38,6 +57,7 @@ export interface StoredTurn {
 	content: string;
 	segments?: StoredAssistantSegment[];
 	toolCalls?: StoredToolCall[];
+	commandPlans?: StoredCommandPlan[];
 	events?: StoredAgentEvent[];
 }
 
@@ -160,13 +180,30 @@ export class SessionStore {
 
 	getRecoveryIssues(): SessionRecoveryState[] { return [...this.recoveryById.values()]; }
 
-	async create(): Promise<StoredSession> {
-		const session = this.makeMeta();
+	async create(model = ""): Promise<StoredSession> {
+		const session = this.makeMeta(model);
 		this.meta.push(session);
 		this.activeId = session.id;
 		this.activeTurns = [];
 		await this.cb.persistIndex(this.meta, this.activeId);
 		return { ...session, turns: [] };
+	}
+
+	/**
+	 * Model ids belong to a provider endpoint. Clear per-session overrides when
+	 * the endpoint changes so a session cannot silently send an old provider's
+	 * model id to the new endpoint.
+	 */
+	async resetModels(): Promise<void> {
+		const now = Date.now();
+		let changed = false;
+		for (const session of this.meta) {
+			if (!session.model) continue;
+			session.model = "";
+			session.updatedAt = now;
+			changed = true;
+		}
+		if (changed) await this.cb.persistIndex(this.meta, this.activeId);
 	}
 
 	async fork(id: string): Promise<StoredSession | null> {
@@ -267,9 +304,9 @@ export class SessionStore {
 		return result.turns;
 	}
 
-	private makeMeta(): SessionMeta {
+	private makeMeta(model = ""): SessionMeta {
 		const now = Date.now();
-		return { id: makeId(), title: "New chat", model: "", createdAt: now, updatedAt: now };
+		return { id: makeId(), title: "New chat", model, createdAt: now, updatedAt: now };
 	}
 }
 
@@ -286,9 +323,53 @@ function sanitizeStoredTurn(value: unknown): StoredTurn {
 	if (segments) turn.segments = segments;
 	const toolCalls = sanitizeToolCalls(value.toolCalls);
 	if (toolCalls) turn.toolCalls = toolCalls;
+	const commandPlans = sanitizeCommandPlans(value.commandPlans);
+	if (commandPlans) turn.commandPlans = commandPlans;
 	const events = sanitizeEvents(value.events);
 	if (events) turn.events = events;
 	return turn;
+}
+
+function sanitizeCommandPlans(value: unknown): StoredCommandPlan[] | undefined {
+	if (value === undefined) return undefined;
+	if (!Array.isArray(value)) return undefined;
+	const plans = value.map((plan) => {
+		if (!isRecord(plan) || typeof plan.id !== "string" || !Array.isArray(plan.commands)) return null;
+		if (plan.status !== "running" && plan.status !== "ok" && plan.status !== "error" && plan.status !== "denied") return null;
+		const commands = plan.commands.map((command) => {
+			if (!isRecord(command) || typeof command.id !== "string" || typeof command.domain !== "string" || typeof command.action !== "string" || !isRecord(command.args) || typeof command.risk !== "string") return null;
+			if (!["vault", "git", "web", "plugin"].includes(command.domain)) return null;
+			if (!["read", "vault_write", "external_write", "network_read", "plugin_control"].includes(command.risk)) return null;
+			if (!["pending", "running", "awaiting-consent", "ok", "error", "denied"].includes(command.status as string)) return null;
+			const result = command.result === undefined ? undefined : sanitizeCommandResult(command.result);
+			if (command.result !== undefined && !result) return null;
+			return {
+				id: command.id,
+				domain: command.domain as StoredCommand["domain"],
+				action: command.action,
+				args: command.args,
+				risk: command.risk as StoredCommand["risk"],
+				status: command.status as StoredCommand["status"],
+				...(result ? { result } : {}),
+				...(Array.isArray(command.diffRows) ? { diffRows: command.diffRows as DiffRow[] } : {}),
+				...(typeof command.warning === "string" ? { warning: command.warning } : {}),
+			} satisfies StoredCommand;
+		});
+		return commands.every((command): command is StoredCommand => command !== null) ? { id: plan.id, commands, status: plan.status } : null;
+	});
+	return plans.every((plan): plan is StoredCommandPlan => plan !== null) ? plans : undefined;
+}
+
+function sanitizeCommandResult(value: unknown): CommandResult | undefined {
+	if (!isRecord(value) || typeof value.id !== "string" || typeof value.ok !== "boolean" || typeof value.risk !== "string") return undefined;
+	if (!["read", "vault_write", "external_write", "network_read", "plugin_control"].includes(value.risk)) return undefined;
+	if (!value.ok && typeof value.error !== "string") return undefined;
+	return {
+		id: value.id,
+		ok: value.ok,
+		risk: value.risk as CommandRisk,
+		...(value.ok ? { value: value.value } : { error: String(value.error), ...(value.details !== undefined ? { details: value.details } : {}) }),
+	};
 }
 
 function sanitizeSegments(value: unknown): StoredAssistantSegment[] | undefined {
@@ -332,9 +413,15 @@ function sanitizeToolCalls(value: unknown): StoredToolCall[] | undefined {
 			...(result ? { result } : {}),
 			...(Array.isArray(call.diffRows) ? { diffRows: call.diffRows as DiffRow[] } : {}),
 			...(call.planPreview === true ? { planPreview: true as boolean } : {}),
+			...(sanitizeCommandPlan(call.commandPlan) ? { commandPlan: sanitizeCommandPlan(call.commandPlan) } : {}),
 		} satisfies StoredToolCall;
 	});
 	return calls.every((call): call is StoredToolCall => call !== null) ? calls : undefined;
+}
+
+function sanitizeCommandPlan(value: unknown): StoredCommandPlan | undefined {
+	const plans = sanitizeCommandPlans(value === undefined ? undefined : [value]);
+	return plans?.[0];
 }
 
 function sanitizeToolCallStatus(value: unknown): StoredToolCall["status"] | null {

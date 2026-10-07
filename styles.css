@@ -27,17 +27,15 @@
 	--oa-text-faint: var(--text-faint);
 	--oa-accent: var(--interactive-accent);
 }
-/* Obsidian gives .view-content a default bottom padding (--file-margins). Depending
-   on the runtime DOM it lands on this element or its parent, so zero it out either
-   way so the status bar sits flush against the window bottom. */
+/* Obsidian gives .view-content a default bottom padding (--file-margins). Keep
+   the child rail margins neutral, but let the final layout guardrail below
+   own the view's bottom safe area. In particular, do not reset
+   .view-content.open-agent-view here: that selector is more specific than
+   .open-agent-view and would silently cancel the taskbar clearance. */
 .open-agent-view > .open-agent-composer,
 .open-agent-view > .open-agent-statusbar {
 	padding-bottom: 0;
 	margin-bottom: 0;
-}
-.view-content.open-agent-view,
-.view-content > .open-agent-view {
-	padding-bottom: 0;
 }
 /* The final select rules below also cover Chromium's native option popup. */
 
@@ -127,7 +125,48 @@
 .open-agent-turn-assistant .open-agent-turn-body p { margin: 0 0 8px; }
 .open-agent-turn-assistant .open-agent-turn-body p:last-child { margin-bottom: 0; }
 .open-agent-turn-assistant .open-agent-turn-body p + p { margin-top: 6px; }
-.open-agent-turn-assistant .open-agent-turn-body pre { margin: 0.4em 0; overflow-x: auto; }
+.open-agent-turn-assistant .open-agent-turn-body pre {
+	position: relative;
+	box-sizing: border-box;
+	margin: 0.4em 0;
+	padding: 0.65rem 2.65rem 0.65rem 0.75rem;
+	overflow-x: auto;
+}
+
+/* MarkdownRenderer adds Obsidian's copy-code button to fenced code blocks.
+   The agent transcript is not a .markdown-rendered container, so the
+   built-in scoped styles do not position or size that button here. Keep it
+   compact and anchored to the code block instead of letting it enter the
+   document flow as a large native button. */
+.open-agent-turn-assistant .open-agent-turn-body pre > button.copy-code-button,
+.open-agent-turn-assistant .open-agent-turn-body pre > button[aria-label*="Copy"] {
+	position: absolute;
+	top: 0.35rem;
+	right: 0.35rem;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	box-sizing: border-box;
+	width: 24px;
+	height: 24px;
+	min-width: 24px;
+	min-height: 24px;
+	margin: 0;
+	padding: 0;
+	border: 1px solid color-mix(in srgb, var(--oa-border) 82%, transparent);
+	border-radius: 6px;
+	background: color-mix(in srgb, var(--background-secondary) 88%, var(--background-primary));
+	color: var(--oa-text-sub);
+	font-size: 11px;
+	line-height: 1;
+}
+
+.open-agent-turn-assistant .open-agent-turn-body pre > button.copy-code-button:hover,
+.open-agent-turn-assistant .open-agent-turn-body pre > button[aria-label*="Copy"]:hover {
+	border-color: color-mix(in srgb, var(--oa-text-muted, var(--text-muted)) 42%, var(--oa-border));
+	background: var(--background-modifier-hover);
+	color: var(--oa-text);
+}
 .open-agent-turn-assistant .open-agent-turn-body ul,
 .open-agent-turn-assistant .open-agent-turn-body ol { padding-left: 1.4em; margin: 0.3em 0; }
 .open-agent-turn-assistant .open-agent-turn-body li { margin: 0.15em 0; }
@@ -541,6 +580,44 @@
 .open-agent-tool-error { border-color: var(--color-red); }
 .open-agent-tool-denied { border-color: var(--text-muted); opacity: 0.8; }
 .open-agent-tool-consent { border-color: var(--interactive-accent); }
+
+/* Command-driven Agent plan */
+.open-agent-command-plan {
+	padding: 0.25rem 0;
+}
+.open-agent-command-plan-heading {
+	font-size: var(--font-ui-small);
+	font-weight: 600;
+	margin-bottom: 0.25rem;
+}
+.open-agent-command-row {
+	display: grid;
+	grid-template-columns: 1.2em minmax(7em, auto) minmax(0, 1fr) auto;
+	gap: 0.35rem;
+	align-items: baseline;
+	padding: 0.22rem 0.15rem;
+	font-size: var(--font-ui-smaller);
+}
+.open-agent-command-icon { text-align: center; }
+.open-agent-command-ok .open-agent-command-icon { color: var(--color-green); }
+.open-agent-command-running .open-agent-command-icon { color: var(--interactive-accent); }
+.open-agent-command-awaiting-consent .open-agent-command-icon { color: #d8a13c; }
+.open-agent-command-error .open-agent-command-icon,
+.open-agent-command-denied .open-agent-command-icon { color: var(--text-error); }
+.open-agent-command-name { color: var(--text-normal); }
+.open-agent-command-args,
+.open-agent-command-risk { color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.open-agent-command-risk { font-size: var(--font-ui-smaller); }
+.open-agent-command-warning,
+.open-agent-command-error,
+.open-agent-command-plan-error { grid-column: 2 / -1; color: var(--text-muted); font-size: var(--font-ui-smaller); padding-top: 0.15rem; }
+.open-agent-command-error,
+.open-agent-command-plan-error { color: var(--text-error); }
+.open-agent-command-diff { grid-column: 2 / -1; max-height: 24vh; overflow: auto; margin-top: 0.2rem; }
+@media (max-width: 420px) {
+	.open-agent-command-row { grid-template-columns: 1.2em minmax(6em, auto) minmax(0, 1fr); }
+	.open-agent-command-risk { grid-column: 2 / -1; }
+}
 
 /* Inline consent */
 .open-agent-consent-diff-area {
@@ -1982,16 +2059,18 @@
 	box-sizing: border-box;
 	max-height: 100%;
 	overflow: hidden;
-	padding-bottom: 0;
+	/* Reserve the taskbar-safe area in the flex layout itself. A visual
+	   top-offset leaves the original space behind and makes the composer cover
+	   transcript content in short panes. */
+	padding-bottom: 48px;
 }
 
-/* Some Obsidian/Windows window surfaces calculate the view height without
-   accounting for the taskbar overlap. Offset the bottom rail itself so the
-   composer and its Access/Mode status controls stay visibly above it. */
+/* Keep the bottom rail in normal flow so the reserved safe area also shrinks
+   the transcript instead of causing an overlap on short or scaled panes. */
 .open-agent-composer,
 .open-agent-statusbar {
 	position: relative;
-	top: -30px;
+	top: 0;
 }
 
 .open-agent-transcript {
@@ -2072,7 +2151,7 @@
 
 @media (max-height: 280px) {
 	.open-agent-view {
-		padding-bottom: 0;
+		padding-bottom: 30px;
 	}
 
 	.open-agent-toolbar {

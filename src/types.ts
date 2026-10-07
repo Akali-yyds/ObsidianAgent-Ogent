@@ -86,6 +86,7 @@ export interface JsonSchemaProperty {
 	maximum?: number;
 	minLength?: number;
 	maxLength?: number;
+	oneOf?: Array<JsonSchema | JsonSchemaProperty>;
 }
 
 export interface JsonSchema {
@@ -93,6 +94,7 @@ export interface JsonSchema {
 	properties: Record<string, JsonSchemaProperty>;
 	required?: string[];
 	additionalProperties?: boolean;
+	oneOf?: Array<JsonSchema | JsonSchemaProperty>;
 }
 
 // Tool definitions
@@ -101,6 +103,7 @@ export type PermissionClass =
 	| "vault_write"
 	| "network_read"
 	| "external_write"
+	| "plugin_control"
 	| "system_command";
 
 // Compatibility alias for tool definitions.
@@ -112,6 +115,38 @@ export type ToolResult =
 
 export interface ToolContext {
 	signal?: AbortSignal;
+}
+
+/** The only command vocabulary exposed to the model by the chat Agent. */
+export type AgentCommandDomain = "vault" | "git" | "web" | "plugin";
+
+export interface AgentCommand {
+	id: string;
+	domain: AgentCommandDomain;
+	action: string;
+	args: Record<string, unknown>;
+}
+
+export interface CommandPlan {
+	commands: AgentCommand[];
+}
+
+export type CommandRisk = "read" | "vault_write" | "external_write" | "network_read" | "plugin_control";
+
+export interface CommandResult {
+	id: string;
+	ok: boolean;
+	risk: CommandRisk;
+	value?: unknown;
+	error?: string;
+	details?: unknown;
+}
+
+export interface CommandPlanResult {
+	ok: boolean;
+	results: CommandResult[];
+	stoppedAt?: string;
+	error?: string;
 }
 
 export interface ToolDef<TArgs = unknown> {
@@ -144,6 +179,11 @@ export type LoopEvent =
 	| { kind: "checkpoint"; id: string; state: "started" | "completed" }
 	| { kind: "consent_requested"; id: string; name: string }
 	| { kind: "tool_call_finished"; id: string; result: ToolResult }
+	| { kind: "command_plan_started"; id: string; commands: AgentCommand[] }
+	| { kind: "command_started"; planId: string; command: AgentCommand; risk: CommandRisk; warning?: string }
+	| { kind: "command_consent_requested"; planId: string; command: AgentCommand; risk: CommandRisk; warning?: string }
+	| { kind: "command_finished"; planId: string; result: CommandResult }
+	| { kind: "command_plan_finished"; id: string; result: CommandPlanResult }
 	| { kind: "cap_hit" }
 	| { kind: "done" };
 

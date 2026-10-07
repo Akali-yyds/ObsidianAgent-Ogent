@@ -8,6 +8,10 @@ import { vaultTools } from "./tools/vault";
 import { communityPluginSearchTool } from "./tools/community/search";
 import { webSearchTool } from "./tools/web-search";
 import { webFetchTool } from "./tools/web-fetch";
+import { gitTools } from "./tools/git";
+import { pluginTools } from "./tools/plugin";
+import { executeCommandsTool } from "./commands/tool";
+import { CommandExecutor } from "./commands/executor";
 import type { VaultContext } from "./context";
 import { loadVaultRules } from "./rules";
 import { CHAT_VIEW_TYPE, ChatView } from "./view";
@@ -19,6 +23,7 @@ export default class OpenAgentPlugin extends Plugin {
 	settings: PluginSettings = DEFAULT_SETTINGS;
 	sessionStore!: SessionStore;
 	private toolRegistry!: ToolRegistry;
+	private commandExecutor!: CommandExecutor;
 	private undo!: UndoBuffer;
 	private lastMarkdownPath: string | null = null;
 
@@ -85,10 +90,22 @@ export default class OpenAgentPlugin extends Plugin {
 			apiKey: this.settings.webSearchApiKey,
 		})));
 		this.toolRegistry.register(webFetchTool());
-		for (const toolName of this.settings.disabledTools ?? []) this.toolRegistry.setEnabled(toolName, false);
+		if (Platform.isDesktopApp) {
+			this.toolRegistry.registerAll(gitTools(this.app));
+			this.toolRegistry.registerAll(pluginTools(this.app));
+		}
+		// The old per-tool disabledTools setting is intentionally retired. The
+		// command layer owns capability boundaries now; never re-enable a stale
+		// list of hidden legacy tools during startup.
+		this.settings.disabledTools = [];
+		this.toolRegistry.register(executeCommandsTool(this.toolRegistry));
+		this.commandExecutor = new CommandExecutor(this.toolRegistry);
 
 		this.registerView(CHAT_VIEW_TYPE, (leaf: WorkspaceLeaf) => {
-			const consent = new ConsentManager(() => this.settings.consent);
+			const consent = new ConsentManager(() => this.settings.consent, (category, mode) => {
+				this.settings.consent[category] = mode;
+				void this.saveSettings();
+			});
 			return new ChatView(leaf, {
 				getSettings: () => this.settings,
 				openSettings: () => this.openSettings(),
@@ -98,6 +115,7 @@ export default class OpenAgentPlugin extends Plugin {
 				sessionStore: this.sessionStore,
 				getCurrentContext: () => this.getCurrentContext(),
 				getVaultRules: () => loadVaultRules(this.app),
+				commandExecutor: this.commandExecutor,
 			});
 		});
 
@@ -143,19 +161,21 @@ export default class OpenAgentPlugin extends Plugin {
 			packProviderOverrides?: unknown;
 		}) | null;
 		const hadRemovedPackSettings = Boolean(data && Object.prototype.hasOwnProperty.call(data, "packProviderOverrides"));
+		const hadLegacyToolSettings = Boolean(data && Object.prototype.hasOwnProperty.call(data, "disabledTools"));
 		const settingsData = data ? { ...data } : {};
 		delete settingsData.packProviderOverrides;
 		this.settings = {
 			...DEFAULT_SETTINGS,
 			...settingsData,
 			consent: { ...DEFAULT_SETTINGS.consent, ...(data?.consent ?? {}) },
+			disabledTools: [],
 		};
 		const rawSessions = Array.isArray(data?.sessions)
 			? (data.sessions as (SessionMeta & { turns?: StoredTurn[] })[])
 			: [];
 		const activeId = typeof data?.activeSessionId === "string" ? data.activeSessionId : "";
 		await this.sessionStore.init(rawSessions, activeId);
-		if (hadRemovedPackSettings) await this.saveData({ ...this.settings, ...this.sessionStore.toJSON() });
+		if (hadRemovedPackSettings || hadLegacyToolSettings) await this.saveData({ ...this.settings, ...this.sessionStore.toJSON() });
 	}
 
 	async saveSettings(): Promise<void> {

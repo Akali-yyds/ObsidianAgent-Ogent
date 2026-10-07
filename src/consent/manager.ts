@@ -3,6 +3,7 @@ import type { ConsentMode, ToolCategory, ToolDef } from "../types";
 export interface ConsentSettings {
 	vault_read: ConsentMode;
 	vault_write: ConsentMode;
+	plugin_control: ConsentMode;
 	[key: string]: ConsentMode;
 }
 
@@ -10,19 +11,22 @@ export const DEFAULT_CONSENT: ConsentSettings = {
 	vault_read: "always",
 	vault_write: "ask",
 	network_read: "ask",
-	external_write: "never",
+	external_write: "ask",
+	plugin_control: "ask",
 	system_command: "never",
 };
 
-export type ConsentChoice = "approve" | "reject" | "approve-session";
+export type ConsentChoice = "approve" | "reject" | "approve-session" | "approve-always";
 
 export class ConsentManager {
 	private readonly getSettings: () => ConsentSettings;
+	private readonly persistMode?: (category: ToolCategory, mode: ConsentMode) => void;
 	private sessionOverrides: Partial<Record<ToolCategory, ConsentMode>> = {};
 	private pending: { resolve: (choice: ConsentChoice) => void; category: ToolCategory } | null = null;
 
-	constructor(getSettings: () => ConsentSettings) {
+	constructor(getSettings: () => ConsentSettings, persistMode?: (category: ToolCategory, mode: ConsentMode) => void) {
 		this.getSettings = getSettings;
+		this.persistMode = persistMode;
 	}
 
 	resetSession(): void {
@@ -61,7 +65,15 @@ export class ConsentManager {
 		const { resolve, category } = this.pending;
 		this.pending = null;
 		if (choice === "approve-session") this.sessionOverrides[category] = "always";
+		if (choice === "approve-always" && this.canPersist(category)) {
+			this.persistMode?.(category, "always");
+			this.sessionOverrides[category] = "always";
+		}
 		resolve(choice);
+	}
+
+	canPersist(category: ToolCategory): boolean {
+		return category === "external_write" || category === "network_read" || category === "plugin_control";
 	}
 
 	cancelPendingConsent(): void {
@@ -81,6 +93,6 @@ export class ConsentManager {
 		const choice = await new Promise<ConsentChoice>((resolve) => {
 			this.pending = { resolve, category: tool.category };
 		});
-		return choice === "approve" || choice === "approve-session";
+		return choice === "approve" || choice === "approve-session" || choice === "approve-always";
 	}
 }

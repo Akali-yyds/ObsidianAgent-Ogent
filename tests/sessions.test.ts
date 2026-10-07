@@ -36,9 +36,16 @@ describe("SessionStore", () => {
 		expect(store.getActive().turns).toEqual(turns);
 		expect(JSON.parse(adapter.files.get("a.json") ?? "{}").turns).toEqual(turns);
 
+		const created = await store.create("model-b");
+		expect(created.model).toBe("model-b");
+		expect(store.getActive().model).toBe("model-b");
+
 		const forked = await store.fork("a");
 		expect(forked?.turns).toEqual(turns);
-		expect(store.getSessions()).toHaveLength(2);
+		expect(store.getSessions()).toHaveLength(3);
+
+		await store.resetModels();
+		expect(store.getSessions().every((session) => session.model === "")).toBe(true);
 		expect(persistIndex).toHaveBeenCalled();
 	});
 

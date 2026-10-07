@@ -1,4 +1,4 @@
-import { App, Notice, PluginSettingTab, Setting, requestUrl } from "obsidian";
+import { App, Notice, Platform, PluginSettingTab, Setting, requestUrl } from "obsidian";
 import type OpenAgentPlugin from "./main";
 import { DEFAULT_CONSENT, type ConsentSettings } from "./consent/manager";
 import type { ConsentMode } from "./types";
@@ -70,6 +70,7 @@ export class OpenAgentSettingsTab extends PluginSettingTab {
 	display(): void {
 		const { containerEl } = this;
 		containerEl.empty();
+		let clearModelSetting: () => void = () => undefined;
 
 		const keyNotice = containerEl.createDiv({ cls: "open-agent-notice" });
 		keyNotice.createEl("strong", { text: "Key storage: " });
@@ -91,10 +92,24 @@ export class OpenAgentSettingsTab extends PluginSettingTab {
 		new Setting(containerEl)
 			.setName("Base URL")
 			.setDesc("For example https://api.openai.com/v1 or a local OpenAI-compatible endpoint.")
-			.addText((text) => text.setPlaceholder("https://api.openai.com/v1").setValue(this.plugin.settings.baseUrl).onChange(async (value) => {
-				this.plugin.settings.baseUrl = value.trim();
-				await this.plugin.saveSettings();
-			}));
+			.addText((text) => {
+				const initialBaseUrl = this.plugin.settings.baseUrl.trim();
+				let endpointReset = false;
+				text.setPlaceholder("https://api.openai.com/v1").setValue(initialBaseUrl).onChange(async (value) => {
+					const nextBaseUrl = value.trim();
+					this.plugin.settings.baseUrl = nextBaseUrl;
+					if (nextBaseUrl !== initialBaseUrl && !endpointReset) {
+						endpointReset = true;
+						this.plugin.settings.model = "";
+						await this.plugin.sessionStore.resetModels();
+						await this.plugin.saveSettings();
+						clearModelSetting();
+						new Notice("Base URL changed. Fetch and select a model for this endpoint.");
+						return;
+					}
+					await this.plugin.saveSettings();
+				});
+			});
 
 		new Setting(containerEl)
 			.setName("API key")
@@ -137,7 +152,9 @@ export class OpenAgentSettingsTab extends PluginSettingTab {
 		this.renderModelSetting(modelContainer, "Model", "Model name accepted by your endpoint.", () => this.plugin.settings.model, async (value) => {
 			this.plugin.settings.model = value;
 			await this.plugin.saveSettings();
-		}, () => this.plugin.settings.baseUrl, () => this.plugin.settings.apiKey);
+		}, () => this.plugin.settings.baseUrl, () => this.plugin.settings.apiKey, (clear) => {
+			clearModelSetting = clear;
+		});
 
 		new Setting(containerEl)
 			.setName("Provider health")
@@ -163,22 +180,17 @@ export class OpenAgentSettingsTab extends PluginSettingTab {
 		this.consentDropdown(containerEl, "Read tools", "vault_read");
 		this.consentDropdown(containerEl, "Write tools", "vault_write");
 		this.consentDropdown(containerEl, "Network access", "network_read");
-
-		new Setting(containerEl).setName("Enabled tools").setHeading();
-		const toolNames = this.plugin.getToolNames();
-		if (toolNames.length === 0) {
-			containerEl.createEl("p", { text: "Tools are not loaded yet.", cls: "open-agent-notice" });
-		} else {
-			for (const name of toolNames) {
-				new Setting(containerEl).setName(name).setDesc(this.plugin.isToolEnabled(name) ? "Enabled for Agent calls." : "Disabled for Agent calls.").addToggle((toggle) => {
-					toggle.setValue(this.plugin.isToolEnabled(name));
-					toggle.onChange(async (enabled) => this.plugin.setToolEnabled(name, enabled));
-				});
-			}
+		if (Platform.isDesktopApp) {
+			this.consentDropdown(containerEl, "Git operations", "external_write");
+			this.consentDropdown(containerEl, "Plugin control", "plugin_control");
 		}
+		containerEl.createEl("p", {
+			text: "Ogent exposes one command dispatcher to the model. Git and plugin controls are available on Desktop only and are always checked against their safety boundary.",
+			cls: "open-agent-notice",
+		});
 	}
 
-	private renderModelSetting(container: HTMLElement, name: string, desc: string, getValue: () => string, onSave: (value: string) => Promise<void>, getBaseUrl: () => string, getApiKey: () => string): void {
+	private renderModelSetting(container: HTMLElement, name: string, desc: string, getValue: () => string, onSave: (value: string) => Promise<void>, getBaseUrl: () => string, getApiKey: () => string, registerReset?: (clear: () => void) => void): void {
 		container.empty();
 		const saved = getValue();
 		let select: HTMLSelectElement | null = null;
@@ -205,6 +217,12 @@ export class OpenAgentSettingsTab extends PluginSettingTab {
 				select.value = current && models.includes(current) ? current : models[0];
 				await onSave(select.value);
 			}));
+		registerReset?.(() => {
+			if (!select) return;
+			while (select.options.length > 0) select.remove(0);
+			select.add(new Option("", "Fetch models to select"));
+			select.value = "";
+		});
 	}
 
 	private consentDropdown(parent: HTMLElement, label: string, key: keyof ConsentSettings): void {
@@ -223,6 +241,8 @@ export class OpenAgentSettingsTab extends PluginSettingTab {
 	private consentDesc(key: keyof ConsentSettings): string {
 		if (key === "vault_read") return "Reads notes, metadata, links, and search results.";
 		if (key === "network_read") return "Public web search and page fetching.";
+		if (key === "external_write") return "Git initialization, staging, commits, branches, pulls, and pushes.";
+		if (key === "plugin_control") return "Discover, enable, and invoke public commands from installed Desktop plugins.";
 		return "Writes to the vault. Choose Never to disable mutating tools.";
 	}
 }

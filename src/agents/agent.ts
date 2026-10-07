@@ -10,6 +10,8 @@ import type {
 import type {
 	AssembledToolCall,
 	ChatMessage,
+	CommandPlan,
+	CommandPlanResult,
 	ModelProvider,
 	OpenAiToolSpec,
 	ResponseFormatConfig,
@@ -17,7 +19,9 @@ import type {
 	ToolDef,
 	ToolResult,
 	AgentExecutionMode,
+	LoopEvent,
 } from "../types";
+import type { CommandExecutor } from "../commands/executor";
 
 const DEFAULT_MAX_STEPS = 8;
 
@@ -53,6 +57,8 @@ export interface ExecuteAgentLoopOptions {
 	requireToolCall?: boolean;
 	responseFormat?: ResponseFormatConfig;
 	executionMode?: AgentExecutionMode;
+	toolAllowlist?: string[];
+	commandExecutor?: CommandExecutor;
 }
 
 async function* executeAgentLoop(
@@ -68,7 +74,7 @@ async function* executeAgentLoop(
 	messages.push(...opts.messages);
 
 	const maxSteps = opts.maxSteps ?? definition.maxSteps ?? DEFAULT_MAX_STEPS;
-	const toolsApi = bindTools(opts.tools, definition.toolAllowlist);
+	const toolsApi = bindTools(opts.tools, opts.toolAllowlist ?? definition.toolAllowlist, opts.commandExecutor);
 	const providerCapabilities = opts.provider.capabilities?.();
 	const useTools = Boolean(toolsApi && toolsApi.toApiSpec().length > 0 && (providerCapabilities?.toolCalls ?? true));
 	const supportsRequiredToolChoice = providerCapabilities?.requiredToolChoice ?? true;
@@ -133,6 +139,21 @@ async function* executeAgentLoop(
 			const validated = validateArgs(call.arguments, toolDef.schema);
 			if (!validated.ok) {
 				const result: ToolResult = { ok: false, error: `ToolArgError: ${validated.error}` };
+				yield { kind: "tool_call_finished", id: call.id, result };
+				messages.push(toolMessage(call, result));
+				continue;
+			}
+
+			if (call.name === "execute_commands") {
+				let result: ToolResult = { ok: false, error: "CommandPlanFailed" };
+				for await (const event of executeCommandPlan(call.id, validated.value, opts.commandExecutor, opts)) {
+					yield event;
+					if (event.kind === "command_plan_finished") {
+						result = event.result.ok
+							? { ok: true, value: event.result }
+							: { ok: false, error: event.result.error ?? "CommandPlanFailed", details: event.result };
+					}
+				}
 				yield { kind: "tool_call_finished", id: call.id, result };
 				messages.push(toolMessage(call, result));
 				continue;
@@ -204,9 +225,42 @@ async function* executeAgentLoop(
 	yield { kind: "done" };
 }
 
-function bindTools(registry?: ToolRegistry, allowlist?: string[]): BoundTools | undefined {
+async function* executeCommandPlan(
+	callId: string,
+	args: Record<string, unknown>,
+	executor: CommandExecutor | undefined,
+	opts: ExecuteAgentLoopOptions,
+	): AsyncGenerator<LoopEvent> {
+	if (!executor) {
+		yield { kind: "command_plan_finished", id: callId, result: { ok: false, results: [], error: "UnsupportedCapability: command executor is unavailable." } };
+		return;
+	}
+	const plan = args as unknown as CommandPlan;
+	yield { kind: "command_plan_started", id: callId, commands: plan.commands };
+	const iterator = executor.executePlan(plan, {
+		planId: callId,
+		consent: opts.consent,
+		executionMode: opts.executionMode,
+		signal: opts.signal,
+	});
+	let next = await iterator.next();
+	while (!next.done) {
+		if (next.value.kind === "started") yield { kind: "command_started", planId: callId, command: next.value.command, risk: next.value.risk, warning: next.value.warning };
+		else if (next.value.kind === "consent_requested") yield { kind: "command_consent_requested", planId: callId, command: next.value.command, risk: next.value.risk, warning: next.value.warning };
+		else yield { kind: "command_finished", planId: callId, result: next.value.result };
+		next = await iterator.next();
+	}
+	const finished = next.value as CommandPlanResult;
+	yield { kind: "command_plan_finished", id: callId, result: finished };
+}
+
+function bindTools(registry?: ToolRegistry, allowlist?: string[], commandExecutor?: CommandExecutor): BoundTools | undefined {
 	if (!registry) return undefined;
-	const allowedNames = allowlist && allowlist.length > 0 ? new Set(allowlist) : null;
+	// A command executor marks this as the command-driven Agent path. In that
+	// path the model must never see the legacy implementation ToolDefs, even if
+	// a caller forgets to pass a UI-level allowlist.
+	const effectiveAllowlist = commandExecutor ? ["execute_commands"] : allowlist;
+	const allowedNames = effectiveAllowlist && effectiveAllowlist.length > 0 ? new Set(effectiveAllowlist) : null;
 	const tools = registry.list().filter((tool) => !allowedNames || allowedNames.has(tool.name));
 	return {
 		get(name: string): ToolDef | undefined {

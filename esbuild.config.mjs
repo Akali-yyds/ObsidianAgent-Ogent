@@ -14,6 +14,9 @@ const ctx = await esbuild.context({
   external: [
     "obsidian",
     "electron",
+    "node:child_process",
+    "node:path",
+    "node:fs/promises",
     "@codemirror/autocomplete",
     "@codemirror/collab",
     "@codemirror/commands",

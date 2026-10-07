@@ -88,6 +88,13 @@ export class AgentDropdown {
 		this.renderTrigger();
 	}
 
+	clear(): void {
+		this.closeMenu();
+		this.optionsList.length = 0;
+		this.currentValue = "";
+		this.renderTrigger();
+	}
+
 	addEventListener(type: string, listener: EventListenerOrEventListenerObject): void {
 		if (type !== "change") return;
 		this.listeners.add(() => {

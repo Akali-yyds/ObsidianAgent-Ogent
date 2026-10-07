@@ -1,4 +1,5 @@
 import type { ConsentManager } from "../consent/manager";
+import type { CommandExecutor } from "../commands/executor";
 import type { ToolRegistry } from "../tools/registry";
 import type { AgentExecutionMode, ChatMessage, LoopEvent, ModelProvider, ResponseFormatConfig } from "../types";
 
@@ -21,6 +22,8 @@ export interface AgentRunOptions {
 	requireToolCall?: boolean;
 	responseFormat?: ResponseFormatConfig;
 	executionMode?: AgentExecutionMode;
+	toolAllowlist?: string[];
+	commandExecutor?: CommandExecutor;
 }
 
 export type AgentEvent = LoopEvent;
