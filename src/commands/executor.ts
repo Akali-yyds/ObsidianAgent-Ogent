@@ -15,12 +15,19 @@ import type {
 import type { ToolRegistry } from "../tools/registry";
 import { commandPlanSchema } from "./tool";
 import { commandDescriptor } from "./catalog";
+import type { SemanticPreparation, SemanticVaultOperations } from "../semantic/changeset";
 
 const MAX_COMMANDS = 32;
 
 export type CommandExecutorEvent =
 	| { kind: "started"; command: AgentCommand; risk: CommandRisk; warning?: string }
 	| { kind: "consent_requested"; command: AgentCommand; risk: CommandRisk; warning?: string }
+	| { kind: "change_set_created"; command: AgentCommand; changeSet: NonNullable<SemanticPreparation["changeSet"]> }
+	| { kind: "change_set_blocked"; command: AgentCommand; changeSet: NonNullable<SemanticPreparation["changeSet"]> }
+	| { kind: "change_set_approval_required"; command: AgentCommand; changeSet: NonNullable<SemanticPreparation["changeSet"]> }
+	| { kind: "change_set_started"; command: AgentCommand; changeSetId: string }
+	| { kind: "change_set_completed"; command: AgentCommand; result: import("../types").ChangeSetResult }
+	| { kind: "change_set_rolled_back"; command: AgentCommand; result: import("../types").ChangeSetResult }
 	| { kind: "finished"; result: CommandResult };
 
 export interface ExecutePlanOptions {
@@ -36,7 +43,10 @@ export interface ExecutePlanOptions {
  * allowlisted mapping and the ToolDef's own schema validation.
  */
 export class CommandExecutor {
-	constructor(private readonly registry: ToolRegistry) {}
+	constructor(
+		private readonly registry: ToolRegistry,
+		private readonly semantic?: SemanticVaultOperations,
+	) {}
 
 	async *executePlan(plan: CommandPlan, opts: ExecutePlanOptions): AsyncGenerator<CommandExecutorEvent, CommandPlanResult> {
 		const planValidation = validateArgs(plan, commandPlanSchema(this.registry));
@@ -57,6 +67,7 @@ export class CommandExecutor {
 		}
 
 		const results: CommandResult[] = [];
+		const executionMode = opts.executionMode ?? "ask";
 		for (const command of plan.commands) {
 			if (opts.signal?.aborted) {
 				const result: CommandResult = { id: command.id, ok: false, risk: "read", error: "CommandCancelled" };
@@ -87,20 +98,81 @@ export class CommandExecutor {
 				return { ok: false, results, stoppedAt: command.id, error: result.error };
 			}
 
-			if (isWriteCommand(resolved.tool) && opts.executionMode === "read") {
+			if ((isWriteCommand(resolved.tool) || requiresCommandApproval(resolved.tool)) && executionMode === "read") {
 				const result: CommandResult = {
 					id: command.id,
 					ok: false,
 					risk,
 					error: "ReadOnlyMode",
-					details: "Read mode allows inspection only; switch to Agent or Full mode for this command.",
+					details: "Read-only scope allows low-risk inspection only; switch to Ask or Full permission to run this command.",
 				};
 				results.push(result);
 				yield { kind: "finished", result };
 				return { ok: false, results, stoppedAt: command.id, error: result.error };
 			}
 
-			const requiresApproval = requiresCommandApproval(resolved.tool);
+			if (this.semantic && isSemanticPathCommand(command)) {
+				let preparation: SemanticPreparation;
+				try {
+					preparation = await this.semantic.prepare(command.action, validated.value as { oldPath: string; newPath: string });
+				} catch (error) {
+					const result: CommandResult = {
+						id: command.id,
+						ok: false,
+						risk,
+						error: "ChangeSetError",
+						details: error instanceof Error ? error.message : String(error),
+					};
+					results.push(result);
+					yield { kind: "finished", result };
+					return { ok: false, results, stoppedAt: command.id, error: result.error };
+				}
+				yield { kind: "change_set_created", command, changeSet: preparation.changeSet };
+				if (preparation.changeSet.blockers.length > 0) {
+					yield { kind: "change_set_blocked", command, changeSet: preparation.changeSet };
+					const result: CommandResult = {
+						id: command.id,
+						ok: false,
+						risk,
+						error: "ChangeSetBlocked",
+						details: preparation.changeSet,
+					};
+					results.push(result);
+					yield { kind: "finished", result };
+					return { ok: false, results, stoppedAt: command.id, error: result.error };
+				}
+				if (executionMode !== "full" && !opts.consent) {
+					const result: CommandResult = { id: command.id, ok: false, risk, error: "ConsentDeniedError: no consent manager", details: preparation.changeSet };
+					results.push(result);
+					yield { kind: "finished", result };
+					return { ok: false, results, stoppedAt: command.id, error: result.error };
+				}
+				if (executionMode !== "full") {
+					const approval = opts.consent?.requestApproval(resolved.tool, validated.value, executionMode) ?? Promise.resolve(false);
+					yield { kind: "change_set_approval_required", command, changeSet: preparation.changeSet };
+					yield { kind: "consent_requested", command, risk, warning: commandWarning(command) };
+					if (!await approval) {
+						const result: CommandResult = { id: command.id, ok: false, risk, error: "ConsentDeniedError", details: "User rejected this ChangeSet." };
+						results.push(result);
+						yield { kind: "finished", result };
+						return { ok: false, results, stoppedAt: command.id, error: result.error };
+					}
+				}
+				yield { kind: "change_set_started", command, changeSetId: preparation.changeSet.id };
+				const applied = await this.semantic.apply(preparation, opts.signal);
+				if (applied.result.status === "blocked") yield { kind: "change_set_blocked", command, changeSet: preparation.changeSet };
+				else if (applied.result.status === "rolled_back") yield { kind: "change_set_rolled_back", command, result: applied.result };
+				else yield { kind: "change_set_completed", command, result: applied.result };
+				const result: CommandResult = applied.error
+					? { id: command.id, ok: false, risk, error: applied.error, details: applied.result }
+					: { id: command.id, ok: true, risk, value: applied.result };
+				results.push(result);
+				yield { kind: "finished", result };
+				if (!result.ok) return { ok: false, results, stoppedAt: command.id, error: result.error };
+				continue;
+			}
+
+			const requiresApproval = executionMode !== "full" && requiresCommandApproval(resolved.tool);
 			if (requiresApproval) {
 				if (!opts.consent) {
 					const result: CommandResult = { id: command.id, ok: false, risk, error: "ConsentDeniedError: no consent manager" };
@@ -112,7 +184,7 @@ export class CommandExecutor {
 				// the approval channel live while the consumer renders the prompt and
 				// also makes programmatic consumers able to resolve it immediately
 				// after observing consent_requested.
-				const approval = opts.consent.requestApproval(resolved.tool, validated.value);
+				const approval = opts.consent.requestApproval(resolved.tool, validated.value, executionMode);
 				yield {
 					kind: "consent_requested",
 					command,
@@ -152,6 +224,10 @@ export class CommandExecutor {
 	}
 }
 
+function isSemanticPathCommand(command: AgentCommand): command is AgentCommand & { action: "rename" | "move" } {
+	return command.domain === "vault" && (command.action === "rename" || command.action === "move");
+}
+
 export function commandToolName(command: AgentCommand): string | null {
 	return commandDescriptor(command)?.toolName ?? null;
 }
@@ -169,14 +245,14 @@ function isWriteCommand(tool: ToolDef): boolean {
 }
 
 function requiresCommandApproval(tool: ToolDef): boolean {
-	return tool.mutates || tool.requiresApproval === true || tool.category === "network_read" || tool.category === "plugin_control";
+	return tool.mutates || tool.requiresApproval === true || tool.category === "network_read" || tool.category === "external_write" || tool.category === "plugin_control";
 }
 
 function commandWarning(command: AgentCommand): string | undefined {
 	if (command.domain !== "git") return undefined;
-	if (command.action === "commit") return "Git commit may execute repository hooks and modify the local repository.";
-	if (command.action === "pull") return "Git pull may execute hooks, contact a remote, and use configured credentials.";
-	if (command.action === "push") return "Git push may execute hooks, contact a remote, and use configured credentials.";
+	if (command.action === "commit") return "Git 提交可能执行仓库钩子，并修改本地仓库。";
+	if (command.action === "pull") return "拉取更新可能执行仓库钩子、访问远程仓库，并使用已配置的凭据。";
+	if (command.action === "push") return "推送可能执行仓库钩子、访问远程仓库，并使用已配置的凭据。";
 	return undefined;
 }
 

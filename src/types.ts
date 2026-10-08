@@ -70,7 +70,8 @@ export interface ProviderCapabilities {
 }
 
 /** Product-level operating mode for the current Agent chat. */
-export type AgentExecutionMode = "read" | "agent" | "full";
+/** User-facing execution scope for the current chat. */
+export type AgentExecutionMode = "read" | "ask" | "full";
 
 // JSON Schema (subset we support)
 export interface JsonSchemaProperty {
@@ -149,6 +150,56 @@ export interface CommandPlanResult {
 	error?: string;
 }
 
+export type ChangeOperationKind = "move" | "rename" | "content_patch";
+
+export interface ChangeOperation {
+	kind: ChangeOperationKind;
+	sourcePath?: string;
+	targetPath?: string;
+	path?: string;
+	before?: string;
+	after?: string;
+	reason: string;
+}
+
+export interface AffectedFile {
+	path: string;
+	kind: "move" | "patch";
+	bytesBefore?: number;
+	bytesAfter?: number;
+	summary: string;
+	fingerprint?: string;
+}
+
+export interface ChangeBlocker {
+	code: string;
+	message: string;
+	paths?: string[];
+}
+
+export interface ChangeWarning {
+	code: string;
+	message: string;
+	paths?: string[];
+}
+
+export interface ChangeSet {
+	id: string;
+	intent: string;
+	operations: ChangeOperation[];
+	affectedFiles: AffectedFile[];
+	blockers: ChangeBlocker[];
+	warnings: ChangeWarning[];
+	createdAt: number;
+}
+
+export interface ChangeSetResult {
+	changeSetId: string;
+	status: "applied" | "rejected" | "blocked" | "rolled_back";
+	restored?: boolean;
+	recoveryItems?: string[];
+}
+
 export interface ToolDef<TArgs = unknown> {
 	name: string;
 	description: string;
@@ -178,11 +229,18 @@ export type LoopEvent =
 	| { kind: "plan_preview"; id: string; name: string; args: unknown }
 	| { kind: "checkpoint"; id: string; state: "started" | "completed" }
 	| { kind: "consent_requested"; id: string; name: string }
+	| { kind: "tool_call_required"; message: string; attempts: number }
 	| { kind: "tool_call_finished"; id: string; result: ToolResult }
 	| { kind: "command_plan_started"; id: string; commands: AgentCommand[] }
 	| { kind: "command_started"; planId: string; command: AgentCommand; risk: CommandRisk; warning?: string }
 	| { kind: "command_consent_requested"; planId: string; command: AgentCommand; risk: CommandRisk; warning?: string }
 	| { kind: "command_finished"; planId: string; result: CommandResult }
+	| { kind: "change_set_created"; planId: string; commandId: string; changeSet: ChangeSet }
+	| { kind: "change_set_blocked"; planId: string; commandId: string; changeSet: ChangeSet }
+	| { kind: "change_set_approval_required"; planId: string; commandId: string; changeSet: ChangeSet }
+	| { kind: "change_set_started"; planId: string; commandId: string; changeSetId: string }
+	| { kind: "change_set_completed"; planId: string; commandId: string; result: ChangeSetResult }
+	| { kind: "change_set_rolled_back"; planId: string; commandId: string; result: ChangeSetResult }
 	| { kind: "command_plan_finished"; id: string; result: CommandPlanResult }
 	| { kind: "cap_hit" }
 	| { kind: "done" };

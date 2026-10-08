@@ -197,10 +197,10 @@ describe("runTurn", () => {
 						content: JSON.stringify({
 							ok: false,
 							error: "ReadOnlyMode",
-							details: "Read mode allows read-only tools only. Switch to Agent or Full mode to modify the vault.",
+							details: "Read-only scope allows low-risk inspection only. Switch to Ask or Full permission to run this command.",
 						}),
 					});
-					yield { kind: "text" as const, text: "Read mode cannot modify the vault." };
+						yield { kind: "text" as const, text: "Read-only scope cannot modify the vault." };
 					yield { kind: "done" as const, finishReason: "stop" as const };
 				}
 				streamCount += 1;
@@ -231,11 +231,91 @@ describe("runTurn", () => {
 				result: {
 					ok: false,
 					error: "ReadOnlyMode",
-					details: "Read mode allows read-only tools only. Switch to Agent or Full mode to modify the vault.",
+				details: "Read-only scope allows low-risk inspection only. Switch to Ask or Full permission to run this command.",
 				},
 			},
-			{ kind: "text", text: "Read mode cannot modify the vault." },
+			{ kind: "text", text: "Read-only scope cannot modify the vault." },
 			{ kind: "done" },
 		]);
+	});
+
+	it("recovers once when a required tool call is returned as prose", async () => {
+		const toolRun = vi.fn(async () => ({ ok: true as const, value: "Alpha body" }));
+		const registry = new ToolRegistry();
+		registry.register({
+			name: "vault_read",
+			description: "Read a note",
+			schema: {
+				type: "object",
+				properties: { path: { type: "string" } },
+				required: ["path"],
+				additionalProperties: false,
+			},
+			category: "vault_read",
+			mutates: false,
+			run: toolRun,
+		} satisfies ToolDef<{ path: string }>);
+
+		let streamCount = 0;
+		const provider: ModelProvider = {
+			stream: async function* (messages) {
+				if (streamCount === 0) {
+					yield { kind: "text" as const, text: "I will ask for approval in prose." };
+				} else if (streamCount === 1) {
+					expect(messages.at(-1)?.content).toContain("required execute_commands function call");
+					yield {
+						kind: "tool_call_assembled" as const,
+						calls: [{
+							id: "call-recovered",
+							name: "vault_read",
+							arguments: { path: "Notes/alpha.md" },
+							rawArguments: '{"path":"Notes/alpha.md"}',
+						}],
+					};
+				} else {
+					yield { kind: "text" as const, text: "Recovered successfully." };
+				}
+				yield { kind: "done" as const, finishReason: streamCount === 1 ? "tool_calls" as const : "stop" as const };
+				streamCount += 1;
+			},
+		};
+
+		const events = [];
+		for await (const event of runTurn(
+			[{ role: "user", content: "Inspect Alpha" }],
+			provider,
+			{ tools: registry, requireToolCall: true },
+		)) events.push(event);
+
+		expect(toolRun).toHaveBeenCalledOnce();
+		expect(events.some((event) => event.kind === "text" && event.text.includes("approval in prose"))).toBe(false);
+		expect(events).toContainEqual({ kind: "text", text: "Recovered successfully.", degraded: undefined });
+	});
+
+	it("stops safely when required tool calling still fails after recovery", async () => {
+		const registry = new ToolRegistry();
+		let streamCount = 0;
+		const provider: ModelProvider = {
+			stream: async function* () {
+				streamCount += 1;
+				yield { kind: "text" as const, text: "I will execute this in prose." };
+				yield { kind: "done" as const, finishReason: "stop" as const };
+			},
+		};
+
+		const events = [];
+		for await (const event of runTurn(
+			[{ role: "user", content: "Pull the repository" }],
+			provider,
+			{ tools: registry, requireToolCall: true },
+		)) events.push(event);
+
+		expect(streamCount).toBe(2);
+		expect(events).toContainEqual({
+			kind: "tool_call_required",
+			message: "The model did not return a structured execute_commands call. No command was executed. Retry the request or use a model/provider with tool-calling support.",
+			attempts: 2,
+		});
+		expect(events.some((event) => event.kind === "text")).toBe(false);
 	});
 });

@@ -120,7 +120,7 @@ Implemented against Obsidian's `App` API. All paths are vault-relative.
 #### 6. UI
 - **Chat view** — right sidebar `ItemView`, markdown-rendered turns, tool-call cards (collapsed by default), syntax-highlighted JSON for tool args/results.
 - **Inline action** — command palette entry "Ask agent about current note" pre-fills context with the active file.
-- **Settings tab** — provider config, MCP server config, tool permissions, system prompt override.
+- **Settings tab** — provider config, interface language, execution-scope explanation, and system prompt override.
 
 ## Data & storage
 
@@ -130,7 +130,7 @@ Implemented against Obsidian's `App` API. All paths are vault-relative.
 ## Security & permissions
 
 - Keys: `localStorage` is shared across plugins — **don't** use it. Use `this.saveData()` (per-plugin scoped JSON file).
-- Tool consent: every tool category has an allow-mode (`always` / `ask` / `never`). `ask` raises a modal with the tool call payload.
+- Execution scope: the chat exposes `Read only`, `Ask before action`, and `Full access`. Low-risk inspection commands run automatically; high-risk commands are blocked, approval-gated, or allowed according to the selected scope. Schemas, Vault boundaries, Git safety checks, and the system-command prohibition always remain active.
 - MCP servers are untrusted code paths — stdio servers run with the user's privileges. Display a clear warning when adding a new stdio server.
 - No telemetry. No outbound calls except to the user's configured model endpoint and explicitly-added MCP/web-search backends.
 

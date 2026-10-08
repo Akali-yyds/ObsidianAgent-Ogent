@@ -1,17 +1,18 @@
-import { App, Notice, Platform, PluginSettingTab, Setting, requestUrl } from "obsidian";
+import { App, Notice, PluginSettingTab, Setting, requestUrl } from "obsidian";
 import type OpenAgentPlugin from "./main";
 import { DEFAULT_CONSENT, type ConsentSettings } from "./consent/manager";
-import type { ConsentMode } from "./types";
 import type { WebSearchProvider } from "./tools/web-search";
 import { OpenAICompatibleProvider } from "./provider";
 
 export type ProviderId = "openai-compatible";
+export type UiLanguage = "auto" | "zh-CN" | "en";
 
 export interface PluginSettings {
 	provider: ProviderId;
 	baseUrl: string;
 	apiKey: string;
 	model: string;
+	language: UiLanguage;
 	systemPrompt: string;
 	agentMemory: string;
 	webSearchProvider: WebSearchProvider;
@@ -25,6 +26,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
 	baseUrl: "https://api.openai.com/v1",
 	apiKey: "",
 	model: "gpt-4o-mini",
+	language: "auto",
 	systemPrompt: "",
 	agentMemory: "",
 	webSearchProvider: "tavily",
@@ -71,6 +73,20 @@ export class OpenAgentSettingsTab extends PluginSettingTab {
 		const { containerEl } = this;
 		containerEl.empty();
 		let clearModelSetting: () => void = () => undefined;
+
+		new Setting(containerEl)
+			.setName("界面语言 / Language")
+			.setDesc("命令计划和审批提示使用的语言 / Language used by command plans and approval prompts.")
+			.addDropdown((drop) => {
+				drop.addOption("auto", "自动（跟随系统） / Automatic");
+				drop.addOption("zh-CN", "简体中文");
+				drop.addOption("en", "English");
+				drop.setValue(this.plugin.settings.language);
+				drop.onChange(async (value) => {
+					this.plugin.settings.language = value as UiLanguage;
+					await this.plugin.saveSettings();
+				});
+			});
 
 		const keyNotice = containerEl.createDiv({ cls: "open-agent-notice" });
 		keyNotice.createEl("strong", { text: "Key storage: " });
@@ -176,16 +192,9 @@ export class OpenAgentSettingsTab extends PluginSettingTab {
 			await this.plugin.saveSettings();
 		}));
 
-		new Setting(containerEl).setName("Tool consent").setHeading();
-		this.consentDropdown(containerEl, "Read tools", "vault_read");
-		this.consentDropdown(containerEl, "Write tools", "vault_write");
-		this.consentDropdown(containerEl, "Network access", "network_read");
-		if (Platform.isDesktopApp) {
-			this.consentDropdown(containerEl, "Git operations", "external_write");
-			this.consentDropdown(containerEl, "Plugin control", "plugin_control");
-		}
+		new Setting(containerEl).setName("Execution scope").setHeading();
 		containerEl.createEl("p", {
-			text: "Ogent exposes one command dispatcher to the model. Git and plugin controls are available on Desktop only and are always checked against their safety boundary.",
+			text: "Choose the scope in the chat bar: Read only runs low-risk inspection automatically; Ask before action requests approval for high-risk operations; Full access runs allowlisted high-risk operations without an extra prompt. Vault boundaries, command schemas, Git safety checks, and the system-command prohibition always remain active.",
 			cls: "open-agent-notice",
 		});
 	}
@@ -225,24 +234,4 @@ export class OpenAgentSettingsTab extends PluginSettingTab {
 		});
 	}
 
-	private consentDropdown(parent: HTMLElement, label: string, key: keyof ConsentSettings): void {
-		new Setting(parent).setName(label).setDesc(this.consentDesc(key)).addDropdown((drop) => {
-			drop.addOption("always", "Always allow");
-			drop.addOption("ask", "Ask each time");
-			drop.addOption("never", "Never allow");
-			drop.setValue(this.plugin.settings.consent[key]);
-			drop.onChange(async (value) => {
-				this.plugin.settings.consent[key] = value as ConsentMode;
-				await this.plugin.saveSettings();
-			});
-		});
-	}
-
-	private consentDesc(key: keyof ConsentSettings): string {
-		if (key === "vault_read") return "Reads notes, metadata, links, and search results.";
-		if (key === "network_read") return "Public web search and page fetching.";
-		if (key === "external_write") return "Git initialization, staging, commits, branches, pulls, and pushes.";
-		if (key === "plugin_control") return "Discover, enable, and invoke public commands from installed Desktop plugins.";
-		return "Writes to the vault. Choose Never to disable mutating tools.";
-	}
 }

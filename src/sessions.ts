@@ -1,5 +1,5 @@
 import type { DiffRow } from "./consent/diff";
-import type { AgentCommand, CommandResult, CommandRisk, ToolResult } from "./types";
+import type { AgentCommand, ChangeSet, ChangeSetResult, CommandResult, CommandRisk, ToolResult } from "./types";
 
 export interface SessionMeta {
 	id: string;
@@ -32,6 +32,8 @@ export interface StoredToolCall {
 	diffRows?: DiffRow[];
 	planPreview?: boolean;
 	commandPlan?: StoredCommandPlan;
+	changeSet?: ChangeSet;
+	changeSetResult?: ChangeSetResult;
 }
 
 export interface StoredCommand {
@@ -44,6 +46,8 @@ export interface StoredCommand {
 	result?: CommandResult;
 	diffRows?: DiffRow[];
 	warning?: string;
+	changeSet?: ChangeSet;
+	changeSetResult?: ChangeSetResult;
 }
 
 export interface StoredCommandPlan {
@@ -353,11 +357,29 @@ function sanitizeCommandPlans(value: unknown): StoredCommandPlan[] | undefined {
 				...(result ? { result } : {}),
 				...(Array.isArray(command.diffRows) ? { diffRows: command.diffRows as DiffRow[] } : {}),
 				...(typeof command.warning === "string" ? { warning: command.warning } : {}),
+			...(sanitizeChangeSet(command.changeSet) ? { changeSet: sanitizeChangeSet(command.changeSet) } : {}),
+			...(sanitizeChangeSetResult(command.changeSetResult) ? { changeSetResult: sanitizeChangeSetResult(command.changeSetResult) } : {}),
 			} satisfies StoredCommand;
 		});
 		return commands.every((command): command is StoredCommand => command !== null) ? { id: plan.id, commands, status: plan.status } : null;
 	});
 	return plans.every((plan): plan is StoredCommandPlan => plan !== null) ? plans : undefined;
+}
+
+function sanitizeChangeSet(value: unknown): ChangeSet | undefined {
+	if (!isRecord(value) || typeof value.id !== "string" || typeof value.intent !== "string" || !Array.isArray(value.operations) || !Array.isArray(value.affectedFiles) || !Array.isArray(value.blockers) || !Array.isArray(value.warnings) || typeof value.createdAt !== "number") return undefined;
+	return value as unknown as ChangeSet;
+}
+
+function sanitizeChangeSetResult(value: unknown): ChangeSetResult | undefined {
+	if (!isRecord(value) || typeof value.changeSetId !== "string") return undefined;
+	if (value.status !== "applied" && value.status !== "rejected" && value.status !== "blocked" && value.status !== "rolled_back") return undefined;
+	return {
+		changeSetId: value.changeSetId,
+		status: value.status,
+		...(typeof value.restored === "boolean" ? { restored: value.restored } : {}),
+		...(Array.isArray(value.recoveryItems) ? { recoveryItems: value.recoveryItems.filter((item): item is string => typeof item === "string") } : {}),
+	};
 }
 
 function sanitizeCommandResult(value: unknown): CommandResult | undefined {

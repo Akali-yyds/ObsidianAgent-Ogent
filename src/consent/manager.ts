@@ -1,4 +1,4 @@
-import type { ConsentMode, ToolCategory, ToolDef } from "../types";
+import type { AgentExecutionMode, ConsentMode, ToolCategory, ToolDef } from "../types";
 
 export interface ConsentSettings {
 	vault_read: ConsentMode;
@@ -60,6 +60,18 @@ export class ConsentManager {
 		}
 	}
 
+	/**
+	 * Apply the single user-facing execution scope to every high-risk
+	 * capability. The category map remains an internal safety boundary, while
+	 * the chat exposes one predictable policy: read, ask, or full.
+	 */
+	setExecutionMode(mode: AgentExecutionMode): void {
+		const highRiskMode: ConsentMode = mode === "read" ? "never" : mode === "full" ? "always" : "ask";
+		for (const category of ["vault_write", "external_write", "network_read", "plugin_control"] as ToolCategory[]) {
+			this.setSessionMode(category, highRiskMode);
+		}
+	}
+
 	resolveConsent(choice: ConsentChoice): void {
 		if (!this.pending) return;
 		const { resolve, category } = this.pending;
@@ -83,12 +95,11 @@ export class ConsentManager {
 		}
 	}
 
-	async requestApproval(tool: ToolDef, _args: unknown): Promise<boolean> {
-		const requiresApproval = tool.mutates || tool.requiresApproval === true || tool.category === "network_read";
+	async requestApproval(tool: ToolDef, _args: unknown, executionMode: AgentExecutionMode = "ask"): Promise<boolean> {
+		const requiresApproval = tool.mutates || tool.requiresApproval === true || tool.category === "network_read" || tool.category === "external_write" || tool.category === "plugin_control";
 		if (!requiresApproval) return true;
-		const mode = this.getMode(tool.category);
-		if (mode === "always") return true;
-		if (mode === "never") return false;
+		if (executionMode === "full") return true;
+		if (executionMode === "read") return false;
 
 		const choice = await new Promise<ConsentChoice>((resolve) => {
 			this.pending = { resolve, category: tool.category };

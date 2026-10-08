@@ -180,4 +180,42 @@ describe("command-driven Agent", () => {
 		await iterator.next();
 		expect(persisted).toEqual(["external_write:always"]);
 	});
+
+	it("uses the selected execution scope instead of a stale per-category setting", async () => {
+		const pull = vi.fn(async () => ({ ok: true as const, value: "pulled" }));
+		const registry = new ToolRegistry();
+		registry.register(fakeTool("git_pull", "external_write", pull, true));
+		const executor = new CommandExecutor(registry);
+		const consent = new ConsentManager(() => ({
+			vault_read: "always",
+			vault_write: "ask",
+			network_read: "ask",
+			external_write: "never",
+			plugin_control: "ask",
+		}));
+		consent.setExecutionMode("ask");
+		const iterator = executor.executePlan({ commands: [{ id: "pull-1", domain: "git", action: "pull", args: { value: "origin" } }] }, { consent, executionMode: "ask" });
+		const started = await iterator.next();
+		expect(started.value).toMatchObject({ kind: "started", risk: "external_write" });
+		const consentEvent = await iterator.next();
+		expect(consentEvent.value).toMatchObject({ kind: "consent_requested" });
+		consent.resolveConsent("reject");
+		const finished = await iterator.next();
+		expect(finished.value).toMatchObject({ kind: "finished", result: { error: "ConsentDeniedError", details: "User rejected this command." } });
+		expect(pull).not.toHaveBeenCalled();
+	});
+
+	it("allows a full-permission scope to run an approved high-risk command without prompting", async () => {
+		const pull = vi.fn(async () => ({ ok: true as const, value: "pulled" }));
+		const registry = new ToolRegistry();
+		registry.register(fakeTool("git_pull", "external_write", pull, true));
+		const executor = new CommandExecutor(registry);
+		const consent = new ConsentManager(() => ({ vault_read: "always", vault_write: "ask", network_read: "ask", external_write: "never", plugin_control: "ask" }));
+		const iterator = executor.executePlan({ commands: [{ id: "pull-1", domain: "git", action: "pull", args: { value: "origin" } }] }, { consent, executionMode: "full" });
+		const started = await iterator.next();
+		const finished = await iterator.next();
+		expect(started.value).toMatchObject({ kind: "started" });
+		expect(finished.value).toMatchObject({ kind: "finished", result: { ok: true, value: "pulled" } });
+		expect(pull).toHaveBeenCalledOnce();
+	});
 });

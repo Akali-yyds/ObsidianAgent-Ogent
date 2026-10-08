@@ -614,6 +614,27 @@
 .open-agent-command-error,
 .open-agent-command-plan-error { color: var(--text-error); }
 .open-agent-command-diff { grid-column: 2 / -1; max-height: 24vh; overflow: auto; margin-top: 0.2rem; }
+.open-agent-changeset-summary,
+.open-agent-changeset-files,
+.open-agent-changeset-blockers,
+.open-agent-changeset-warnings,
+.open-agent-changeset-result {
+	font-size: var(--font-ui-smaller);
+	padding: 0.25rem 0.4rem;
+}
+.open-agent-changeset-summary {
+	border-left: 2px solid var(--interactive-accent);
+	background: var(--background-secondary);
+}
+.open-agent-changeset-summary strong,
+.open-agent-changeset-blockers strong,
+.open-agent-changeset-warnings strong { display: block; margin-bottom: 0.15rem; }
+.open-agent-changeset-files { display: flex; flex-direction: column; gap: 0.15rem; }
+.open-agent-changeset-file { font-family: var(--font-monospace); word-break: break-word; }
+.open-agent-changeset-blockers { color: var(--text-error); }
+.open-agent-changeset-warnings { color: var(--text-warning, #d8a13c); }
+.open-agent-changeset-result { color: var(--color-green); }
+.open-agent-changeset-error { color: var(--text-error); }
 @media (max-width: 420px) {
 	.open-agent-command-row { grid-template-columns: 1.2em minmax(6em, auto) minmax(0, 1fr); }
 	.open-agent-command-risk { grid-column: 2 / -1; }
@@ -1321,6 +1342,8 @@
 	line-height: 1.2;
 	overflow: hidden;
 	transition: border-color 160ms ease, background-color 160ms ease, box-shadow 160ms ease;
+	cursor: pointer;
+	text-align: left;
 }
 
 .open-agent-thinking-status-line.open-agent-thinking-surface-active {
@@ -1371,6 +1394,7 @@
 /* A real button reset is needed because Obsidian applies its native button
    elevation to any button nested in a view. */
 .open-agent-thinking-toggle,
+.open-agent-thinking-status-line,
 .open-agent-thinking-segment-summary,
 .open-agent-tool-summary {
 	-webkit-appearance: none;
@@ -1694,6 +1718,11 @@
 
 .open-agent-turn {
 	gap: 0.28rem;
+	/* Long conversations can contain many rendered Markdown descendants. Let
+	   Chromium skip layout/paint work for turns outside the viewport while
+	   retaining a stable estimate for the scroll bar. */
+	content-visibility: auto;
+	contain-intrinsic-size: auto 96px;
 }
 
 .open-agent-composer {
@@ -2182,5 +2211,184 @@
 	.open-agent-composer .open-agent-stop-btn {
 		width: 25px;
 		height: 25px;
+	}
+}
+
+/* Approval cards: keep the command, target, risk, and warning readable in a
+   narrow Obsidian sidebar. The previous four-column row compressed all four
+   fields into one line and caused awkward word wrapping. */
+.open-agent-tool-card.open-agent-tool-consent {
+	background: linear-gradient(
+		180deg,
+		color-mix(in srgb, var(--background-secondary) 88%, var(--background-primary)),
+		color-mix(in srgb, var(--background-primary) 78%, var(--background-secondary))
+	);
+	box-shadow: 0 4px 18px color-mix(in srgb, #000 14%, transparent);
+}
+
+.open-agent-tool-card.open-agent-tool-consent > .open-agent-tool-summary {
+	min-height: 36px;
+	padding: 0.42rem 0.6rem;
+	background: color-mix(in srgb, var(--background-secondary) 82%, transparent);
+}
+
+.open-agent-tool-card.open-agent-tool-consent .open-agent-tool-name {
+	font-weight: 650;
+	color: var(--oa-text);
+}
+
+.open-agent-tool-card.open-agent-tool-consent .open-agent-tool-args {
+	min-width: 0;
+	flex: 1 1 auto;
+	font-size: 10px;
+}
+
+.open-agent-tool-card.open-agent-tool-consent .open-agent-tool-status {
+	flex: 0 0 auto;
+	white-space: nowrap;
+	font-size: 10px;
+	font-weight: 600;
+}
+
+.open-agent-tool-card.open-agent-tool-consent .open-agent-consent-diff-area {
+	margin: 0;
+	padding: 0.55rem 0.6rem 0.35rem;
+	border-top-color: color-mix(in srgb, var(--oa-border) 62%, transparent);
+}
+
+.open-agent-command-plan {
+	padding: 0;
+}
+
+.open-agent-command-plan-heading {
+	display: flex;
+	align-items: center;
+	gap: 0.35rem;
+	margin: 0 0 0.4rem;
+	font-size: 12px;
+	font-weight: 700;
+	color: var(--oa-text);
+}
+
+.open-agent-command-plan-heading::before {
+	content: "";
+	display: block;
+	width: 3px;
+	height: 1.05em;
+	border-radius: 3px;
+	background: var(--oa-accent);
+}
+
+.open-agent-command-row {
+	display: grid;
+	grid-template-columns: 1.2em minmax(0, 1fr) auto;
+	grid-template-areas:
+		"icon name risk"
+		"icon args status"
+		"icon warning warning";
+		column-gap: 0.42rem;
+		row-gap: 0.12rem;
+		align-items: center;
+		min-width: 0;
+		padding: 0.42rem 0.42rem;
+		border: 1px solid color-mix(in srgb, var(--oa-border) 55%, transparent);
+		border-radius: 7px;
+		background: color-mix(in srgb, var(--background-primary) 42%, transparent);
+	}
+
+.open-agent-command-row + .open-agent-command-row {
+	margin-top: 0.32rem;
+}
+
+.open-agent-command-icon {
+	grid-area: icon;
+	align-self: start;
+	padding-top: 0.1rem;
+}
+
+.open-agent-command-name {
+	grid-area: name;
+	min-width: 0;
+	font-size: 11px;
+	font-weight: 650;
+	line-height: 1.25;
+	color: var(--oa-text);
+}
+
+.open-agent-command-args {
+	grid-area: args;
+	min-width: 0;
+	font-size: 10px;
+	line-height: 1.25;
+	color: var(--oa-text-faint);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.open-agent-command-risk {
+	grid-area: risk;
+	max-width: 9em;
+	padding: 0.12rem 0.35rem;
+	border: 1px solid color-mix(in srgb, var(--oa-border) 60%, transparent);
+	border-radius: 999px;
+	font-size: 9px;
+	line-height: 1.2;
+	color: var(--oa-text-muted);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.open-agent-command-row > .open-agent-tool-status {
+	grid-area: status;
+	font-size: 9px;
+	font-weight: 650;
+	line-height: 1.2;
+	color: var(--oa-accent);
+	white-space: nowrap;
+}
+
+.open-agent-command-warning {
+	grid-area: warning;
+	min-width: 0;
+	margin-top: 0.2rem;
+	padding: 0.35rem 0.45rem;
+	border-left: 2px solid #d8a13c;
+	border-radius: 0 5px 5px 0;
+	background: color-mix(in srgb, #d8a13c 8%, transparent);
+	font-size: 10px;
+	line-height: 1.45;
+	color: var(--text-muted);
+	white-space: normal;
+	overflow-wrap: anywhere;
+}
+
+.open-agent-command-error,
+.open-agent-command-plan-error {
+	grid-column: 2 / -1;
+	font-size: 10px;
+	line-height: 1.4;
+}
+
+.open-agent-consent-inline-buttons {
+	gap: 0.5rem;
+	padding: 0.6rem;
+	background: color-mix(in srgb, var(--background-primary) 28%, transparent);
+}
+
+.open-agent-consent-inline-buttons button {
+	min-width: 4.5rem;
+	min-height: 28px;
+	font-weight: 600;
+}
+
+@media (max-width: 360px) {
+	.open-agent-command-risk {
+		max-width: 7em;
+	}
+	.open-agent-command-row {
+		column-gap: 0.3rem;
+		padding-inline: 0.3rem;
 	}
 }

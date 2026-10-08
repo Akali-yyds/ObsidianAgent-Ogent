@@ -7,10 +7,10 @@ This repository is a personal fork and ongoing customization of [OpenAgent for O
 ## What it does
 
 - **Vault awareness without automatic note loading**: provides lightweight current-note and current-folder metadata for path resolution, but does not send note bodies or editor selections automatically. The Agent can read a note body only when the user asks it to use a vault read tool.
-- **Three execution modes**:
-  - **Read**: inspect and search the vault with read-only tools.
-  - **Agent**: read and modify the vault, with approval before writes and network access.
-  - **Full**: reduce repeated approval prompts for the session; vault writes still use the visible safety flow.
+- **Three execution scopes**:
+  - **Read only**: low-risk inspection runs automatically; high-risk actions are blocked.
+  - **Ask before action**: low-risk inspection runs automatically; high-risk actions explain their impact and wait for approval.
+  - **Full access**: allowlisted high-risk actions can run without an additional approval prompt, while path, schema, Git, Vault, and system-command safety boundaries remain active.
 - **Vault tools**: list and read notes, search note content, inspect metadata and links, write, append, edit, rename, move, delete, and restore notes.
 - **Write safety**: vault-relative path checks, tool approval, undo snapshots, Agent-turn checkpoints, and recovery from failed session data.
 - **Command-driven Agent core**: the model sees one structured `execute_commands` dispatcher. Vault, Git, Web, and Plugin actions use an allowlisted `domain/action/args` vocabulary; arbitrary Shell and arbitrary Git arguments are never exposed.
@@ -19,7 +19,7 @@ This repository is a personal fork and ongoing customization of [OpenAgent for O
 - **Streaming conversations**: incremental thinking and answer output, ordered command-plan traces, copyable text, context compaction, queued messages, stop controls, and session recovery after restarting Obsidian.
 - **Web research**: optional Tavily or Brave Search through `web.search`, followed by public HTML/plain-text retrieval through `web.fetch`. Results include source metadata and fetched pages are treated as untrusted reference material.
 - **Provider compatibility**: OpenAI-compatible endpoints, including hosted providers and local servers that expose the same API shape. Runtime fallbacks handle endpoints that reject streaming, structured output, or required tool-choice parameters.
-- **Capability consent**: configure vault, network, Git, and plugin-control permissions. Read-only commands can be batched; writes, remote Git, and plugin commands are approved one at a time, with optional permanent capability enablement.
+- **Risk-aware execution**: use the single Access control in the chat bar to choose Read only, Ask before action, or Full access. Low-risk commands can be batched; high-risk commands are approval-gated in Ask mode.
 - **Mobile boundary**: mobile keeps Vault and Web basics; Desktop-only Git and runtime plugin control are not registered on mobile.
 
 ## Scope
@@ -30,11 +30,11 @@ The plugin does not provide arbitrary terminal commands. Git operations are a de
 
 ## Installation
 
-This fork is currently intended for manual installation while it is under development. Community-plugin submission is planned; until it is approved, install a GitHub Release manually.
+When the release is available in the Obsidian Community plugins directory, install **Ogent** from **Settings → Community plugins → Browse**. For testing a release before marketplace propagation, manual installation from GitHub remains supported.
 
-1. Download `main.js`, `manifest.json`, and `styles.css` from a release, or build them locally.
-2. Create `<vault>/.obsidian/plugins/agent-ogent/` if it does not exist.
-3. Copy the three files into that directory.
+1. In **Settings → Community plugins → Browse**, search for **Ogent**, install it, and enable it.
+2. For a manual test, download `main.js`, `manifest.json`, and `styles.css` from a GitHub release, or build them locally.
+3. Create `<vault>/.obsidian/plugins/agent-ogent/` if it does not exist and copy the three files into that directory.
 4. In Obsidian, open **Settings → Community plugins**, enable community plugins if necessary, and enable **Ogent**.
 
 If you previously used the upstream `OpenAgent` build, enable this plugin once and then disable the old `open-agent` plugin. The first launch imports its settings and session files without deleting the old data.
@@ -51,11 +51,12 @@ Open **Settings → Ogent** and configure:
 | Base URL | The provider API base URL, for example `https://api.openai.com/v1`. |
 | API key | The key used by the configured model provider. |
 | Model | A model name accepted by the endpoint; models can be fetched from `/models`. |
+| Interface language | Automatic system language, 简体中文, or English. This controls command plans and approval prompts. |
 | Web search provider | `Tavily` or `Brave Search`. |
 | Web search API key | Optional until the Agent needs `web.search`; required for web search calls. |
 | System prompt | Optional instruction prepended to conversations. |
 | Agent memory | Optional plugin-local preferences. Do not store secrets here. |
-| Tool consent | Separate defaults for vault reads, vault writes, network reads, Git operations, and plugin control. |
+| Execution scope | Read only, Ask before action, or Full access for the current chat. |
 
 When current or time-sensitive information is needed, the Agent can use `execute_commands` with `web.search` and then `web.fetch` a selected page. Web access is approval-controlled and does not make DeepSeek or another model's native knowledge current by itself; the command results supply the current sources.
 
@@ -64,8 +65,8 @@ When current or time-sensitive information is needed, the Agent can use `execute
 - The plugin sends conversation content and any note content returned by an explicitly approved vault tool to the LLM endpoint you configure. Use an endpoint you trust.
 - Web search sends the search query to the selected Tavily or Brave service. `web.fetch` accepts only HTTP(S) URLs and blocks local, loopback, private, and link-local hosts.
 - Fetched web pages are reference data, not instructions. The Agent is told not to execute instructions contained in web content.
-- Vault writes require the configured consent policy and use a visible tool flow. Deleted notes use Obsidian's trash behavior where supported.
-- Git commands run only on desktop, use `spawn("git", args, { shell: false })`, and are limited to the current Vault after real-path and repository-root checks. Git writes, commits, branch changes, pulls, and pushes require the Git operations consent setting; commit/pull/push approvals warn about hooks, remotes, and credentials.
+- Vault writes use the selected execution scope and a visible plan flow in Ask mode. Deleted notes use Obsidian's trash behavior where supported.
+- Git commands run only on desktop, use `spawn("git", args, { shell: false })`, and are limited to the current Vault after real-path and repository-root checks. In Ask mode, Git writes, commits, branch changes, pulls, and pushes explain hooks, remotes, and credential risks before waiting for approval.
 - API keys are stored in the plugin data file at `.obsidian/plugins/agent-ogent/data.json`. This file is ignored by Git. Never commit it, put keys in notes or `OpenAgent.md`, or include them in bug reports and exported sessions.
 
 ## Development

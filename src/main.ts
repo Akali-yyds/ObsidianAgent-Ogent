@@ -1,4 +1,4 @@
-import { MarkdownView, Notice, Platform, Plugin, TFile, Workspace, WorkspaceLeaf } from "obsidian";
+import { MarkdownView, Notice, Platform, Plugin, TFile, Workspace, WorkspaceLeaf, type TAbstractFile } from "obsidian";
 import { ConsentManager } from "./consent/manager";
 import { UndoBuffer } from "./consent/undo";
 import { OpenAgentSettingsTab, DEFAULT_SETTINGS, type PluginSettings } from "./settings";
@@ -15,6 +15,8 @@ import { CommandExecutor } from "./commands/executor";
 import type { VaultContext } from "./context";
 import { loadVaultRules } from "./rules";
 import { CHAT_VIEW_TYPE, ChatView } from "./view";
+import type { WriteOp } from "./consent/undo";
+import { SemanticVaultOperations } from "./semantic/changeset";
 
 const SETTINGS_CHANGED_EVENT = "open-agent:settings-changed";
 const LEGACY_PLUGIN_DIRS = ["obsidian-agent-ogent", "open-agent"];
@@ -24,6 +26,7 @@ export default class OpenAgentPlugin extends Plugin {
 	sessionStore!: SessionStore;
 	private toolRegistry!: ToolRegistry;
 	private commandExecutor!: CommandExecutor;
+	private semanticVault!: SemanticVaultOperations;
 	private undo!: UndoBuffer;
 	private lastMarkdownPath: string | null = null;
 
@@ -83,6 +86,13 @@ export default class OpenAgentPlugin extends Plugin {
 		}
 		this.toolRegistry = new ToolRegistry();
 		this.undo = new UndoBuffer(50);
+		this.semanticVault = new SemanticVaultOperations(this.app, this.undo, () => this.getCurrentContext());
+		await this.semanticVault.initialize();
+		this.registerEvent(this.app.vault.on("create", (file) => this.semanticVault.refreshFile(file)));
+		this.registerEvent(this.app.vault.on("modify", (file) => this.semanticVault.refreshFile(file)));
+		this.registerEvent(this.app.vault.on("delete", (file) => this.semanticVault.removePath(file.path)));
+		this.registerEvent(this.app.vault.on("rename", () => { void this.semanticVault.refresh(); }));
+		this.registerEvent(this.app.metadataCache.on("resolved", () => { void this.semanticVault.refresh(); }));
 		this.toolRegistry.registerAll(vaultTools(this.app, { undo: this.undo }));
 		this.toolRegistry.register(communityPluginSearchTool(this.app, { pluginDir }));
 		this.toolRegistry.register(webSearchTool(() => ({
@@ -99,7 +109,7 @@ export default class OpenAgentPlugin extends Plugin {
 		// list of hidden legacy tools during startup.
 		this.settings.disabledTools = [];
 		this.toolRegistry.register(executeCommandsTool(this.toolRegistry));
-		this.commandExecutor = new CommandExecutor(this.toolRegistry);
+		this.commandExecutor = new CommandExecutor(this.toolRegistry, this.semanticVault);
 
 		this.registerView(CHAT_VIEW_TYPE, (leaf: WorkspaceLeaf) => {
 			const consent = new ConsentManager(() => this.settings.consent, (category, mode) => {
@@ -267,29 +277,15 @@ export default class OpenAgentPlugin extends Plugin {
 	}
 
 	private async undoLastWrite(): Promise<void> {
-		const op = this.undo.pop();
-		if (!op) {
+		const latest = this.undo.peek();
+		const operations = latest?.checkpointId ? this.undo.popLastCheckpoint() : (latest ? [this.undo.pop() as WriteOp] : []);
+		if (operations.length === 0) {
 			new Notice("Nothing to undo");
 			return;
 		}
 		try {
-			if (op.kind === "rename" && op.beforePath && op.afterPath) {
-				const renamed = this.app.vault.getAbstractFileByPath(op.afterPath);
-				if (!(renamed instanceof TFile)) throw new Error(`File not found: ${op.afterPath}`);
-				if (this.app.vault.getAbstractFileByPath(op.beforePath)) throw new Error(`Destination already exists: ${op.beforePath}`);
-				await this.app.vault.rename(renamed, op.beforePath);
-				new Notice(`Reverted ${op.afterPath} to ${op.beforePath}`);
-				return;
-			}
-			const file = this.app.vault.getAbstractFileByPath(op.path);
-			if (op.before === null) {
-				if (file instanceof TFile) await this.app.fileManager.trashFile(file);
-			} else if (file instanceof TFile) {
-				await this.app.vault.modify(file, op.before);
-			} else {
-				await this.app.vault.create(op.path, op.before);
-			}
-			new Notice(`Reverted ${op.path}`);
+			await this.restoreOperations(operations);
+			new Notice(`Reverted ${operations.length} Agent change${operations.length === 1 ? "" : "s"}`);
 		} catch (err) {
 			new Notice(`Undo failed: ${err instanceof Error ? err.message : String(err)}`);
 		}
@@ -308,26 +304,30 @@ export default class OpenAgentPlugin extends Plugin {
 			return;
 		}
 		try {
-			for (const op of operations) {
-				if (op.kind === "rename" && op.beforePath && op.afterPath) {
-					const renamed = this.app.vault.getAbstractFileByPath(op.afterPath);
-					if (!(renamed instanceof TFile)) throw new Error(`File not found: ${op.afterPath}`);
-					if (this.app.vault.getAbstractFileByPath(op.beforePath)) throw new Error(`Destination already exists: ${op.beforePath}`);
-					await this.app.vault.rename(renamed, op.beforePath);
-					continue;
-				}
-				const file = this.app.vault.getAbstractFileByPath(op.path);
-				if (op.before === null) {
-					if (file instanceof TFile) await this.app.fileManager.trashFile(file);
-				} else if (file instanceof TFile) {
-					await this.app.vault.modify(file, op.before);
-				} else {
-					await this.app.vault.create(op.path, op.before);
-				}
-			}
+			await this.restoreOperations(operations);
 			new Notice(`Reverted ${operations.length} Agent change${operations.length === 1 ? "" : "s"}`);
 		} catch (err) {
 			new Notice(`Checkpoint undo failed: ${err instanceof Error ? err.message : String(err)}`);
+		}
+	}
+
+	private async restoreOperations(operations: WriteOp[]): Promise<void> {
+		for (const op of operations) {
+			if (op.kind === "rename" && op.beforePath && op.afterPath) {
+				const renamed = this.app.vault.getAbstractFileByPath(op.afterPath);
+				if (!isAbstractFile(renamed)) throw new Error(`File not found: ${op.afterPath}`);
+				if (this.app.vault.getAbstractFileByPath(op.beforePath)) throw new Error(`Destination already exists: ${op.beforePath}`);
+				await this.app.vault.rename(renamed, op.beforePath);
+				continue;
+			}
+			const file = this.app.vault.getAbstractFileByPath(op.path);
+			if (op.before === null) {
+				if (file instanceof TFile) await this.app.fileManager.trashFile(file);
+			} else if (file instanceof TFile) {
+				await this.app.vault.modify(file, op.before);
+			} else {
+				await this.app.vault.create(op.path, op.before);
+			}
 		}
 	}
 
@@ -411,4 +411,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function focusLeaf(workspace: Workspace, leaf: WorkspaceLeaf): void {
 	workspace.setActiveLeaf(leaf, { focus: true });
+}
+
+function isAbstractFile(value: unknown): value is TAbstractFile {
+	return Boolean(value && typeof value === "object" && typeof (value as { path?: unknown }).path === "string");
 }

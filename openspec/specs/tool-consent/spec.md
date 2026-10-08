@@ -1,23 +1,23 @@
 # tool-consent Specification
 
 ## Purpose
-Manages per-category tool consent modes and the consent modal for mutating operations, including per-tool diff rendering, never-mode short-circuits, and session-scoped undo.
+Defines the two-risk-class consent boundary behind Ogent's three user-facing execution scopes. Low-risk inspection commands run automatically; high-risk commands are either blocked, approval-gated, or allowed according to the selected scope. The executor remains the source of truth for command validation and safety.
 
 ## Requirements
 
-### Requirement: Consent mode per tool category
-The plugin SHALL track a consent mode for each tool category. Modes are `always` (auto-approve), `ask` (prompt the user via modal), and `never` (auto-reject with a structured error to the model). The default mode SHALL be `always` for `vault_read` and `ask` for `vault_write`.
+### Requirement: Execution scope
+The plugin SHALL expose three user-facing execution scopes for the current chat: `read` (low-risk inspection only), `ask` (low-risk inspection automatic and high-risk commands require approval), and `full` (allowlisted high-risk commands may run without an additional approval prompt). The internal permission categories may remain for enforcement, migration, and audit, but they SHALL NOT require users to configure separate per-category policies for normal operation.
 
-#### Scenario: Default modes applied
-- **WHEN** the plugin loads with no prior settings
-- **THEN** `vault_read` mode is `always` and `vault_write` mode is `ask`
+#### Scenario: Default scope applied
+- **WHEN** the chat view opens
+- **THEN** the execution scope is `ask`
 
-#### Scenario: User changes mode
-- **WHEN** the user sets `vault_write` to `always` in settings
-- **THEN** subsequent write tool calls execute without prompting until the user changes the mode again
+#### Scenario: User changes scope
+- **WHEN** the user selects `read`, `ask`, or `full`
+- **THEN** the executor applies the corresponding policy to every high-risk capability for the current chat
 
 ### Requirement: Consent modal for mutating tools
-When a mutating tool is invoked under `ask` mode, the plugin SHALL display a modal showing tool name, target path, and a tool-shape-appropriate diff. The modal SHALL provide three actions: Approve, Reject, and Approve All This Session.
+When a high-risk command is invoked under `ask` scope, the plugin SHALL display an inline approval card showing the command, reason, target, and an operation-appropriate preview. The card SHALL provide Approve and Reject actions.
 
 #### Scenario: Approve a write
 - **WHEN** the model calls `vault_edit` and the modal opens; user clicks Approve
@@ -27,9 +27,9 @@ When a mutating tool is invoked under `ask` mode, the plugin SHALL display a mod
 - **WHEN** the user clicks Reject on the consent modal
 - **THEN** the tool returns `{ error: "ConsentDeniedError" }` to the model and no write occurs
 
-#### Scenario: Approve all in session
-- **WHEN** the user clicks "Approve All This Session" on a `vault_write` modal
-- **THEN** the in-memory category mode for `vault_write` becomes `always` for the lifetime of the chat-view session, and subsequent `vault_write` calls execute without prompting
+#### Scenario: Full scope
+- **WHEN** the user selects Full access
+- **THEN** allowlisted high-risk commands may execute without an additional approval card, while schemas, path boundaries, Git restrictions, and system-command prohibition remain enforced
 
 #### Scenario: Stop dismisses modal
 - **WHEN** a consent modal is open and the user clicks the chat view's Stop button
@@ -50,12 +50,12 @@ The consent modal SHALL render a diff appropriate to each write tool: line-level
 - **WHEN** the modal opens for a `vault_append` call
 - **THEN** the modal shows the trailing 5 lines of the existing file as context plus the appended block in a green-bordered preview
 
-### Requirement: Never-mode short-circuits
-When a category mode is `never`, mutating tool calls in that category SHALL be auto-rejected without showing the modal.
+### Requirement: Read-only scope
+When the scope is `read`, high-risk commands SHALL be rejected before execution with a structured result explaining that the user must switch to Ask before action or Full access.
 
-#### Scenario: Never-mode reject
-- **WHEN** the user has set `vault_write` to `never` and the model emits a `vault_edit` call
-- **THEN** the modal does not open and the tool returns `{ error: "ConsentDeniedError", reason: "category disabled" }`
+#### Scenario: Read-only reject
+- **WHEN** the scope is `read` and the model emits a `vault_edit` or `git_pull` call
+- **THEN** no approval card opens, no operation runs, and the tool returns `{ error: "ReadOnlyMode" }` with a scope-switch explanation
 
 ### Requirement: Session-scoped undo of tool writes
 The plugin SHALL maintain a per-session ring buffer (capacity 50) of successful write operations, recording `{ id, path, before, after, timestamp }`. A command "Undo last tool write" SHALL pop the most recent entry and restore `before`. Undo SHALL NOT go through the consent modal.

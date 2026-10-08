@@ -52,6 +52,10 @@ export class UndoBuffer {
 		return this.ops.length;
 	}
 
+	isCheckpointActive(): boolean {
+		return this.activeCheckpoint !== null;
+	}
+
 	clear(): void {
 		this.ops = [];
 		this.activeCheckpoint = null;

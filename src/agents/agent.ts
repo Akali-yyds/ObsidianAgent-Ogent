@@ -78,21 +78,28 @@ async function* executeAgentLoop(
 	const providerCapabilities = opts.provider.capabilities?.();
 	const useTools = Boolean(toolsApi && toolsApi.toApiSpec().length > 0 && (providerCapabilities?.toolCalls ?? true));
 	const supportsRequiredToolChoice = providerCapabilities?.requiredToolChoice ?? true;
+	let requiredToolSatisfied = false;
+	let toolCallRecoveryAttempts = 0;
+	const maxToolCallRecoveryAttempts = 1;
 
 	for (let step = 0; step < maxSteps; step++) {
 		const assembled: AssembledToolCall[] = [];
 		let assistantText = "";
+		const requireStructuredToolCall = Boolean(opts.requireToolCall && !requiredToolSatisfied);
 
 		for await (const ev of opts.provider.stream(messages, {
 				signal: opts.signal,
 				tools: useTools ? toolsApi?.toApiSpec() : undefined,
-				toolChoice: useTools && step === 0 && opts.requireToolCall && supportsRequiredToolChoice ? "required" : undefined,
+				toolChoice: useTools && requireStructuredToolCall && supportsRequiredToolChoice ? "required" : undefined,
 				responseFormat: opts.responseFormat,
 		})) {
 			if (opts.signal?.aborted) return;
 			if (ev.kind === "text") {
 				assistantText += ev.text;
-				yield { kind: "text", text: ev.text, degraded: ev.degraded };
+				// A mutation request must not be represented by ordinary assistant
+				// prose. Buffer it until a structured tool call is confirmed; this
+				// prevents "please approve" text from bypassing the approval UI.
+				if (!requireStructuredToolCall) yield { kind: "text", text: ev.text, degraded: ev.degraded };
 			} else if (ev.kind === "thinking_text") {
 				yield { kind: "thinking_text", text: ev.text };
 			} else if (ev.kind === "tool_call_assembled") {
@@ -101,6 +108,27 @@ async function* executeAgentLoop(
 		}
 
 		if (assembled.length === 0) {
+			if (requireStructuredToolCall) {
+				if (toolCallRecoveryAttempts < maxToolCallRecoveryAttempts) {
+					// Some thinking endpoints reject tool_choice=required and fall
+					// back to auto. Give the model one hidden repair turn instead of
+					// exposing a prose approval request as if it were executable.
+					if (assistantText.trim().length > 0) messages.push({ role: "assistant", content: assistantText });
+					messages.push({
+						role: "user",
+						content: "The previous response did not emit the required execute_commands function call. Retry by returning exactly one valid structured execute_commands call for the user's request. Do not answer in prose and do not ask the user for approval; Ogent will show the approval UI after it receives the command.",
+					});
+					toolCallRecoveryAttempts += 1;
+					continue;
+				}
+				yield {
+					kind: "tool_call_required",
+					message: "The model did not return a structured execute_commands call. No command was executed. Retry the request or use a model/provider with tool-calling support.",
+					attempts: toolCallRecoveryAttempts + 1,
+				};
+				yield { kind: "done" };
+				return;
+			}
 			// If we processed tool results but the model returned nothing, emit a fallback.
 			if (step > 0 && assistantText.trim() === "") {
 				yield { kind: "text", text: "*(No response from the model after tool use.)*", degraded: true };
@@ -108,6 +136,7 @@ async function* executeAgentLoop(
 			yield { kind: "done" };
 			return;
 		}
+		requiredToolSatisfied = true;
 
 		const toolCallSpecs: ToolCallSpec[] = assembled.map((call) => ({
 			id: call.id,
@@ -159,18 +188,19 @@ async function* executeAgentLoop(
 				continue;
 			}
 
-			if (toolDef.mutates && opts.executionMode === "read") {
+			const executionMode = opts.executionMode ?? "ask";
+			if ((toolDef.mutates || toolDef.requiresApproval === true || toolDef.category === "network_read" || toolDef.category === "external_write" || toolDef.category === "plugin_control") && executionMode === "read") {
 				const result: ToolResult = {
 					ok: false,
 					error: "ReadOnlyMode",
-					details: "Read mode allows read-only tools only. Switch to Agent or Full mode to modify the vault.",
+					details: "Read-only scope allows low-risk inspection only. Switch to Ask or Full permission to run this command.",
 				};
 				yield { kind: "tool_call_finished", id: call.id, result };
 				messages.push(toolMessage(call, result));
 				continue;
 			}
 
-			const requiresApproval = toolDef.mutates || toolDef.requiresApproval === true || toolDef.category === "network_read";
+			const requiresApproval = executionMode !== "full" && (toolDef.mutates || toolDef.requiresApproval === true || toolDef.category === "network_read" || toolDef.category === "external_write" || toolDef.category === "plugin_control");
 			if (requiresApproval) {
 				if (!opts.consent) {
 					const result: ToolResult = { ok: false, error: "ConsentDeniedError: no consent manager" };
@@ -179,7 +209,7 @@ async function* executeAgentLoop(
 					continue;
 				}
 				yield { kind: "consent_requested", id: call.id, name: call.name };
-				const approved = await opts.consent.requestApproval(toolDef, validated.value);
+				const approved = await opts.consent.requestApproval(toolDef, validated.value, executionMode);
 				if (!approved) {
 					const result: ToolResult = {
 						ok: false,
@@ -247,6 +277,12 @@ async function* executeCommandPlan(
 	while (!next.done) {
 		if (next.value.kind === "started") yield { kind: "command_started", planId: callId, command: next.value.command, risk: next.value.risk, warning: next.value.warning };
 		else if (next.value.kind === "consent_requested") yield { kind: "command_consent_requested", planId: callId, command: next.value.command, risk: next.value.risk, warning: next.value.warning };
+		else if (next.value.kind === "change_set_created") yield { kind: "change_set_created", planId: callId, commandId: next.value.command.id, changeSet: next.value.changeSet };
+		else if (next.value.kind === "change_set_blocked") yield { kind: "change_set_blocked", planId: callId, commandId: next.value.command.id, changeSet: next.value.changeSet };
+		else if (next.value.kind === "change_set_approval_required") yield { kind: "change_set_approval_required", planId: callId, commandId: next.value.command.id, changeSet: next.value.changeSet };
+		else if (next.value.kind === "change_set_started") yield { kind: "change_set_started", planId: callId, commandId: next.value.command.id, changeSetId: next.value.changeSetId };
+		else if (next.value.kind === "change_set_completed") yield { kind: "change_set_completed", planId: callId, commandId: next.value.command.id, result: next.value.result };
+		else if (next.value.kind === "change_set_rolled_back") yield { kind: "change_set_rolled_back", planId: callId, commandId: next.value.command.id, result: next.value.result };
 		else yield { kind: "command_finished", planId: callId, result: next.value.result };
 		next = await iterator.next();
 	}
