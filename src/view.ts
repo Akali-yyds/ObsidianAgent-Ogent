@@ -4,7 +4,6 @@ import type { UndoBuffer } from "./consent/undo";
 import { diffLines, type DiffRow } from "./consent/diff";
 import { renderRows } from "./consent/render-diff";
 import { runTurn } from "./loop";
-import { CompletedMarkdownCache } from "./markdown-cache";
 import { normalizeTranscriptWindow, shiftTranscriptWindowAtRenderedEdge, shouldFollowTranscriptAfterRender } from "./transcript-window";
 import { compactMessages } from "./compaction";
 import { buildVaultContextPrompt, requestsVaultMutation, type VaultContext } from "./context";
@@ -29,7 +28,6 @@ export const CHAT_VIEW_TYPE = "open-agent-chat";
 const TRANSCRIPT_WINDOW_SIZE = 80;
 const TRANSCRIPT_WINDOW_STEP = 40;
 const ESTIMATED_TURN_HEIGHT = 140;
-const completedMarkdownCache = new CompletedMarkdownCache();
 
 class ConfirmActionModal extends Modal {
 	private resolvePrompt: (confirmed: boolean) => void = () => undefined;
@@ -2026,11 +2024,10 @@ export class ChatView extends ItemView {
 								this.streamingTextElements.set(scrollKey, body);
 								this.streamingTextLengths.set(scrollKey, seg.text.length);
 							} else {
-								const cachedHtml = completedMarkdownCache.get(seg.text);
-								if (cachedHtml !== undefined) body.innerHTML = cachedHtml;
-								else markdownRenders.push(MarkdownRenderer.render(this.app, seg.text, body, "", this).then(() => {
-									completedMarkdownCache.set(seg.text, body.innerHTML);
-								}));
+								// Render through Obsidian's renderer on every mount. Reusing
+								// serialized markup would bypass Obsidian's renderer and
+								// postprocessors, so it is intentionally not reused here.
+								markdownRenders.push(MarkdownRenderer.render(this.app, seg.text, body, "", this));
 							}
 						}
 				}
