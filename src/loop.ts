@@ -3,6 +3,7 @@ import type { AgentExecutionMode, ChatMessage, LoopEvent, ModelProvider } from "
 import type { ConsentManager } from "./consent/manager";
 import type { CommandExecutor } from "./commands/executor";
 import type { ToolRegistry } from "./tools/registry";
+import type { UndoBuffer } from "./consent/undo";
 
 export interface RunTurnOptions {
 	signal?: AbortSignal;
@@ -14,6 +15,8 @@ export interface RunTurnOptions {
 	executionMode?: AgentExecutionMode;
 	toolAllowlist?: string[];
 	commandExecutor?: CommandExecutor;
+	sessionId?: string;
+	undo?: UndoBuffer;
 }
 
 const BASE_SYSTEM_PROMPT = `You are Ogent, a helpful command-driven assistant with access to the current Obsidian vault.
@@ -67,5 +70,7 @@ export async function* runTurn(
 		executionMode: opts.executionMode,
 		toolAllowlist: opts.toolAllowlist,
 		commandExecutor: opts.commandExecutor,
+		sessionId: opts.sessionId,
+		undo: opts.undo,
 	});
 }

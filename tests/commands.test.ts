@@ -18,6 +18,25 @@ function fakeTool(name: string, category: ToolDef["category"], run: ToolDef["run
 }
 
 describe("command-driven Agent", () => {
+	it("keeps pending approvals isolated between sessions and fixed to the run's Access", async () => {
+		const settings = () => ({ vault_read: "always" as const, vault_write: "ask" as const, network_read: "ask" as const, external_write: "ask" as const, plugin_control: "ask" as const });
+		const sessionA = new ConsentManager(settings);
+		const sessionB = new ConsentManager(settings);
+		const tool = fakeTool("git_pull", "external_write", vi.fn(async () => ({ ok: true as const, value: "pulled" })), true);
+		const approvalA = sessionA.requestApproval(tool, {}, "ask", "same-command-id");
+		const approvalB = sessionB.requestApproval(tool, {}, "ask", "same-command-id");
+
+		sessionA.setExecutionMode("full");
+		sessionA.resolveConsentFor("same-command-id", "reject");
+		expect(await approvalA).toBe(false);
+		let sessionBResolved = false;
+		void approvalB.then(() => { sessionBResolved = true; });
+		await Promise.resolve();
+		expect(sessionBResolved).toBe(false);
+		sessionB.resolveConsentFor("same-command-id", "approve");
+		expect(await approvalB).toBe(true);
+	});
+
 	it("keeps the model on the command dispatcher when an executor is present", async () => {
 		const registry = new ToolRegistry();
 		registry.register(fakeTool("vault_read", "vault_read", vi.fn(async () => ({ ok: true as const, value: "read" }))));
@@ -217,5 +236,47 @@ describe("command-driven Agent", () => {
 		expect(started.value).toMatchObject({ kind: "started" });
 		expect(finished.value).toMatchObject({ kind: "finished", result: { ok: true, value: "pulled" } });
 		expect(pull).toHaveBeenCalledOnce();
+	});
+
+	it("revalidates an approved write after it reaches the shared write lock", async () => {
+		let version = "before";
+		let releaseFirst!: () => void;
+		let signalFirstStarted!: () => void;
+		const firstStarted = new Promise<void>((resolve) => { signalFirstStarted = resolve; });
+		const firstGate = new Promise<void>((resolve) => { releaseFirst = resolve; });
+		const writes: string[] = [];
+		const registry = new ToolRegistry();
+		registry.register({
+			...fakeTool("vault_write", "vault_write", vi.fn(async (args) => {
+				const value = String((args as { value: string }).value);
+				writes.push(value);
+				if (value === "first") {
+					signalFirstStarted();
+					await firstGate;
+				}
+				return { ok: true as const, value };
+			}), true),
+			prepareApproval: async () => ({ version }),
+			validateApproval: async (_args, snapshot) => snapshot && (snapshot as { version: string }).version === version
+				? { ok: true }
+				: { ok: false, error: "The target changed while this write waited." },
+		});
+		const executor = new CommandExecutor(registry);
+		const first = executor.executePlan({ commands: [{ id: "first", domain: "vault", action: "write", args: { value: "first" } }] }, { executionMode: "full" });
+		await first.next();
+		const firstFinished = first.next();
+		await firstStarted;
+
+		const consent = new ConsentManager(() => ({ vault_read: "always", vault_write: "ask", network_read: "ask", external_write: "ask", plugin_control: "ask" }));
+		const second = executor.executePlan({ commands: [{ id: "second", domain: "vault", action: "write", args: { value: "second" } }] }, { consent, executionMode: "ask" });
+		await second.next();
+		expect((await second.next()).value).toMatchObject({ kind: "consent_requested", command: { id: "second" } });
+		consent.resolveConsentFor("second", "approve");
+		const secondFinished = second.next();
+		version = "changed while waiting for the lock";
+		releaseFirst();
+		await firstFinished;
+		expect((await secondFinished).value).toMatchObject({ kind: "finished", result: { ok: false, error: "StaleApprovalError" } });
+		expect(writes).toEqual(["first"]);
 	});
 });

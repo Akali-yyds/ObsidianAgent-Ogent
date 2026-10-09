@@ -7,6 +7,8 @@ interface ToolSpec<TArgs> {
 	category: ToolCategory;
 	mutates: boolean;
 	requiresApproval?: boolean;
+	prepareApproval?: (args: TArgs) => Promise<unknown>;
+	validateApproval?: (args: TArgs, snapshot: unknown) => Promise<{ ok: boolean; error?: string }>;
 	run(args: TArgs, ctx: ToolContext): Promise<ToolResult>;
 }
 

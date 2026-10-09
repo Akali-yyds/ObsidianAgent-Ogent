@@ -188,6 +188,8 @@ function gitInitTool(app: App): ToolDef<DirectoryArgs> {
 		category: "external_write",
 		mutates: true,
 		schema: directorySchema(),
+		prepareApproval: (args) => prepareGitApproval(app, args.path, true),
+		validateApproval: (args, snapshot) => validateGitApproval(app, args.path, true, snapshot),
 		async run(args, ctx) {
 			return runGitTool(app, args.path, ["init"], ctx);
 		},
@@ -209,6 +211,8 @@ function gitStageTool(app: App): ToolDef<StageArgs> {
 			required: ["path"],
 			additionalProperties: false,
 		},
+		prepareApproval: (args) => prepareGitApproval(app, args.path),
+		validateApproval: (args, snapshot) => validateGitApproval(app, args.path, false, snapshot),
 		async run(args, ctx) {
 			const files = safePathList(args.files);
 			if (!files.ok) return fail(files.error);
@@ -232,6 +236,8 @@ function gitCommitTool(app: App): ToolDef<CommitArgs> {
 			required: ["path", "message"],
 			additionalProperties: false,
 		},
+		prepareApproval: (args) => prepareGitApproval(app, args.path),
+		validateApproval: (args, snapshot) => validateGitApproval(app, args.path, false, snapshot),
 		async run(args, ctx) {
 			const message = args.message.trim();
 			if (!message) return fail("Git commit message is empty.");
@@ -256,6 +262,8 @@ function gitSwitchTool(app: App): ToolDef<BranchArgs> {
 			required: ["path", "branch"],
 			additionalProperties: false,
 		},
+		prepareApproval: (args) => prepareGitApproval(app, args.path),
+		validateApproval: (args, snapshot) => validateGitApproval(app, args.path, false, snapshot),
 		async run(args, ctx) {
 			const branch = safeGitToken(args.branch, "branch");
 			if (!branch.ok) return fail(branch.error);
@@ -271,6 +279,8 @@ function gitPullTool(app: App): ToolDef<RemoteOperationArgs> {
 		category: "external_write",
 		mutates: true,
 		schema: remoteOperationSchema(),
+		prepareApproval: (args) => prepareGitApproval(app, args.path),
+		validateApproval: (args, snapshot) => validateGitApproval(app, args.path, false, snapshot),
 		async run(args, ctx) {
 			const remote = safeGitToken(args.remote ?? "origin", "remote");
 			if (!remote.ok) return fail(remote.error);
@@ -288,6 +298,8 @@ function gitPushTool(app: App): ToolDef<RemoteOperationArgs> {
 		category: "external_write",
 		mutates: true,
 		schema: remoteOperationSchema(),
+		prepareApproval: (args) => prepareGitApproval(app, args.path),
+		validateApproval: (args, snapshot) => validateGitApproval(app, args.path, false, snapshot),
 		async run(args, ctx) {
 			const remote = safeGitToken(args.remote ?? "origin", "remote");
 			if (!remote.ok) return fail(remote.error);
@@ -392,6 +404,60 @@ async function runGitTool(
 	if (result.aborted) return fail("Git command was cancelled.", output);
 	if (result.code !== 0) return fail(`Git command failed with exit code ${result.code ?? "unknown"}.`, output);
 	return ok(output);
+}
+
+interface GitApprovalSnapshot {
+	root: string;
+	cwd: string;
+	repositoryRoot?: string;
+	status?: string;
+	head?: string;
+}
+
+async function prepareGitApproval(app: App, pathInput: string | undefined, allowInit = false): Promise<GitApprovalSnapshot> {
+	const target = await resolveGitTarget(app, pathInput, allowInit);
+	if (!target.ok) throw new Error(target.error);
+	if (!target.value.repositoryRoot) {
+		return { root: target.value.root, cwd: target.value.cwd };
+	}
+	const status = await runGit(["status", "--porcelain=v1", "--branch", "--untracked-files=all"], target.value.cwd, undefined, 100_000);
+	if (status.code !== 0) throw new Error("Git approval preview failed while reading repository status.");
+	const head = await runGit(["rev-parse", "--verify", "HEAD"], target.value.cwd, undefined, 4096);
+	return {
+		root: target.value.root,
+		cwd: target.value.cwd,
+		repositoryRoot: target.value.repositoryRoot,
+		status: status.stdout,
+		head: head.code === 0 ? head.stdout.trim() : "(unborn)",
+	};
+}
+
+async function validateGitApproval(
+	app: App,
+	pathInput: string | undefined,
+	allowInit: boolean,
+	snapshot: unknown,
+): Promise<{ ok: boolean; error?: string }> {
+	if (!isGitApprovalSnapshot(snapshot)) return { ok: false, error: "Git approval snapshot is missing or invalid." };
+	try {
+		const current = await prepareGitApproval(app, pathInput, allowInit);
+		if (
+			current.root !== snapshot.root ||
+			current.cwd !== snapshot.cwd ||
+			current.repositoryRoot !== snapshot.repositoryRoot ||
+			current.status !== snapshot.status ||
+			current.head !== snapshot.head
+		) {
+			return { ok: false, error: "The Git repository or working tree changed while approval was pending. Review the current status and request approval again." };
+		}
+		return { ok: true };
+	} catch (error) {
+		return { ok: false, error: error instanceof Error ? error.message : String(error) };
+	}
+}
+
+function isGitApprovalSnapshot(value: unknown): value is GitApprovalSnapshot {
+	return Boolean(value && typeof value === "object" && typeof (value as GitApprovalSnapshot).root === "string" && typeof (value as GitApprovalSnapshot).cwd === "string");
 }
 
 async function resolveGitTarget(app: App, pathInput: string | undefined, allowInit: boolean): Promise<{ ok: true; value: GitTarget } | { ok: false; error: string; details: GitResolveFailure }> {

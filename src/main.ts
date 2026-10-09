@@ -15,7 +15,7 @@ import { CommandExecutor } from "./commands/executor";
 import type { VaultContext } from "./context";
 import { loadVaultRules } from "./rules";
 import { CHAT_VIEW_TYPE, ChatView } from "./view";
-import type { WriteOp } from "./consent/undo";
+import { contentFingerprint, type WriteOp } from "./consent/undo";
 import { SemanticVaultOperations } from "./semantic/changeset";
 
 const SETTINGS_CHANGED_EVENT = "open-agent:settings-changed";
@@ -112,15 +112,17 @@ export default class OpenAgentPlugin extends Plugin {
 		this.commandExecutor = new CommandExecutor(this.toolRegistry, this.semanticVault);
 
 		this.registerView(CHAT_VIEW_TYPE, (leaf: WorkspaceLeaf) => {
-			const consent = new ConsentManager(() => this.settings.consent, (category, mode) => {
+			const createConsentManager = () => new ConsentManager(() => this.settings.consent, (category, mode) => {
 				this.settings.consent[category] = mode;
 				void this.saveSettings();
 			});
+			const consent = createConsentManager();
 			return new ChatView(leaf, {
 				getSettings: () => this.settings,
 				openSettings: () => this.openSettings(),
 				tools: this.toolRegistry,
 				consent,
+				createConsentManager,
 				undo: this.undo,
 				sessionStore: this.sessionStore,
 				getCurrentContext: () => this.getCurrentContext(),
@@ -277,14 +279,16 @@ export default class OpenAgentPlugin extends Plugin {
 	}
 
 	private async undoLastWrite(): Promise<void> {
-		const latest = this.undo.peek();
-		const operations = latest?.checkpointId ? this.undo.popLastCheckpoint() : (latest ? [this.undo.pop() as WriteOp] : []);
+		const sessionId = this.sessionStore.getActiveId();
+		const latest = this.undo.peek(sessionId);
+		const operations = latest?.checkpointId ? this.undo.peekLastCheckpoint(sessionId) : (latest ? [latest] : []);
 		if (operations.length === 0) {
 			new Notice("Nothing to undo");
 			return;
 		}
 		try {
-			await this.restoreOperations(operations);
+			await this.commandExecutor.runExclusiveWrite(() => this.restoreOperations(operations));
+			this.undo.removeOperations(operations.map((operation) => operation.id));
 			new Notice(`Reverted ${operations.length} Agent change${operations.length === 1 ? "" : "s"}`);
 		} catch (err) {
 			new Notice(`Undo failed: ${err instanceof Error ? err.message : String(err)}`);
@@ -298,13 +302,14 @@ export default class OpenAgentPlugin extends Plugin {
 	}
 
 	private async undoLastCheckpoint(): Promise<void> {
-		const operations = this.undo.popLastCheckpoint();
+		const operations = this.undo.peekLastCheckpoint(this.sessionStore.getActiveId());
 		if (operations.length === 0) {
 			new Notice("No Agent checkpoint to undo");
 			return;
 		}
 		try {
-			await this.restoreOperations(operations);
+			await this.commandExecutor.runExclusiveWrite(() => this.restoreOperations(operations));
+			this.undo.removeOperations(operations.map((operation) => operation.id));
 			new Notice(`Reverted ${operations.length} Agent change${operations.length === 1 ? "" : "s"}`);
 		} catch (err) {
 			new Notice(`Checkpoint undo failed: ${err instanceof Error ? err.message : String(err)}`);
@@ -312,6 +317,36 @@ export default class OpenAgentPlugin extends Plugin {
 	}
 
 	private async restoreOperations(operations: WriteOp[]): Promise<void> {
+		const virtualPaths = new Map<string, { exists: boolean; content?: string }>();
+		const stateAt = async (path: string): Promise<{ exists: boolean; content?: string }> => {
+			const saved = virtualPaths.get(path);
+			if (saved) return saved;
+			const file = this.app.vault.getAbstractFileByPath(path);
+			const state = file instanceof TFile ? { exists: true, content: await this.app.vault.read(file) } : { exists: Boolean(file) };
+			virtualPaths.set(path, state);
+			return state;
+		};
+		for (const op of operations) {
+			if (op.kind === "rename" && op.beforePath && op.afterPath) {
+				const destination = await stateAt(op.afterPath);
+				const source = await stateAt(op.beforePath);
+				if (!destination.exists) throw new Error(`Undo conflict: expected ${op.afterPath} to still exist.`);
+				if (source.exists) throw new Error(`Undo conflict: destination ${op.beforePath} now exists.`);
+				if (op.afterFingerprint && (destination.content === undefined || contentFingerprint(destination.content) !== op.afterFingerprint)) {
+					throw new Error(`Undo conflict: ${op.afterPath} changed after the Agent operation; no changes were reverted.`);
+				}
+				virtualPaths.set(op.afterPath, { exists: false });
+				virtualPaths.set(op.beforePath, destination);
+				continue;
+			}
+			const current = await stateAt(op.path);
+			if (op.afterFingerprint === null && current.exists) throw new Error(`Undo conflict: ${op.path} was recreated after deletion; no changes were reverted.`);
+			if (op.afterFingerprint && (current.content === undefined || contentFingerprint(current.content) !== op.afterFingerprint)) {
+				throw new Error(`Undo conflict: ${op.path} changed after the Agent operation; no changes were reverted.`);
+			}
+			virtualPaths.set(op.path, op.before === null ? { exists: false } : { exists: true, content: op.before });
+		}
+
 		for (const op of operations) {
 			if (op.kind === "rename" && op.beforePath && op.afterPath) {
 				const renamed = this.app.vault.getAbstractFileByPath(op.afterPath);

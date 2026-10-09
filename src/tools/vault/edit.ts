@@ -2,6 +2,7 @@ import { type App, TFile } from "obsidian";
 import { type UndoBuffer } from "../../consent/undo";
 import { defineTool, fail, ok } from "../define";
 import { PathError, safeVaultPath } from "./path-safe";
+import { captureVaultApproval, validateVaultApproval } from "./approval";
 
 interface Args {
 	path: string;
@@ -31,7 +32,9 @@ export function editTool(app: App, undo: UndoBuffer) {
 			},
 			required: ["path", "oldString", "newString"],
 		},
-		async run(args) {
+		prepareApproval: (args) => captureVaultApproval(app, [args.path]),
+		validateApproval: (_args, snapshot) => validateVaultApproval(app, snapshot),
+		async run(args, ctx) {
 			let p: string;
 			try {
 				p = safeVaultPath(args.path);
@@ -55,7 +58,7 @@ export function editTool(app: App, undo: UndoBuffer) {
 
 			const after = replaceAll(before, args.oldString, args.newString);
 			await app.vault.modify(file, after);
-			undo.record({ path: p, before, after });
+			undo.record({ path: p, before, after }, ctx.sessionId);
 
 			return ok({ path: p, replaced: count });
 		},

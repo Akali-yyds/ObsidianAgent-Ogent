@@ -1,5 +1,6 @@
 import { TFile, type App, type TAbstractFile } from "obsidian";
 import type { UndoBuffer } from "../consent/undo";
+import { contentFingerprint } from "../consent/undo";
 import type {
 	AffectedFile,
 	ChangeBlocker,
@@ -165,7 +166,8 @@ export class SemanticVaultOperations {
 		return { changeSet, sourcePath, targetPath };
 	}
 
-	async apply(preparation: SemanticPreparation, signal?: AbortSignal): Promise<{ result: ChangeSetResult; error?: string }> {
+	async apply(preparation: SemanticPreparation, signal?: AbortSignal, undoOverride?: UndoBuffer, sessionId = "default"): Promise<{ result: ChangeSetResult; error?: string }> {
+		const undo = undoOverride ?? this.undo;
 		const { changeSet } = preparation;
 		if (changeSet.blockers.length > 0) return { result: { changeSetId: changeSet.id, status: "blocked" }, error: "ChangeSetBlocked" };
 		const pathOperation = changeSet.operations.find((operation) => operation.kind === "move" || operation.kind === "rename");
@@ -182,8 +184,8 @@ export class SemanticVaultOperations {
 		}
 
 		const recorded: string[] = [];
-		const ownCheckpoint = Boolean(this.undo && !this.undo.isCheckpointActive());
-		if (ownCheckpoint) this.undo?.beginCheckpoint(`Semantic change: ${changeSet.intent}`);
+		const ownCheckpoint = Boolean(undo && !undo.isCheckpointActive(sessionId));
+		if (ownCheckpoint) undo?.beginCheckpoint(`Semantic change: ${changeSet.intent}`, sessionId);
 		try {
 			if (signal?.aborted) throw new Error("CommandCancelled");
 			const source = this.app.vault.getAbstractFileByPath(pathOperation.sourcePath);
@@ -191,14 +193,16 @@ export class SemanticVaultOperations {
 			if (this.app.vault.getAbstractFileByPath(pathOperation.targetPath)) throw new Error(`AlreadyExists: ${pathOperation.targetPath}`);
 			await ensureParentFolder(this.app, pathOperation.targetPath);
 			await this.app.vault.rename(source, pathOperation.targetPath);
-			const renameRecord = this.undo?.record({
+			const renamedContent = source instanceof TFile ? await this.app.vault.read(source) : undefined;
+			const renameRecord = undo?.record({
 				path: pathOperation.targetPath,
 				before: "",
 				after: "",
 				kind: "rename",
 				beforePath: pathOperation.sourcePath,
 				afterPath: pathOperation.targetPath,
-			});
+				...(renamedContent !== undefined ? { afterFingerprint: contentFingerprint(renamedContent) } : {}),
+			}, sessionId);
 			if (renameRecord) recorded.push(renameRecord.id);
 
 			for (const operation of changeSet.operations.filter((entry) => entry.kind === "content_patch")) {
@@ -209,14 +213,14 @@ export class SemanticVaultOperations {
 				const current = await this.app.vault.read(file);
 				if (current !== operation.before) throw new Error(`StaleChangeSet: ${operation.targetPath}`);
 				await this.app.vault.modify(file, operation.after);
-				const writeRecord = this.undo?.record({ path: operation.targetPath, before: operation.before, after: operation.after });
+				const writeRecord = undo?.record({ path: operation.targetPath, before: operation.before, after: operation.after }, sessionId);
 				if (writeRecord) recorded.push(writeRecord.id);
 			}
-			if (ownCheckpoint) this.undo?.endCheckpoint();
+			if (ownCheckpoint) undo?.endCheckpoint(sessionId);
 			return { result: { changeSetId: changeSet.id, status: "applied" } };
 		} catch (error) {
-			const recoveryItems = await this.rollback(changeSet, recorded);
-			if (ownCheckpoint) this.undo?.endCheckpoint();
+			const recoveryItems = await this.rollback(changeSet, recorded, undo);
+			if (ownCheckpoint) undo?.endCheckpoint(sessionId);
 			return {
 				result: {
 					changeSetId: changeSet.id,
@@ -229,7 +233,7 @@ export class SemanticVaultOperations {
 		}
 	}
 
-	private async rollback(changeSet: ChangeSet, recorded: string[]): Promise<string[]> {
+	private async rollback(changeSet: ChangeSet, recorded: string[], undo = this.undo): Promise<string[]> {
 		const recoveryItems: string[] = [];
 		for (const operation of [...changeSet.operations].reverse()) {
 			try {
@@ -244,7 +248,7 @@ export class SemanticVaultOperations {
 				recoveryItems.push(operation.targetPath ?? operation.path ?? "unknown operation");
 			}
 		}
-		for (const id of recorded) this.undo?.remove(id);
+		for (const id of recorded) undo?.remove(id);
 		return recoveryItems;
 	}
 

@@ -1,7 +1,8 @@
 import { type App, TFile } from "obsidian";
-import type { UndoBuffer } from "../../consent/undo";
+import { contentFingerprint, type UndoBuffer } from "../../consent/undo";
 import { defineTool, fail, ok } from "../define";
 import { PathError, safeVaultPath } from "./path-safe";
+import { captureVaultApproval, validateVaultApproval } from "./approval";
 
 interface RenameArgs {
 	oldPath: string;
@@ -23,8 +24,10 @@ export function renameTool(app: App, undo?: UndoBuffer) {
 		category: "vault_write",
 		mutates: true,
 		schema: renameSchema(),
-		async run(args) {
-			return renamePath(app, args.oldPath, args.newPath, undo);
+		prepareApproval: (args) => captureVaultApproval(app, [args.oldPath, args.newPath]),
+		validateApproval: (_args, snapshot) => validateVaultApproval(app, snapshot),
+		async run(args, ctx) {
+			return renamePath(app, args.oldPath, args.newPath, undo, ctx.sessionId);
 		},
 	});
 }
@@ -36,8 +39,10 @@ export function moveTool(app: App, undo?: UndoBuffer) {
 		category: "vault_write",
 		mutates: true,
 		schema: renameSchema(),
-		async run(args) {
-			return renamePath(app, args.oldPath, args.newPath, undo);
+		prepareApproval: (args) => captureVaultApproval(app, [args.oldPath, args.newPath]),
+		validateApproval: (_args, snapshot) => validateVaultApproval(app, snapshot),
+		async run(args, ctx) {
+			return renamePath(app, args.oldPath, args.newPath, undo, ctx.sessionId);
 		},
 	});
 }
@@ -54,7 +59,9 @@ export function deleteTool(app: App, undo: UndoBuffer) {
 			required: ["path"],
 			additionalProperties: false,
 		},
-		async run(args) {
+		prepareApproval: (args) => captureVaultApproval(app, [args.path]),
+		validateApproval: (_args, snapshot) => validateVaultApproval(app, snapshot),
+		async run(args, ctx) {
 			let path: string;
 			try { path = safeVaultPath(args.path); } catch (error) {
 				if (error instanceof PathError) return fail(`PathError: ${error.message}`);
@@ -64,7 +71,7 @@ export function deleteTool(app: App, undo: UndoBuffer) {
 			if (!(file instanceof TFile)) return fail(`NotFound: ${path}`);
 			const before = await app.vault.read(file);
 			await app.fileManager.trashFile(file);
-			undo.record({ path, before, after: "", kind: "delete" });
+			undo.record({ path, before, after: "", kind: "delete" }, ctx.sessionId);
 			return ok({ path, trashed: true, recoverableThisSession: true });
 		},
 	});
@@ -82,14 +89,16 @@ export function restoreTool(app: App, undo: UndoBuffer) {
 			required: ["path"],
 			additionalProperties: false,
 		},
-		async run(args) {
+		prepareApproval: (args) => captureVaultApproval(app, [args.path]),
+		validateApproval: (_args, snapshot) => validateVaultApproval(app, snapshot),
+		async run(args, ctx) {
 			let path: string;
 			try { path = safeVaultPath(args.path); } catch (error) {
 				if (error instanceof PathError) return fail(`PathError: ${error.message}`);
 				throw error;
 			}
 			if (app.vault.getAbstractFileByPath(path)) return fail(`AlreadyExists: ${path}`);
-			const snapshot = undo.findLatest(path, "delete");
+			const snapshot = undo.findLatest(path, "delete", ctx.sessionId);
 			if (!snapshot || snapshot.before === null) return fail(`No session snapshot exists for deleted note: ${path}`);
 			await ensureParentFolder(app, path);
 			await app.vault.create(path, snapshot.before);
@@ -111,7 +120,7 @@ function renameSchema() {
 	};
 }
 
-async function renamePath(app: App, oldInput: string, newInput: string, undo?: UndoBuffer) {
+	async function renamePath(app: App, oldInput: string, newInput: string, undo?: UndoBuffer, sessionId?: string) {
 	let oldPath: string;
 	let newPath: string;
 	try {
@@ -124,6 +133,7 @@ async function renamePath(app: App, oldInput: string, newInput: string, undo?: U
 	const file = app.vault.getAbstractFileByPath(oldPath);
 	if (!(file instanceof TFile)) return fail(`NotFound: ${oldPath}`);
 	if (app.vault.getAbstractFileByPath(newPath)) return fail(`AlreadyExists: ${newPath}`);
+	const expectedContent = file instanceof TFile ? await app.vault.read(file) : undefined;
 	await ensureParentFolder(app, newPath);
 	await app.vault.rename(file, newPath);
 	undo?.record({
@@ -133,7 +143,8 @@ async function renamePath(app: App, oldInput: string, newInput: string, undo?: U
 		kind: "rename",
 		beforePath: oldPath,
 		afterPath: newPath,
-	});
+		...(expectedContent !== undefined ? { afterFingerprint: contentFingerprint(expectedContent) } : {}),
+	}, sessionId);
 	return ok({ oldPath, newPath });
 }
 

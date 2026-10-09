@@ -32,4 +32,17 @@ describe("UndoBuffer checkpoints", () => {
 			afterPath: "Archive/a.md",
 		});
 	});
+
+	it("keeps undo checkpoints isolated by chat session", () => {
+		const undo = new UndoBuffer();
+		undo.beginCheckpoint("turn A", "session-a");
+		undo.record({ path: "a.md", before: null, after: "A" }, "session-a");
+		undo.endCheckpoint("session-a");
+		undo.beginCheckpoint("turn B", "session-b");
+		undo.record({ path: "b.md", before: null, after: "B" }, "session-b");
+		undo.endCheckpoint("session-b");
+
+		expect(undo.popLastCheckpoint("session-a").map((operation) => operation.path)).toEqual(["a.md"]);
+		expect(undo.peekLastCheckpoint("session-b").map((operation) => operation.path)).toEqual(["b.md"]);
+	});
 });

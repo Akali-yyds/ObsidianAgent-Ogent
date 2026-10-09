@@ -22,7 +22,7 @@ export class ConsentManager {
 	private readonly getSettings: () => ConsentSettings;
 	private readonly persistMode?: (category: ToolCategory, mode: ConsentMode) => void;
 	private sessionOverrides: Partial<Record<ToolCategory, ConsentMode>> = {};
-	private pending: { resolve: (choice: ConsentChoice) => void; category: ToolCategory } | null = null;
+	private pending = new Map<string, { resolve: (choice: ConsentChoice) => void; category: ToolCategory }>();
 
 	constructor(getSettings: () => ConsentSettings, persistMode?: (category: ToolCategory, mode: ConsentMode) => void) {
 		this.getSettings = getSettings;
@@ -31,6 +31,7 @@ export class ConsentManager {
 
 	resetSession(): void {
 		this.sessionOverrides = {};
+		this.cancelAllPending();
 	}
 
 	getMode(category: ToolCategory): ConsentMode {
@@ -44,20 +45,8 @@ export class ConsentManager {
 	 */
 	setSessionMode(category: ToolCategory, mode: ConsentMode): void {
 		this.sessionOverrides[category] = mode;
-		if (!this.pending || this.pending.category !== category) return;
-
-		// If a write is already waiting for approval, changing the control to
-		// Full mode should continue that write instead of leaving the stream
-		// apparently stuck behind an obsolete approval prompt.
-		if (mode === "always") {
-			const resolve = this.pending.resolve;
-			this.pending = null;
-			resolve("approve-session");
-		} else if (mode === "never") {
-			const resolve = this.pending.resolve;
-			this.pending = null;
-			resolve("reject");
-		}
+		// Access is captured when a run starts; changing the selector must not
+		// implicitly approve or reject a request already waiting for the user.
 	}
 
 	/**
@@ -73,9 +62,15 @@ export class ConsentManager {
 	}
 
 	resolveConsent(choice: ConsentChoice): void {
-		if (!this.pending) return;
-		const { resolve, category } = this.pending;
-		this.pending = null;
+		const requestId = this.pending.keys().next().value as string | undefined;
+		if (requestId) this.resolveConsentFor(requestId, choice);
+	}
+
+	resolveConsentFor(requestId: string, choice: ConsentChoice): void {
+		const pending = this.pending.get(requestId);
+		if (!pending) return;
+		const { resolve, category } = pending;
+		this.pending.delete(requestId);
 		if (choice === "approve-session") this.sessionOverrides[category] = "always";
 		if (choice === "approve-always" && this.canPersist(category)) {
 			this.persistMode?.(category, "always");
@@ -89,20 +84,22 @@ export class ConsentManager {
 	}
 
 	cancelPendingConsent(): void {
-		if (this.pending) {
-			this.pending.resolve("reject");
-			this.pending = null;
-		}
+		const requestId = this.pending.keys().next().value as string | undefined;
+		if (requestId) this.resolveConsentFor(requestId, "reject");
 	}
 
-	async requestApproval(tool: ToolDef, _args: unknown, executionMode: AgentExecutionMode = "ask"): Promise<boolean> {
+	cancelAllPending(): void {
+		for (const requestId of [...this.pending.keys()]) this.resolveConsentFor(requestId, "reject");
+	}
+
+	async requestApproval(tool: ToolDef, _args: unknown, executionMode: AgentExecutionMode = "ask", requestId = "default"): Promise<boolean> {
 		const requiresApproval = tool.mutates || tool.requiresApproval === true || tool.category === "network_read" || tool.category === "external_write" || tool.category === "plugin_control";
 		if (!requiresApproval) return true;
 		if (executionMode === "full") return true;
 		if (executionMode === "read") return false;
 
 		const choice = await new Promise<ConsentChoice>((resolve) => {
-			this.pending = { resolve, category: tool.category };
+			this.pending.set(requestId, { resolve, category: tool.category });
 		});
 		return choice === "approve" || choice === "approve-session" || choice === "approve-always";
 	}

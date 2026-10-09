@@ -116,6 +116,7 @@ export type ToolResult =
 
 export interface ToolContext {
 	signal?: AbortSignal;
+	sessionId?: string;
 }
 
 /** The only command vocabulary exposed to the model by the chat Agent. */
@@ -210,6 +211,8 @@ export interface ToolDef<TArgs = unknown> {
 	permission?: PermissionClass;
 	/** Network reads and other sensitive non-mutating operations can opt into approval. */
 	requiresApproval?: boolean;
+	prepareApproval?(args: TArgs): Promise<unknown>;
+	validateApproval?(args: TArgs, snapshot: unknown): Promise<{ ok: boolean; error?: string }>;
 	run(args: TArgs, ctx: ToolContext): Promise<ToolResult>;
 }
 

@@ -59,6 +59,8 @@ export interface ExecuteAgentLoopOptions {
 	executionMode?: AgentExecutionMode;
 	toolAllowlist?: string[];
 	commandExecutor?: CommandExecutor;
+	sessionId?: string;
+	undo?: import("../consent/undo").UndoBuffer;
 }
 
 async function* executeAgentLoop(
@@ -209,7 +211,7 @@ async function* executeAgentLoop(
 					continue;
 				}
 				yield { kind: "consent_requested", id: call.id, name: call.name };
-				const approved = await opts.consent.requestApproval(toolDef, validated.value, executionMode);
+				const approved = await opts.consent.requestApproval(toolDef, validated.value, executionMode, call.id);
 				if (!approved) {
 					const result: ToolResult = {
 						ok: false,
@@ -272,6 +274,8 @@ async function* executeCommandPlan(
 		consent: opts.consent,
 		executionMode: opts.executionMode,
 		signal: opts.signal,
+		sessionId: opts.sessionId,
+		undo: opts.undo,
 	});
 	let next = await iterator.next();
 	while (!next.done) {

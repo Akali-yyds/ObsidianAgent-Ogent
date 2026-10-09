@@ -16,6 +16,7 @@ import type { ToolRegistry } from "../tools/registry";
 import { commandPlanSchema } from "./tool";
 import { commandDescriptor } from "./catalog";
 import type { SemanticPreparation, SemanticVaultOperations } from "../semantic/changeset";
+import type { UndoBuffer } from "../consent/undo";
 
 const MAX_COMMANDS = 32;
 
@@ -35,6 +36,8 @@ export interface ExecutePlanOptions {
 	consent?: ConsentManager;
 	executionMode?: AgentExecutionMode;
 	signal?: AbortSignal;
+	sessionId?: string;
+	undo?: UndoBuffer;
 }
 
 /**
@@ -43,6 +46,7 @@ export interface ExecutePlanOptions {
  * allowlisted mapping and the ToolDef's own schema validation.
  */
 export class CommandExecutor {
+	private writeTail: Promise<void> = Promise.resolve();
 	constructor(
 		private readonly registry: ToolRegistry,
 		private readonly semantic?: SemanticVaultOperations,
@@ -148,7 +152,7 @@ export class CommandExecutor {
 					return { ok: false, results, stoppedAt: command.id, error: result.error };
 				}
 				if (executionMode !== "full") {
-					const approval = opts.consent?.requestApproval(resolved.tool, validated.value, executionMode) ?? Promise.resolve(false);
+					const approval = opts.consent?.requestApproval(resolved.tool, validated.value, executionMode, command.id) ?? Promise.resolve(false);
 					yield { kind: "change_set_approval_required", command, changeSet: preparation.changeSet };
 					yield { kind: "consent_requested", command, risk, warning: commandWarning(command) };
 					if (!await approval) {
@@ -159,7 +163,7 @@ export class CommandExecutor {
 					}
 				}
 				yield { kind: "change_set_started", command, changeSetId: preparation.changeSet.id };
-				const applied = await this.semantic.apply(preparation, opts.signal);
+				const applied = await this.withWriteLock(opts.signal, () => this.semantic!.apply(preparation, opts.signal, opts.undo, opts.sessionId));
 				if (applied.result.status === "blocked") yield { kind: "change_set_blocked", command, changeSet: preparation.changeSet };
 				else if (applied.result.status === "rolled_back") yield { kind: "change_set_rolled_back", command, result: applied.result };
 				else yield { kind: "change_set_completed", command, result: applied.result };
@@ -173,6 +177,7 @@ export class CommandExecutor {
 			}
 
 			const requiresApproval = executionMode !== "full" && requiresCommandApproval(resolved.tool);
+			let approvalSnapshot: unknown;
 			if (requiresApproval) {
 				if (!opts.consent) {
 					const result: CommandResult = { id: command.id, ok: false, risk, error: "ConsentDeniedError: no consent manager" };
@@ -184,7 +189,15 @@ export class CommandExecutor {
 				// the approval channel live while the consumer renders the prompt and
 				// also makes programmatic consumers able to resolve it immediately
 				// after observing consent_requested.
-				const approval = opts.consent.requestApproval(resolved.tool, validated.value, executionMode);
+				try {
+					approvalSnapshot = await resolved.tool.prepareApproval?.(validated.value);
+				} catch (error) {
+					const result: CommandResult = { id: command.id, ok: false, risk, error: "ApprovalPreviewError", details: error instanceof Error ? error.message : String(error) };
+					results.push(result);
+					yield { kind: "finished", result };
+					return { ok: false, results, stoppedAt: command.id, error: result.error };
+				}
+				const approval = opts.consent.requestApproval(resolved.tool, validated.value, executionMode, command.id);
 				yield {
 					kind: "consent_requested",
 					command,
@@ -206,7 +219,20 @@ export class CommandExecutor {
 				}
 			}
 
-			const toolResult = await runTool(resolved.tool, validated.value, opts.signal);
+			const runWithApprovalValidation = async (): Promise<ToolResult> => {
+				if (requiresApproval && resolved.tool.validateApproval) {
+					try {
+						const validation = await resolved.tool.validateApproval(validated.value, approvalSnapshot);
+						if (!validation.ok) return { ok: false, error: "StaleApprovalError", details: validation.error ?? "The target changed while approval was pending." };
+					} catch (error) {
+						return { ok: false, error: "ApprovalValidationError", details: error instanceof Error ? error.message : String(error) };
+					}
+				}
+				return runTool(resolved.tool, validated.value, opts.signal, opts.sessionId);
+			};
+			const toolResult: ToolResult = isWriteCommand(resolved.tool)
+				? await this.withWriteLock(opts.signal, runWithApprovalValidation)
+				: await runWithApprovalValidation();
 			const result = toCommandResult(command.id, risk, toolResult);
 			results.push(result);
 			yield { kind: "finished", result };
@@ -221,6 +247,24 @@ export class CommandExecutor {
 		if (!toolName) return null;
 		const tool = this.registry.get(toolName);
 		return tool ? { tool } : null;
+	}
+
+	private async withWriteLock<T>(signal: AbortSignal | undefined, operation: () => Promise<T>): Promise<T> {
+		const previous = this.writeTail;
+		let release!: () => void;
+		this.writeTail = new Promise<void>((resolve) => { release = resolve; });
+		await previous;
+		try {
+			if (signal?.aborted) throw new Error("CommandCancelled");
+			return await operation();
+		} finally {
+			release();
+		}
+	}
+
+	/** Run non-Agent Vault mutations (such as undo) in the same FIFO as tools. */
+	runExclusiveWrite<T>(operation: () => Promise<T>): Promise<T> {
+		return this.withWriteLock(undefined, operation);
 	}
 }
 
@@ -256,9 +300,9 @@ function commandWarning(command: AgentCommand): string | undefined {
 	return undefined;
 }
 
-async function runTool(tool: ToolDef, args: Record<string, unknown>, signal: AbortSignal | undefined): Promise<ToolResult> {
+async function runTool(tool: ToolDef, args: Record<string, unknown>, signal: AbortSignal | undefined, sessionId?: string): Promise<ToolResult> {
 	try {
-		return await runWithTimeout(tool.run(args, { signal }), 30_000, tool.name, signal);
+		return await runWithTimeout(tool.run(args, { signal, sessionId }), 30_000, tool.name, signal);
 	} catch (error) {
 		if (error instanceof ToolTimeoutError) return { ok: false, error: "ToolTimeoutError", details: error.message };
 		if (error instanceof Error) return { ok: false, error: error.name || "ToolError", details: error.message };

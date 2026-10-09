@@ -4,6 +4,8 @@ import type { UndoBuffer } from "./consent/undo";
 import { diffLines, type DiffRow } from "./consent/diff";
 import { renderRows } from "./consent/render-diff";
 import { runTurn } from "./loop";
+import { CompletedMarkdownCache } from "./markdown-cache";
+import { normalizeTranscriptWindow, shiftTranscriptWindowAtRenderedEdge } from "./transcript-window";
 import { compactMessages } from "./compaction";
 import { buildVaultContextPrompt, requestsVaultMutation, type VaultContext } from "./context";
 import { OpenAICompatibleProvider } from "./provider";
@@ -24,6 +26,10 @@ import type { CommandExecutor } from "./commands/executor";
 import { AuthError, type AgentExecutionMode, type ChangeSet, type ChangeSetResult, type ChatMessage, type LoopEvent, NetworkError, ProviderError, RateLimitError, type ToolResult } from "./types";
 
 export const CHAT_VIEW_TYPE = "open-agent-chat";
+const TRANSCRIPT_WINDOW_SIZE = 80;
+const TRANSCRIPT_WINDOW_STEP = 40;
+const ESTIMATED_TURN_HEIGHT = 140;
+const completedMarkdownCache = new CompletedMarkdownCache();
 
 class ConfirmActionModal extends Modal {
 	private resolvePrompt: (confirmed: boolean) => void = () => undefined;
@@ -34,6 +40,7 @@ class ConfirmActionModal extends Modal {
 		private readonly titleText: string,
 		private readonly message: string,
 		private readonly confirmText: string,
+		private readonly cancelText: string = "Cancel",
 	) {
 		super(app);
 	}
@@ -52,7 +59,7 @@ class ConfirmActionModal extends Modal {
 		contentEl.createEl("p", { text: this.message });
 
 		const buttons = contentEl.createDiv({ cls: "open-agent-edit-buttons" });
-		buttons.createEl("button", { text: "Cancel" }).addEventListener("click", () => this.decide(false));
+		buttons.createEl("button", { text: this.cancelText }).addEventListener("click", () => this.decide(false));
 		buttons.createEl("button", { text: this.confirmText, cls: "mod-warning" })
 			.addEventListener("click", () => this.decide(true));
 	}
@@ -71,6 +78,7 @@ class ConfirmActionModal extends Modal {
 
 interface ToolCallRecord {
 	id: string;
+	sessionId?: string;
 	name: string;
 	args: unknown;
 	mutates: boolean;
@@ -84,11 +92,12 @@ interface ToolCallRecord {
 }
 
 type AssistantSegment =
-	| { kind: "thinking"; text: string }
-	| { kind: "text"; text: string }
+	| { kind: "thinking"; id: string; text: string }
+	| { kind: "text"; id: string; text: string }
 	| { kind: "tool"; id: string };
 
 interface UiTurn {
+	id: string;
 	role: "user" | "assistant";
 	content: string; // user turns only
 	segments: AssistantSegment[]; // assistant turns: text and tool cards in order
@@ -120,20 +129,20 @@ interface TurnPersistenceQueue {
 }
 
 class ToolTraceModal extends Modal {
-	constructor(app: App, private readonly turns: UiTurn[]) {
+	constructor(app: App, private readonly turns: UiTurn[], private readonly language: "zh-CN" | "en") {
 		super(app);
 	}
 
 	onOpen(): void {
 		const { contentEl } = this;
 		contentEl.empty();
-		contentEl.createEl("h3", { text: "Agent tool trace" });
+		contentEl.createEl("h3", { text: this.language === "zh-CN" ? "Agent 操作记录" : "Agent tool trace" });
 		const events = this.turns
 			.filter((turn) => turn.role === "assistant")
 			.flatMap((turn) => turn.events ?? [])
 			.sort((left, right) => left.timestamp - right.timestamp);
 		const pre = contentEl.createEl("pre", { cls: "open-agent-tool-trace" });
-		pre.setText(safeStringify(events.length > 0 ? events : "No persisted events in this session."));
+		pre.setText(safeStringify(events.length > 0 ? events : (this.language === "zh-CN" ? "当前会话没有已保存的操作记录。" : "No persisted events in this session.")));
 	}
 }
 
@@ -142,6 +151,7 @@ export interface ChatViewDeps {
 	openSettings: () => void;
 	tools: ToolRegistry;
 	consent: ConsentManager;
+	createConsentManager?: () => ConsentManager;
 	undo: UndoBuffer;
 	sessionStore: SessionStore;
 	getCurrentContext: () => VaultContext;
@@ -153,10 +163,14 @@ export class ChatView extends ItemView {
 	private readonly deps: ChatViewDeps;
 
 	private transcriptEl!: HTMLElement;
+	private newContentBtn!: HTMLButtonElement;
+	private queuePanelEl!: HTMLElement;
+	private queueListEl!: HTMLElement;
 	private inputEl!: HTMLTextAreaElement;
 	private sendBtn!: HTMLButtonElement;
 	private stopBtn!: HTMLButtonElement;
 	private hintEl!: HTMLElement;
+	private accessibilityStatusEl!: HTMLElement;
 
 	// Header elements
 	private sessionTitleEl!: HTMLElement;
@@ -171,6 +185,7 @@ export class ChatView extends ItemView {
 
 	private turns: UiTurn[] = [];
 	private readonly inFlights = new Map<string, AbortController>();
+	private readonly startingSessions = new Set<string>();
 	private readonly stoppingSessions = new Set<string>();
 	// Live in-memory turns for sessions currently streaming (so switching back restores them)
 	private readonly liveTurns = new Map<string, UiTurn[]>();
@@ -186,6 +201,7 @@ export class ChatView extends ItemView {
 	private readonly dropdowns: AgentDropdown[] = [];
 	private boundOnSettingsChanged: () => void;
 	private readonly diffComputedIds = new Set<string>();
+	private readonly consentBySession = new Map<string, ConsentManager>();
 
 	// Render debounce state
 	private renderDebounceTimer: number | null = null;
@@ -193,7 +209,21 @@ export class ChatView extends ItemView {
 	private thinkingScrollFrame: number | null = null;
 	private transcriptScrollFrame: number | null = null;
 	private transcriptFollowBottom = true;
+	private forceTranscriptFollowOnNextRender = false;
+	private newContentPending = false;
+	// A transcript rebuild renders historical Markdown asynchronously. Keep a
+	// generation so an older rebuild cannot restore its stale scroll position
+	// after a newer approval/state update has already rebuilt the transcript.
+	private transcriptRenderGeneration = 0;
 	private lastRenderTime = 0;
+	private transcriptWindowStart = 0;
+	private transcriptWindowEnd = 0;
+	private lastTranscriptScrollTop = 0;
+	private adjustingTranscriptWindow = false;
+	private pendingTranscriptAnchor: { id: string; top: number } | undefined;
+	private readonly estimatedTurnHeights = new Map<string, number>();
+	private readonly turnIndexById = new Map<string, number>();
+	private queuePanelSignature = "";
 
 	// Panel state
 	private sessionsPanelVisible = false;
@@ -214,19 +244,20 @@ export class ChatView extends ItemView {
 	private editingTurnIndex: number | null = null;
 	private editingText = "";
 	private executionMode: AgentExecutionMode = "ask";
-	// Queued input belongs to the session that was active when it was entered.
-	// Keeping this keyed by session prevents a completed run from sending an
-	// old session's message into whichever session happens to be visible now.
-	private readonly queuedMessages = new Map<string, string[]>();
 	private forceCompaction = false;
+	private closed = false;
 
 	constructor(leaf: WorkspaceLeaf, deps: ChatViewDeps) {
 		super(leaf);
 		this.deps = deps;
+		this.consentBySession.set(deps.sessionStore.getActiveId(), deps.consent);
 		this.boundOnSettingsChanged = () => {
 			this.refreshConfiguredState();
 			void this.populateModelDatalist();
+			if (this.queueListEl) this.refreshQueuePanel();
+			if (this.sessionsPanelVisible) this.refreshSessionsList(this.sessionsSearchEl.value);
 			if (this.transcriptEl) this.renderTranscript();
+			this.localizeChatChrome();
 		};
 		this.boundOnDocClick = (e) => this.handleDocClick(e);
 	}
@@ -248,30 +279,51 @@ export class ChatView extends ItemView {
 	}
 
 	onOpen(): Promise<void> {
+		this.closed = false;
 		const root = this.contentEl;
 		root.empty();
 		root.addClass("open-agent-view");
 
 		this.hintEl = root.createDiv({ cls: "open-agent-hint" });
+		this.hintEl.setAttribute("aria-live", "polite");
+		this.hintEl.setAttribute("aria-atomic", "true");
+		this.accessibilityStatusEl = root.createDiv({ cls: "open-agent-sr-only", attr: { role: "status", "aria-live": "polite", "aria-atomic": "true" } });
 		this.buildHeader(root);
 		this.transcriptEl = root.createDiv({ cls: "open-agent-transcript" });
+		this.transcriptEl.setAttribute("role", "log");
+		this.transcriptEl.setAttribute("aria-label", resolveUiLanguage(this.deps.getSettings().language) === "zh-CN" ? "聊天记录" : "Conversation");
+		this.transcriptEl.setAttribute("aria-live", "off");
 		this.transcriptEl.addEventListener("scroll", this.boundOnTranscriptScroll, { passive: true });
+		this.buildQueuePanel(root);
+		this.newContentBtn = root.createEl("button", {
+			cls: "open-agent-new-content",
+			text: "↓ New content",
+			attr: { type: "button", "aria-label": "Scroll to new content" },
+		});
+		this.newContentBtn.addEventListener("click", () => this.scrollToLatestContent());
 		this.buildComposer(root);
 		this.buildStatusBar(root);
+		this.localizeChatChrome();
 
 		window.addEventListener("open-agent:settings-changed", this.boundOnSettingsChanged);
 		document.addEventListener("click", this.boundOnDocClick);
 
 		// Load active session turns
 		const session = this.deps.sessionStore.getActive();
-		this.turns = this.storedToUiTurns(session.turns);
+		this.executionMode = session.access ?? "ask";
+		this.getConsentManager(session.id).setExecutionMode(this.executionMode);
+		this.turns = this.storedToUiTurns(session.turns, session.id);
+		this.rebuildTurnIndex();
+		this.resetTranscriptWindowToLatest();
 		this.refreshConfiguredState();
 		void this.populateModelDatalist();
 		this.renderTranscript();
+		this.localizeChatChrome();
 		return Promise.resolve();
 	}
 
 	onClose(): Promise<void> {
+		this.closed = true;
 		window.removeEventListener("open-agent:settings-changed", this.boundOnSettingsChanged);
 		document.removeEventListener("click", this.boundOnDocClick);
 		this.transcriptEl?.removeEventListener("scroll", this.boundOnTranscriptScroll);
@@ -281,16 +333,21 @@ export class ChatView extends ItemView {
 		this.thinkingScrollFrame = null;
 		this.transcriptScrollFrame = null;
 		this.pendingThinkingScrollKeys.clear();
+		this.newContentPending = false;
+		this.newContentBtn?.classList.add("is-hidden");
 		for (const dropdown of this.dropdowns) dropdown.dispose();
 		this.dropdowns.length = 0;
-		this.deps.consent.resetSession();
-		this.deps.undo.clear();
+		for (const consent of this.consentBySession.values()) consent.cancelAllPending();
 		return Promise.resolve();
 	}
 
 	cancelInFlight(): void {
-		for (const ctrl of this.inFlights.values()) ctrl.abort();
-		this.inFlights.clear();
+		for (const [sessionId, ctrl] of this.inFlights) {
+			void this.deps.sessionStore.updateRunState(sessionId, "interrupted");
+			void this.deps.sessionStore.setQueuePaused(sessionId, true);
+			this.getConsentManager(sessionId).cancelAllPending();
+			ctrl.abort();
+		}
 		this.stopThinkingTicker();
 	}
 
@@ -303,7 +360,12 @@ export class ChatView extends ItemView {
 		const toolbar = header.createDiv({ cls: "open-agent-toolbar" });
 
 		this.sessionTitleEl = toolbar.createEl("span", { cls: "open-agent-session-title" });
+		this.sessionTitleEl.tabIndex = 0;
+		this.sessionTitleEl.setAttribute("role", "button");
 		this.sessionTitleEl.addEventListener("click", () => this.startRename());
+		this.sessionTitleEl.addEventListener("keydown", (event) => {
+			if (event.key === "Enter" || event.key === " ") { event.preventDefault(); this.startRename(); }
+		});
 
 		this.sessionRenameEl = toolbar.createEl("input", {
 			cls: "open-agent-session-rename",
@@ -319,15 +381,18 @@ export class ChatView extends ItemView {
 		toolbar.createEl("span", { cls: "open-agent-toolbar-spacer" });
 
 		const newBtn = toolbar.createEl("button", { text: "+", cls: "open-agent-icon-btn" });
-		newBtn.setAttribute("aria-label", "New chat");
+		newBtn.dataset.openAgentI18n = "new-chat";
+		newBtn.dataset.openAgentI18nTarget = "aria-label";
 		newBtn.addEventListener("click", () => { void this.createSession(); });
 
 		const sessionsToggle = toolbar.createEl("button", { text: "≡", cls: "open-agent-icon-btn open-agent-sessions-toggle" });
-		sessionsToggle.setAttribute("aria-label", "Browse sessions");
+		sessionsToggle.dataset.openAgentI18n = "browse-sessions";
+		sessionsToggle.dataset.openAgentI18nTarget = "aria-label";
 		sessionsToggle.addEventListener("click", () => this.toggleSessionsPanel());
 
 		this.menuBtnEl = toolbar.createEl("button", { text: "⋯", cls: "open-agent-icon-btn open-agent-menu-btn" });
-		this.menuBtnEl.setAttribute("aria-label", "Session menu");
+		this.menuBtnEl.dataset.openAgentI18n = "session-menu";
+		this.menuBtnEl.dataset.openAgentI18nTarget = "aria-label";
 		this.menuBtnEl.addEventListener("click", () => this.toggleMenu());
 
 		// Session menu (hidden by default)
@@ -341,8 +406,10 @@ export class ChatView extends ItemView {
 
 		this.sessionsSearchEl = this.sessionsPanelEl.createEl("input", {
 			cls: "open-agent-sessions-search",
-			attr: { type: "text", placeholder: "Search sessions…" },
+			attr: { type: "text" },
 		});
+		this.sessionsSearchEl.dataset.openAgentI18n = "search-sessions";
+		this.sessionsSearchEl.dataset.openAgentI18nTarget = "placeholder";
 		this.sessionsSearchEl.addEventListener("input", () => {
 			this.refreshSessionsList(this.sessionsSearchEl.value);
 		});
@@ -353,37 +420,43 @@ export class ChatView extends ItemView {
 	}
 
 	private buildMenuItems(menu: HTMLElement): void {
-		const forkItem = menu.createEl("button", { text: "Fork session", cls: "open-agent-menu-item" });
+		const addItem = (key: string, text: string, cls = "open-agent-menu-item"): HTMLButtonElement => {
+			const item = menu.createEl("button", { text, cls });
+			item.dataset.openAgentI18n = key;
+			item.dataset.openAgentI18nTarget = "text";
+			return item;
+		};
+		const forkItem = addItem("fork-session", "Fork session");
 		forkItem.addEventListener("click", () => {
 			this.setMenuVisible(false);
 			void this.forkSession();
 		});
-		const traceItem = menu.createEl("button", { text: "Tool trace", cls: "open-agent-menu-item" });
+		const traceItem = addItem("tool-trace", "Tool trace");
 		traceItem.addEventListener("click", () => {
 			this.setMenuVisible(false);
-			new ToolTraceModal(this.app, this.turns).open();
+			new ToolTraceModal(this.app, this.turns, resolveUiLanguage(this.deps.getSettings().language)).open();
 		});
-		const copyAllItem = menu.createEl("button", { text: "Copy all", cls: "open-agent-menu-item" });
+		const copyAllItem = addItem("copy-all", "Copy all");
 		copyAllItem.addEventListener("click", () => {
 			this.setMenuVisible(false);
 			void this.copyTranscript(false);
 		});
-		const copyFinalItem = menu.createEl("button", { text: "Copy final response", cls: "open-agent-menu-item" });
+		const copyFinalItem = addItem("copy-final", "Copy final response");
 		copyFinalItem.addEventListener("click", () => {
 			this.setMenuVisible(false);
 			void this.copyTranscript(true);
 		});
-		const exportItem = menu.createEl("button", { text: "Copy as Markdown", cls: "open-agent-menu-item" });
+		const exportItem = addItem("copy-markdown", "Copy as Markdown");
 		exportItem.addEventListener("click", () => {
 			this.setMenuVisible(false);
 			void this.copyTranscript(false);
 		});
-		const renameItem = menu.createEl("button", { text: "Rename", cls: "open-agent-menu-item" });
+		const renameItem = addItem("rename", "Rename");
 		renameItem.addEventListener("click", () => {
 			this.setMenuVisible(false);
 			this.startRename();
 		});
-		const deleteItem = menu.createEl("button", { text: "Delete", cls: "open-agent-menu-item open-agent-menu-item-danger" });
+		const deleteItem = addItem("delete", "Delete", "open-agent-menu-item open-agent-menu-item-danger");
 		deleteItem.addEventListener("click", () => {
 			this.setMenuVisible(false);
 			void this.deleteActiveSession();
@@ -411,8 +484,10 @@ export class ChatView extends ItemView {
 		const inputShell = this.composerEl.createDiv({ cls: "open-agent-input-shell" });
 		this.inputEl = inputShell.createEl("textarea", {
 			cls: "open-agent-input",
-			attr: { rows: "2", placeholder: "Ask the agent…" },
+			attr: { rows: "2" },
 		});
+		this.inputEl.dataset.openAgentI18n = "prompt";
+		this.inputEl.dataset.openAgentI18nTarget = "placeholder";
 		this.inputEl.addEventListener("keydown", (e) => {
 			if (e.key !== "Enter" || e.isComposing) return;
 			const wantsNewline = e.shiftKey || e.ctrlKey || e.metaKey || e.altKey;
@@ -434,12 +509,77 @@ export class ChatView extends ItemView {
 		// Right: send / stop buttons
 		const actions = toolbar.createDiv({ cls: "open-agent-composer-actions" });
 		this.sendBtn = actions.createEl("button", { text: "↑", cls: "open-agent-icon-btn open-agent-send-btn mod-cta" });
-		this.sendBtn.setAttribute("aria-label", "Send");
+		this.sendBtn.dataset.openAgentI18n = "send";
+		this.sendBtn.dataset.openAgentI18nTarget = "aria-label";
 		this.sendBtn.addEventListener("click", () => void this.handleSend());
 		this.stopBtn = actions.createEl("button", { text: "■", cls: "open-agent-icon-btn open-agent-stop-btn" });
-		this.stopBtn.setAttribute("aria-label", "Stop");
+		this.stopBtn.dataset.openAgentI18n = "stop";
+		this.stopBtn.dataset.openAgentI18nTarget = "aria-label";
 		this.stopBtn.addEventListener("click", () => this.handleStop());
 		this.stopBtn.disabled = true;
+	}
+
+	private buildQueuePanel(root: HTMLElement): void {
+		this.queuePanelEl = root.createDiv({ cls: "open-agent-queue-panel is-hidden", attr: { role: "region", "aria-label": "Queued messages" } });
+		this.queueListEl = this.queuePanelEl.createDiv({ cls: "open-agent-queue-list" });
+	}
+
+	private refreshQueuePanel(): void {
+		if (!this.queuePanelEl || !this.queueListEl) return;
+		const session = this.deps.sessionStore.getActive();
+		const queue = session.queuedMessages ?? [];
+		const language = resolveUiLanguage(this.deps.getSettings().language);
+		const signature = JSON.stringify([session.id, language, session.queuePaused, queue.map(({ id, text, createdAt }) => [id, text, createdAt])]);
+		if (signature === this.queuePanelSignature) return;
+		this.queuePanelSignature = signature;
+		this.queuePanelEl.classList.toggle("is-hidden", queue.length === 0);
+		this.queueListEl.empty();
+		if (queue.length === 0) return;
+		this.queueListEl.createEl("div", {
+			cls: "open-agent-queue-title",
+			text: language === "zh-CN" ? `待发送消息（${queue.length}）${session.queuePaused ? " · 已暂停" : ""}` : `Queued messages (${queue.length})${session.queuePaused ? " · paused" : ""}`,
+			attr: { "aria-live": "polite" },
+		});
+		for (const [index, message] of queue.entries()) {
+			const item = this.queueListEl.createDiv({ cls: "open-agent-queue-item" });
+			item.createEl("span", { cls: "open-agent-queue-index", text: String(index + 1), attr: { "aria-hidden": "true" } });
+			const editor = item.createEl("textarea", { cls: "open-agent-queue-editor", attr: { rows: "1", "aria-label": language === "zh-CN" ? `编辑第 ${index + 1} 条待发送消息` : `Edit queued message ${index + 1}` } });
+			editor.value = message.text;
+			editor.addEventListener("input", () => {
+				message.text = editor.value;
+				this.queuePanelSignature = JSON.stringify([session.id, language, session.queuePaused, queue.map(({ id, text, createdAt }) => [id, text, createdAt])]);
+			});
+			editor.addEventListener("change", () => {
+				void this.deps.sessionStore.updateQueuedMessages(session.id, queue).catch(() => this.reportQueuePersistenceFailure(session.id));
+			});
+			const remove = item.createEl("button", { text: "×", cls: "open-agent-icon-btn open-agent-queue-remove", attr: { type: "button", "aria-label": language === "zh-CN" ? `取消第 ${index + 1} 条消息` : `Cancel message ${index + 1}` } });
+			remove.addEventListener("click", () => {
+				void this.deps.sessionStore.updateQueuedMessages(session.id, queue.filter((entry) => entry.id !== message.id)).then(() => {
+					this.queuePanelSignature = "";
+					this.refreshQueuePanel();
+					const editors = this.queueListEl.querySelectorAll<HTMLTextAreaElement>(".open-agent-queue-editor");
+					(editors[Math.min(index, editors.length - 1)] ?? this.inputEl).focus({ preventScroll: true });
+				}).catch(() => this.reportQueuePersistenceFailure(session.id));
+			});
+		}
+		const actions = this.queueListEl.createDiv({ cls: "open-agent-queue-actions" });
+		if (session.queuePaused) {
+			actions.createEl("button", { text: language === "zh-CN" ? "继续发送" : "Continue", cls: "mod-cta", attr: { type: "button" } }).addEventListener("click", () => {
+				void this.deps.sessionStore.setQueuePaused(session.id, false).then(() => {
+					this.queuePanelSignature = "";
+					this.refreshQueuePanel();
+					this.inputEl.focus({ preventScroll: true });
+					this.drainQueuedMessage(session.id);
+				}).catch(() => this.reportQueuePersistenceFailure(session.id));
+			});
+		}
+		actions.createEl("button", { text: language === "zh-CN" ? "清空队列" : "Cancel all", attr: { type: "button" } }).addEventListener("click", () => {
+			void Promise.all([this.deps.sessionStore.updateQueuedMessages(session.id, []), this.deps.sessionStore.setQueuePaused(session.id, false)]).then(() => {
+				this.queuePanelSignature = "";
+				this.refreshQueuePanel();
+				this.inputEl.focus({ preventScroll: true });
+			}).catch(() => this.reportQueuePersistenceFailure(session.id));
+		});
 	}
 
 	private async copyTranscript(finalOnly: boolean): Promise<void> {
@@ -447,9 +587,10 @@ export class ChatView extends ItemView {
 		if (!markdown) return;
 		try {
 			await navigator.clipboard.writeText(markdown);
-			new Notice(finalOnly ? "Final response copied" : "Conversation copied as Markdown");
+			const zh = resolveUiLanguage(this.deps.getSettings().language) === "zh-CN";
+			new Notice(finalOnly ? (zh ? "已复制最终回复" : "Final response copied") : (zh ? "已复制为 Markdown" : "Conversation copied as Markdown"));
 		} catch {
-			new Notice("Could not access the clipboard");
+			new Notice(resolveUiLanguage(this.deps.getSettings().language) === "zh-CN" ? "无法访问剪贴板" : "Could not access the clipboard");
 		}
 	}
 
@@ -486,7 +627,7 @@ export class ChatView extends ItemView {
 
 		const modeWrap = this.statusBarEl.createDiv({ cls: "open-agent-status-control" });
 		modeWrap.createEl("span", { cls: "open-agent-status-control-label", text: "Access" });
-		this.executionModeSelectEl = new AgentDropdown(modeWrap, "open-agent-execution-mode-select", "Agent execution mode");
+		this.executionModeSelectEl = new AgentDropdown(modeWrap, "open-agent-execution-mode-select", "Agent access scope");
 		this.dropdowns.push(this.executionModeSelectEl);
 		this.executionModeSelectEl.addOption("read", "Read only");
 		this.executionModeSelectEl.addOption("ask", "Ask before action");
@@ -494,10 +635,12 @@ export class ChatView extends ItemView {
 		this.executionModeSelectEl.value = this.executionMode;
 		this.executionModeSelectEl.addEventListener("change", () => {
 			this.executionMode = this.executionModeSelectEl.value as AgentExecutionMode;
-			this.deps.consent.setExecutionMode(this.executionMode);
+			const sessionId = this.deps.sessionStore.getActive().id;
+			void this.deps.sessionStore.updateAccess(sessionId, this.executionMode);
+			this.getConsentManager(sessionId).setExecutionMode(this.executionMode);
 			this.updateStatusBar();
 		});
-		this.deps.consent.setExecutionMode(this.executionMode);
+		this.getConsentManager(this.deps.sessionStore.getActiveId()).setExecutionMode(this.executionMode);
 		this.contextMeterEl = this.statusBarEl.createEl("span", {
 			cls: "open-agent-context-meter",
 			text: "Context 0k",
@@ -505,17 +648,104 @@ export class ChatView extends ItemView {
 		});
 	}
 
+	private localizeChatChrome(): void {
+		if (!this.contentEl) return;
+		const zh = resolveUiLanguage(this.deps.getSettings().language) === "zh-CN";
+		const labels: Record<string, { zh: string; en: string }> = {
+			"new-chat": { zh: "新建会话", en: "New chat" },
+			"browse-sessions": { zh: "浏览会话", en: "Browse sessions" },
+			"session-menu": { zh: "会话菜单", en: "Session menu" },
+			"search-sessions": { zh: "搜索会话…", en: "Search sessions…" },
+			"fork-session": { zh: "分叉会话", en: "Fork session" },
+			"tool-trace": { zh: "操作记录", en: "Tool trace" },
+			"copy-all": { zh: "复制全部", en: "Copy all" },
+			"copy-final": { zh: "复制最终回复", en: "Copy final response" },
+			"copy-markdown": { zh: "复制为 Markdown", en: "Copy as Markdown" },
+			rename: { zh: "重命名", en: "Rename" },
+			delete: { zh: "删除", en: "Delete" },
+			prompt: { zh: "向 Agent 提问…", en: "Ask the agent…" },
+			send: { zh: "发送", en: "Send" },
+			"send-queued": { zh: "将消息加入队列", en: "Add message to queue" },
+			stop: { zh: "停止当前任务", en: "Stop current run" },
+			"edit-cancel": { zh: "取消", en: "Cancel" },
+			"edit-send": { zh: "发送", en: "Send" },
+			"retry-message": { zh: "重试", en: "Retry" },
+			"copy-error": { zh: "复制错误信息", en: "Copy error message" },
+			"open-settings": { zh: "打开设置", en: "Open settings" },
+		};
+		this.contentEl.querySelectorAll<HTMLElement>("[data-open-agent-i18n]").forEach((element) => {
+			const label = labels[element.dataset.openAgentI18n ?? ""];
+			if (!label) return;
+			const value = zh ? label.zh : label.en;
+			const target = element.dataset.openAgentI18nTarget;
+			if (target === "aria-label") element.setAttribute("aria-label", value);
+			else if (target === "placeholder" && (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement)) element.placeholder = value;
+			else element.setText(value);
+		});
+		const contextChip = this.contentEl.querySelector<HTMLElement>(".open-agent-context-chip");
+		if (contextChip) {
+			contextChip.setText(zh ? "本地库" : "Local vault");
+			contextChip.setAttribute("aria-label", zh ? "上下文：当前本地知识库" : "Context: current local vault");
+			contextChip.setAttribute("title", zh ? "Ogent 使用当前本地知识库作为上下文" : "Ogent uses the current local vault as context");
+		}
+		const accessLabel = this.contentEl.querySelector<HTMLElement>(".open-agent-status-control-label");
+		if (accessLabel) accessLabel.setText(zh ? "权限" : "Access");
+		this.executionModeSelectEl?.setAriaLabel(zh ? "Agent 权限范围" : "Agent access scope");
+		this.executionModeSelectEl?.updateOptionText("read", zh ? "只读" : "Read only");
+		this.executionModeSelectEl?.updateOptionText("ask", zh ? "请求批准" : "Ask before action");
+		this.executionModeSelectEl?.updateOptionText("full", zh ? "完全权限" : "Full access");
+		if (this.contextMeterEl) this.contextMeterEl.setAttribute("title", zh ? "当前会话的近似上下文大小" : "Approximate context size for this session");
+		if (this.sessionTitleEl) this.sessionTitleEl.setAttribute("aria-label", zh ? "重命名当前会话" : "Rename current session");
+		if (this.inputEl) this.inputEl.setAttribute("aria-label", zh ? "输入消息" : "Message input");
+		if (this.queuePanelEl) this.queuePanelEl.setAttribute("aria-label", zh ? "待发送消息队列" : "Queued messages");
+		if (this.sessionsPanelEl) {
+			this.sessionsPanelEl.setAttribute("aria-label", zh ? "聊天会话" : "Chat sessions");
+			if (this.sessionsPanelVisible) this.refreshSessionsList(this.sessionsSearchEl.value);
+		}
+		if (this.queueListEl) {
+			this.queuePanelSignature = "";
+			this.refreshQueuePanel();
+		}
+		if (this.transcriptEl) this.transcriptEl.setAttribute("aria-label", zh ? "聊天记录" : "Conversation");
+		this.updateNewContentButtonLabel();
+		this.updateStatusBar();
+	}
+
 	private updateStatusBar(): void {
 		if (!this.statusBarEl || !this.executionModeSelectEl) return;
 		if (this.executionModeSelectEl) this.executionModeSelectEl.value = this.executionMode;
 		if (this.contextMeterEl) {
 			const chars = this.turns.reduce((total, turn) => total + turn.content.length + turn.segments.reduce((sum, segment) => sum + ("text" in segment ? segment.text.length : 0), 0), 0);
-			this.contextMeterEl.setText(`Context ${Math.ceil(chars / 4 / 100) / 10}k`);
+			const estimate = `${Math.ceil(chars / 4 / 100) / 10}k`;
+			this.contextMeterEl.setText(resolveUiLanguage(this.deps.getSettings().language) === "zh-CN" ? `上下文 ${estimate}` : `Context ${estimate}`);
 		}
+	}
+
+	private announce(message: string): void {
+		if (this.accessibilityStatusEl) this.accessibilityStatusEl.setText(message);
+	}
+
+	private reportQueuePersistenceFailure(sessionId: string): void {
+		if (sessionId !== this.deps.sessionStore.getActiveId()) return;
+		const zh = resolveUiLanguage(this.deps.getSettings().language) === "zh-CN";
+		const message = zh ? "队列保存失败，请重试。" : "The queue could not be saved. Please try again.";
+		this.hintEl.setText(message);
+		this.announce(message);
+	}
+
+	private getConsentManager(sessionId: string): ConsentManager {
+		let manager = this.consentBySession.get(sessionId);
+		if (!manager) {
+			manager = this.deps.createConsentManager?.() ?? this.deps.consent;
+			this.consentBySession.set(sessionId, manager);
+		}
+		return manager;
 	}
 
 	private refreshHeader(): void {
 		const active = this.deps.sessionStore.getActive();
+		this.executionMode = active.access ?? "ask";
+		this.getConsentManager(active.id).setExecutionMode(this.executionMode);
 		const settings = this.deps.getSettings();
 		this.sessionTitleEl.setText(active.title);
 		const currentModel = active.model.trim() || settings.model;
@@ -539,34 +769,37 @@ export class ChatView extends ItemView {
 		this.updateStatusBar();
 	}
 	private async createSession(): Promise<void> {
-		if (this.inFlights.size > 0) {
-			new Notice("Stop the active Agent run before creating a new session.");
-			return;
-		}
 		await this.deps.sessionStore.create(this.deps.getSettings().model.trim());
 		this.turns = [];
-		this.deps.undo.clear();
+		this.rebuildTurnIndex();
+		this.resetTranscriptWindowToLatest();
+		this.executionMode = "ask";
+		this.getConsentManager(this.deps.sessionStore.getActiveId()).setExecutionMode("ask");
 		this.refreshHeader();
 		this.renderTranscript();
 	}
 
 	private async deleteActiveSession(): Promise<void> {
-		if (this.inFlights.size > 0) {
-			new Notice("Stop the active Agent run before deleting a session.");
+		const currentId = this.deps.sessionStore.getActive().id;
+		const zh = resolveUiLanguage(this.deps.getSettings().language) === "zh-CN";
+		if (this.inFlights.has(currentId) || this.startingSessions.has(currentId)) {
+			new Notice(zh ? "请先停止此会话中的 Agent 任务，再删除会话。" : "Stop this session's Agent run before deleting it.");
 			return;
 		}
 		const confirmed = await new ConfirmActionModal(
 			this.app,
-			"Delete session?",
-			"This will permanently remove the current session history.",
-			"Delete",
+			zh ? "删除会话？" : "Delete session?",
+			zh ? "此操作会永久删除当前会话记录。" : "This will permanently remove the current session history.",
+			zh ? "删除" : "Delete",
+			zh ? "取消" : "Cancel",
 		).prompt();
 		if (!confirmed) return;
 		const id = this.deps.sessionStore.getActive().id;
 		await this.deps.sessionStore.delete(id);
 		const session = this.deps.sessionStore.getActive();
-		this.turns = this.storedToUiTurns(session.turns);
-		this.deps.undo.clear();
+		this.turns = this.storedToUiTurns(session.turns, session.id);
+		this.rebuildTurnIndex();
+		this.executionMode = session.access ?? "ask";
 		this.refreshHeader();
 		this.renderTranscript();
 	}
@@ -599,22 +832,35 @@ export class ChatView extends ItemView {
 		const filtered = q ? sessions.filter((s) => s.title.toLowerCase().includes(q)) : sessions;
 		const activeId = this.deps.sessionStore.getActive().id;
 
+		this.sessionsListEl.setAttribute("role", "group");
 		for (const s of filtered) {
-			const isBusySession = this.inFlights.has(s.id);
-			const item = this.sessionsListEl.createDiv({
+			const isBusySession = this.inFlights.has(s.id) || this.startingSessions.has(s.id);
+			const item = this.sessionsListEl.createEl("button", {
 				cls: "open-agent-session-item" +
 					(s.id === activeId ? " open-agent-session-item-active" : "") +
 					(isBusySession ? " open-agent-session-item-busy" : ""),
+				attr: { type: "button", "aria-current": s.id === activeId ? "true" : "false" },
 			});
 			item.createEl("span", { text: s.title, cls: "open-agent-session-item-title" });
 			if (isBusySession) {
-				item.createEl("span", { cls: "open-agent-session-activity" });
+				item.createEl("span", { cls: "open-agent-session-activity", attr: { "aria-hidden": "true" } });
 			}
+			const language = resolveUiLanguage(this.deps.getSettings().language);
+			const statusText = s.runState === "awaiting-approval"
+				? (language === "zh-CN" ? "待批准" : "Approval")
+				: s.runState === "failed" ? (language === "zh-CN" ? "失败" : "Failed")
+				: s.runState === "interrupted" ? (language === "zh-CN" ? "已中断" : "Interrupted")
+				: "";
+			if (statusText) item.createEl("span", { cls: "open-agent-session-status", text: statusText });
+			item.setAttribute("aria-label", `${s.title}${isBusySession ? (language === "zh-CN" ? "，运行中" : ", running") : ""}${statusText ? `, ${statusText}` : ""}`);
 			item.addEventListener("click", () => { void this.switchToSession(s.id); });
 		}
 
 		if (filtered.length === 0) {
-			this.sessionsListEl.createDiv({ cls: "open-agent-sessions-empty", text: "No sessions found" });
+			this.sessionsListEl.createDiv({
+				cls: "open-agent-sessions-empty",
+				text: resolveUiLanguage(this.deps.getSettings().language) === "zh-CN" ? "没有找到会话" : "No sessions found",
+			});
 		}
 	}
 
@@ -653,21 +899,18 @@ export class ChatView extends ItemView {
 	}
 
 	private async switchToSession(sessionId: string): Promise<void> {
-		const activeId = this.deps.sessionStore.getActive().id;
-		if (sessionId !== activeId && this.inFlights.size > 0) {
-			new Notice("Stop the active Agent run before switching sessions.");
-			return;
-		}
 		this.setSessionsPanelVisible(false);
 		await this.deps.sessionStore.switchTo(sessionId);
 		const session = this.deps.sessionStore.getActive();
 		// Prefer live in-memory turns (stream still running) over stale stored state
 		this.turns = this.liveTurns.get(sessionId) ?? this.storedToUiTurns(session.turns);
-		this.deps.undo.clear();
+		this.rebuildTurnIndex();
+		this.resetTranscriptWindowToLatest();
+		this.executionMode = session.access ?? "ask";
+		this.getConsentManager(sessionId).setExecutionMode(this.executionMode);
 		this.refreshHeader();
 		this.refreshBusyState();
 		this.renderTranscript();
-		this.drainQueuedMessage(sessionId);
 	}
 
 	private async populateModelDatalist(): Promise<void> {
@@ -691,20 +934,32 @@ export class ChatView extends ItemView {
 
 	// ─── Render debounce ─────────────────────────────────────────────────────
 
-	private scheduleRender(): void {
+	private scheduleRender(turnId?: string): void {
+		const render = (): void => {
+			if (!turnId) this.renderTranscript();
+			else {
+				const currentIndex = this.turnIndexById.get(turnId);
+				if (currentIndex !== undefined) this.renderTurnInPlace(currentIndex);
+			}
+		};
 		const now = Date.now();
 		const elapsed = now - this.lastRenderTime;
 		if (elapsed >= 50) {
 			this.lastRenderTime = now;
-			this.renderTranscript();
+			render();
 			return;
 		}
 		if (this.renderDebounceTimer !== null) return;
 		this.renderDebounceTimer = window.setTimeout(() => {
 			this.renderDebounceTimer = null;
 			this.lastRenderTime = Date.now();
-			this.renderTranscript();
+			render();
 		}, 50 - elapsed);
+	}
+
+	private rebuildTurnIndex(): void {
+		this.turnIndexById.clear();
+		this.turns.forEach((turn, index) => this.turnIndexById.set(turn.id, index));
 	}
 
 	/**
@@ -715,8 +970,78 @@ export class ChatView extends ItemView {
 	 */
 	private updateTranscriptScrollState(): void {
 		if (!this.transcriptEl) return;
+		const currentScrollTop = this.transcriptEl.scrollTop;
+		const scrollDirection = currentScrollTop - this.lastTranscriptScrollTop;
+		this.lastTranscriptScrollTop = currentScrollTop;
 		const distanceFromBottom = this.transcriptEl.scrollHeight - this.transcriptEl.scrollTop - this.transcriptEl.clientHeight;
 		this.transcriptFollowBottom = distanceFromBottom < 80;
+		if (this.transcriptFollowBottom) {
+			this.newContentPending = false;
+			this.newContentBtn?.classList.add("is-hidden");
+		}
+		if (!this.adjustingTranscriptWindow) this.maybeShiftTranscriptWindow(scrollDirection);
+	}
+
+	private resetTranscriptWindowToLatest(): void {
+		this.transcriptWindowEnd = this.turns.length;
+		this.transcriptWindowStart = Math.max(0, this.transcriptWindowEnd - TRANSCRIPT_WINDOW_SIZE);
+	}
+
+	private captureVisibleAnchor(prefer: "first" | "last" = "first"): { id: string; top: number } | undefined {
+		if (!this.transcriptEl) return undefined;
+		const viewport = this.transcriptEl.getBoundingClientRect();
+		const visibleRows = [...this.transcriptEl.querySelectorAll<HTMLElement>("[data-open-agent-turn-id]")]
+			.filter((element) => {
+				const rect = element.getBoundingClientRect();
+				return rect.bottom > viewport.top && rect.top < viewport.bottom;
+			});
+		const row = prefer === "last" ? visibleRows.at(-1) : visibleRows[0];
+		if (!row?.dataset.openAgentTurnId) return undefined;
+		return { id: row.dataset.openAgentTurnId, top: row.getBoundingClientRect().top };
+	}
+
+	private maybeShiftTranscriptWindow(scrollDirection: number): void {
+		if (!this.transcriptEl || this.turns.length <= TRANSCRIPT_WINDOW_SIZE) return;
+		const viewport = this.transcriptEl.getBoundingClientRect();
+		const rows = this.transcriptEl.querySelectorAll<HTMLElement>("[data-open-agent-turn-id]");
+		const first = rows.item(0);
+		const last = rows.item(rows.length - 1);
+		const edgeDistance = Math.min(240, Math.max(100, viewport.height * 0.22));
+		let next = { start: this.transcriptWindowStart, end: this.transcriptWindowEnd };
+		if (scrollDirection < 0 && this.transcriptWindowStart > 0 && first) {
+			const rect = first.getBoundingClientRect();
+			if (rect.bottom > viewport.top && rect.top < viewport.top + edgeDistance) {
+				next = shiftTranscriptWindowAtRenderedEdge(this.turns.length, next, "top", { size: TRANSCRIPT_WINDOW_SIZE, step: TRANSCRIPT_WINDOW_STEP });
+			}
+		} else if (scrollDirection > 0 && this.transcriptWindowEnd < this.turns.length && last) {
+			const rect = last.getBoundingClientRect();
+			if (rect.top < viewport.bottom && rect.bottom > viewport.bottom - edgeDistance) {
+				next = shiftTranscriptWindowAtRenderedEdge(this.turns.length, next, "bottom", { size: TRANSCRIPT_WINDOW_SIZE, step: TRANSCRIPT_WINDOW_STEP });
+			}
+		}
+		if (next.start === this.transcriptWindowStart && next.end === this.transcriptWindowEnd) return;
+		this.pendingTranscriptAnchor = this.captureVisibleAnchor(scrollDirection > 0 ? "last" : "first");
+		this.transcriptWindowStart = next.start;
+		this.transcriptWindowEnd = next.end;
+		this.lastTranscriptScrollTop = this.transcriptEl.scrollTop;
+		this.adjustingTranscriptWindow = true;
+		this.renderTranscript();
+	}
+
+	private scrollToLatestContent(): void {
+		if (!this.transcriptEl) return;
+		this.transcriptFollowBottom = true;
+		this.forceTranscriptFollowOnNextRender = true;
+		this.newContentPending = false;
+		this.newContentBtn?.classList.add("is-hidden");
+		this.resetTranscriptWindowToLatest();
+		this.renderTranscript();
+	}
+
+	private showNewContent(): void {
+		if (this.transcriptFollowBottom || !this.newContentBtn) return;
+		this.newContentPending = true;
+		this.newContentBtn.classList.remove("is-hidden");
 	}
 
 	private scheduleTranscriptFollowBottom(): void {
@@ -731,13 +1056,13 @@ export class ChatView extends ItemView {
 
 	// ─── Session helpers ──────────────────────────────────────────────────────
 
-	private storedToUiTurns(stored: StoredTurn[]): UiTurn[] {
+	private storedToUiTurns(stored: StoredTurn[], sessionId = this.deps.sessionStore.getActiveId()): UiTurn[] {
 		return stored.map((turn) => {
-			if (turn.role === "user") return { role: "user", content: turn.content, segments: [], toolCallMap: {}, thinking: false };
+		if (turn.role === "user") return { id: turn.id, role: "user", content: turn.content, segments: [], toolCallMap: {}, thinking: false };
 			const segments: AssistantSegment[] = (turn.segments ?? []).map((segment) => ({ ...segment }));
-			if (segments.length === 0 && turn.content.length > 0) segments.push({ kind: "text", text: turn.content });
+			if (segments.length === 0 && turn.content.length > 0) segments.push({ kind: "text", id: `${turn.id}-body`, text: turn.content });
 			const toolCallMap: Record<string, ToolCallRecord> = {};
-			for (const toolCall of turn.toolCalls ?? []) toolCallMap[toolCall.id] = { ...toolCall };
+			for (const toolCall of turn.toolCalls ?? []) toolCallMap[toolCall.id] = { ...toolCall, sessionId };
 			for (const plan of turn.commandPlans ?? []) {
 				const existing = toolCallMap[plan.id];
 				if (existing) existing.commandPlan = plan;
@@ -747,6 +1072,7 @@ export class ChatView extends ItemView {
 					args: { commands: plan.commands.map((command) => ({ id: command.id, domain: command.domain, action: command.action, args: command.args })) },
 					mutates: plan.commands.some((command) => command.risk !== "read"),
 					status: plan.status,
+					sessionId,
 					commandPlan: plan,
 				};
 			}
@@ -754,6 +1080,8 @@ export class ChatView extends ItemView {
 				if (!segments.some((segment) => segment.kind === "tool" && segment.id === plan.id)) segments.push({ kind: "tool", id: plan.id });
 			}
 			return {
+				id: turn.id,
+				sessionId,
 				role: "assistant",
 				content: "",
 				segments,
@@ -770,11 +1098,11 @@ export class ChatView extends ItemView {
 		const result: StoredTurn[] = [];
 		for (const turn of turns) {
 			if (turn.role === "user" && turn.content.length > 0) {
-				result.push({ role: "user", content: turn.content });
+				result.push({ id: turn.id, role: "user", content: turn.content });
 				continue;
 			}
 			if (turn.role !== "assistant") continue;
-			const text = turn.segments.filter((segment): segment is { kind: "text"; text: string } => segment.kind === "text").map((segment) => segment.text).join("");
+			const text = turn.segments.filter((segment): segment is Extract<AssistantSegment, { kind: "text" }> => segment.kind === "text").map((segment) => segment.text).join("");
 			const segments = turn.segments
 				.filter((segment): segment is StoredAssistantSegment =>
 					(segment.kind === "thinking" || segment.kind === "text") && segment.text.length > 0 ||
@@ -788,6 +1116,7 @@ export class ChatView extends ItemView {
 			const events = turn.events?.map((event) => ({ ...event }));
 			if (text.length > 0 || segments.length > 0 || toolCalls.length > 0 || (events?.length ?? 0) > 0) {
 				result.push({
+					id: turn.id,
 					role: "assistant",
 					content: text,
 					...(segments.length > 0 ? { segments } : {}),
@@ -805,10 +1134,12 @@ export class ChatView extends ItemView {
 
 	private refreshConfiguredState(): void {
 		this.hintEl.empty();
+		this.updateNewContentButtonLabel();
 		const configured = isConfigured(this.deps.getSettings());
 		if (!configured) {
-			this.hintEl.appendText("Provider not configured. ");
-			const link = this.hintEl.createEl("a", { text: "Open settings", href: "#" });
+			const zh = resolveUiLanguage(this.deps.getSettings().language) === "zh-CN";
+			this.hintEl.appendText(zh ? "尚未配置模型服务。" : "Provider not configured. ");
+			const link = this.hintEl.createEl("a", { text: zh ? "打开设置" : "Open settings", href: "#" });
 			link.addEventListener("click", (e) => {
 				e.preventDefault();
 				this.deps.openSettings();
@@ -822,7 +1153,16 @@ export class ChatView extends ItemView {
 		const activeId = this.deps.sessionStore.getActive().id;
 		const busy = this.inFlights.has(activeId);
 		const stopping = this.stoppingSessions.has(activeId);
-		this.sendBtn.disabled = !isConfigured(this.deps.getSettings()) || busy;
+		// While the active session is running, Send queues the draft instead of
+		// disabling the main way users submit a message.
+		this.sendBtn.disabled = !isConfigured(this.deps.getSettings());
+		const zh = resolveUiLanguage(this.deps.getSettings().language) === "zh-CN";
+		const activeSession = this.deps.sessionStore.getActive();
+		const willQueue = busy || Boolean(activeSession.queuePaused && activeSession.queuedMessages?.length) ||
+			this.inFlights.size + this.startingSessions.size >= 2;
+		this.sendBtn.setAttribute("aria-label", willQueue
+			? (zh ? "将消息加入队列" : "Add message to queue")
+			: (zh ? "发送" : "Send"));
 		this.stopBtn.disabled = !busy || stopping;
 		this.inputEl.disabled = false;
 		this.sendBtn.textContent = "→";
@@ -831,7 +1171,15 @@ export class ChatView extends ItemView {
 		if (busy) this.startThinkingTicker();
 		else this.stopThinkingTicker();
 		if (this.sessionsPanelVisible) this.refreshSessionsList(this.sessionsSearchEl.value);
+		this.refreshQueuePanel();
 		this.updateStatusBar();
+	}
+
+	private updateNewContentButtonLabel(): void {
+		if (!this.newContentBtn) return;
+		const language = resolveUiLanguage(this.deps.getSettings().language);
+		this.newContentBtn.setText(language === "zh-CN" ? "↓ 有新内容" : "↓ New content");
+		this.newContentBtn.setAttribute("aria-label", language === "zh-CN" ? "滚动到新内容" : "Scroll to new content");
 	}
 
 	private startThinkingTicker(): void {
@@ -868,26 +1216,76 @@ export class ChatView extends ItemView {
 
 	private async handleSend(): Promise<void> {
 		const activeId = this.deps.sessionStore.getActive().id;
-		if (this.inFlights.has(activeId)) {
-			const queued = this.inputEl.value.trim();
-			if (!queued) return;
-			const sessionQueue = this.queuedMessages.get(activeId) ?? [];
-			sessionQueue.push(queued);
-			this.queuedMessages.set(activeId, sessionQueue);
-			this.inputEl.value = "";
-			this.hintEl.setText(`Queued ${sessionQueue.length} message${sessionQueue.length === 1 ? "" : "s"}.`);
+		const text = this.inputEl.value.trim();
+		if (!text) return;
+		if (!isConfigured(this.deps.getSettings())) {
+			this.refreshConfiguredState();
 			return;
 		}
-		await this.handleAgentSend();
+		this.inputEl.value = "";
+		const activeSession = this.deps.sessionStore.getActive();
+		const hasPausedQueue = Boolean(activeSession.queuePaused && activeSession.queuedMessages?.length);
+		if (hasPausedQueue || this.inFlights.has(activeId) || this.startingSessions.has(activeId) || this.inFlights.size + this.startingSessions.size >= 2) {
+			const session = this.deps.sessionStore.getActive();
+			const queue = [...(session.queuedMessages ?? []), { id: newStableId(), text, createdAt: Date.now() }];
+			try {
+				await this.deps.sessionStore.updateQueuedMessages(activeId, queue);
+				if (!hasPausedQueue) await this.deps.sessionStore.setQueuePaused(activeId, false);
+			} catch {
+				this.inputEl.value = text;
+				this.hintEl.setText(resolveUiLanguage(this.deps.getSettings().language) === "zh-CN" ? "队列保存失败，消息已放回输入框。" : "Could not save the queue; the message was restored to the input.");
+				return;
+			}
+			this.refreshQueuePanel();
+			this.hintEl.setText(resolveUiLanguage(this.deps.getSettings().language) === "zh-CN" ? `已加入队列（${queue.length}）` : `Queued (${queue.length})`);
+			return;
+		}
+		await this.handleAgentSend(text, activeId);
 	}
 
-	private async handleAgentSend(): Promise<void> {
-		const text = this.inputEl.value.trim();
+	private async handleAgentSend(text: string, sessionId: string): Promise<void> {
+		try {
+			await this.runAgentSend(text, sessionId);
+		} catch (error) {
+			this.startingSessions.delete(sessionId);
+			const controller = this.inFlights.get(sessionId);
+			if (controller) {
+				controller.abort();
+				this.inFlights.delete(sessionId);
+			}
+			const turns = this.liveTurns.get(sessionId);
+			this.liveTurns.delete(sessionId);
+			this.deps.undo.endCheckpoint(sessionId);
+			const failedTurn = turns?.at(-1);
+			if (turns && failedTurn?.role === "assistant" && !failedTurn.error) {
+				failedTurn.thinking = false;
+				failedTurn.error = error instanceof Error ? error.message : String(error);
+				this.queueTurnPersistence(sessionId, this.uiToStoredTurns(turns));
+			}
+			await this.deps.sessionStore.updateRunState(sessionId, "failed").catch(() => undefined);
+			if ((this.deps.sessionStore.getMeta(sessionId)?.queuedMessages?.length ?? 0) > 0) {
+				await this.deps.sessionStore.setQueuePaused(sessionId, true).catch(() => undefined);
+			}
+			if (!this.closed && sessionId === this.deps.sessionStore.getActiveId()) {
+				this.refreshBusyState();
+				if (failedTurn) this.renderTranscript();
+				this.hintEl?.setText(resolveUiLanguage(this.deps.getSettings().language) === "zh-CN" ? "本次运行失败，队列已暂停。" : "The run failed; its queue is paused.");
+			}
+		}
+	}
+
+	private async runAgentSend(text: string, sessionId: string): Promise<void> {
+		if (this.closed || this.inFlights.has(sessionId) || this.startingSessions.has(sessionId) || this.inFlights.size + this.startingSessions.size >= 2) {
+			if (!this.closed) {
+				const meta = this.deps.sessionStore.getMeta(sessionId);
+				if (meta) await this.deps.sessionStore.updateQueuedMessages(sessionId, [...(meta.queuedMessages ?? []), { id: newStableId(), text, createdAt: Date.now() }]);
+			}
+			return;
+		}
 		if (!text) return;
 		if (text === "/compact") {
 			this.forceCompaction = true;
-			this.inputEl.value = "";
-			this.hintEl.setText("Context will be compacted before the next Agent turn.");
+			this.hintEl.setText(resolveUiLanguage(this.deps.getSettings().language) === "zh-CN" ? "下一轮 Agent 回复前将压缩上下文。" : "Context will be compacted before the next Agent turn.");
 			return;
 		}
 		const settings = this.deps.getSettings();
@@ -895,41 +1293,52 @@ export class ChatView extends ItemView {
 			this.refreshConfiguredState();
 			return;
 		}
+		// Freeze the session's access scope at task start. Later selector changes
+		// affect the next run, never an already-running or approval-waiting task.
+		const executionMode = this.deps.sessionStore.getMeta(sessionId)?.access ?? "ask";
 
-		const session = this.deps.sessionStore.getActive();
-		const sessionId = session.id;
+		this.startingSessions.add(sessionId);
+		const currentSession = await this.deps.sessionStore.getSession(sessionId);
+		if (!currentSession || this.closed) { this.startingSessions.delete(sessionId); return; }
+		const session = currentSession;
 		const isFirstMessage = session.turns.length === 0 && session.title === "New chat";
-
-		this.turns.push({ role: "user", content: text, segments: [], toolCallMap: {}, thinking: false });
-		const assistantTurn: UiTurn = { role: "assistant", content: "", segments: [], toolCallMap: {}, thinking: true, thinkingElapsedMs: 0, thinkingPhaseStartedAt: Date.now() };
-		this.turns.push(assistantTurn);
+		const consent = this.getConsentManager(sessionId);
+		const turnSnapshot = sessionId === this.deps.sessionStore.getActiveId()
+			? this.turns
+			: (this.liveTurns.get(sessionId) ?? this.storedToUiTurns(session.turns));
+		const userTurn: UiTurn = { id: newStableId(), role: "user", content: text, segments: [], toolCallMap: {}, thinking: false };
+		turnSnapshot.push(userTurn);
+		const assistantTurn: UiTurn = { id: newStableId(), role: "assistant", content: "", segments: [], toolCallMap: {}, thinking: true, thinkingElapsedMs: 0, thinkingPhaseStartedAt: Date.now() };
+		turnSnapshot.push(assistantTurn);
+		if (sessionId === this.deps.sessionStore.getActiveId()) {
+			this.turnIndexById.set(userTurn.id, turnSnapshot.length - 2);
+			this.turnIndexById.set(assistantTurn.id, turnSnapshot.length - 1);
+		}
 		// Keep the active turn's index so the hot streaming path stays O(1) as
 		// conversation history grows. Array.includes/indexOf here would scan the
 		// complete transcript for every provider chunk.
-		const assistantTurnIndex = this.turns.length - 1;
-		// Snapshot the turns array reference so the finally block always saves to the right session
-		// even if this.turns is replaced by a session switch mid-flight.
-		const turnSnapshot = this.turns;
-		this.inputEl.value = "";
+		const assistantTurnIndex = turnSnapshot.length - 1;
 
 		// Mark session busy immediately — before any awaits — so the input is disabled and
 		// a second Send press cannot race with the in-progress request.
 		const ctrl = new AbortController();
 		this.stoppingSessions.delete(sessionId);
 		this.inFlights.set(sessionId, ctrl);
+		this.startingSessions.delete(sessionId);
 		this.liveTurns.set(sessionId, turnSnapshot);
+		void this.deps.sessionStore.updateRunState(sessionId, "running");
 		this.refreshBusyState();
-		this.renderTranscript();
+		if (sessionId === this.deps.sessionStore.getActiveId()) this.renderTranscript();
 
 		// Read model directly from input element to catch values not yet flushed via change event.
-		const inputModel = this.modelInputEl.value.trim();
+		const inputModel = sessionId === this.deps.sessionStore.getActiveId() ? this.modelInputEl.value.trim() : "";
 		const sessionModel = session.model.trim();
 		const model = (inputModel.length > 0 ? inputModel : sessionModel) || settings.model;
 
 		// Fire-and-forget housekeeping that runs before the loop but doesn't block the busy state.
-		if (isFirstMessage) {
+			if (isFirstMessage) {
 			await this.deps.sessionStore.rename(sessionId, text.slice(0, 60));
-			this.refreshHeader();
+			if (sessionId === this.deps.sessionStore.getActiveId()) this.refreshHeader();
 		}
 		if (inputModel.length > 0 && inputModel !== sessionModel) {
 			await this.deps.sessionStore.updateModel(sessionId, inputModel);
@@ -949,7 +1358,7 @@ export class ChatView extends ItemView {
 				messages.push({ role: "user", content: t.content });
 			} else if (t.role === "assistant") {
 				const assistantText = t.segments
-					.filter((s): s is { kind: "text"; text: string } => s.kind === "text")
+					.filter((s): s is Extract<AssistantSegment, { kind: "text" }> => s.kind === "text")
 					.map((s) => s.text)
 					.join("");
 				if (assistantText.length > 0) messages.push({ role: "assistant", content: assistantText });
@@ -959,7 +1368,9 @@ export class ChatView extends ItemView {
 		this.forceCompaction = false;
 		if (compacted.compacted) {
 			messages.splice(0, messages.length, ...compacted.messages);
-			this.hintEl.setText(`Context compacted · ${compacted.removedMessages} older messages summarized.`);
+			this.hintEl.setText(resolveUiLanguage(this.deps.getSettings().language) === "zh-CN"
+				? `上下文已压缩 · 已归纳 ${compacted.removedMessages} 条较早消息。`
+				: `Context compacted · ${compacted.removedMessages} older messages summarized.`);
 		}
 
 		// Persist the user message immediately so switching back to this session
@@ -971,7 +1382,7 @@ export class ChatView extends ItemView {
 
 		const vaultRules = await this.deps.getVaultRules?.() ?? "";
 		const memory = settings.agentMemory?.trim() ?? "";
-		const checkpoint = this.deps.undo.beginCheckpoint(`Session turn: ${text.slice(0, 60)}`);
+		const checkpoint = this.deps.undo.beginCheckpoint(`Session turn: ${text.slice(0, 60)}`, sessionId);
 		this.appendAgentEvent(assistantTurn, { kind: "checkpoint", id: checkpoint.id, state: "started" });
 		let lastEventPersistAt = Date.now();
 		let lastThinkingUiUpdateAt = 0;
@@ -981,15 +1392,16 @@ export class ChatView extends ItemView {
 		try {
 			for await (const ev of runTurn(messages, provider, {
 				signal: ctrl.signal,
-				systemPrompt: [settings.systemPrompt, memory ? `Plugin-local Agent memory:\n${memory}` : "", vaultRules, buildVaultContextPrompt(this.deps.getCurrentContext()), commandAvailabilityPrompt(this.deps.tools), executionModePrompt(this.executionMode)]
+				systemPrompt: [settings.systemPrompt, memory ? `Plugin-local Agent memory:\n${memory}` : "", vaultRules, buildVaultContextPrompt(this.deps.getCurrentContext()), commandAvailabilityPrompt(this.deps.tools), executionModePrompt(executionMode)]
 					.filter((part) => part.trim().length > 0)
 					.join("\n\n"),
 				tools: this.deps.tools,
-				consent: this.deps.consent,
+				consent,
 				toolAllowlist: ["execute_commands"],
 				commandExecutor: this.deps.commandExecutor,
 				requireToolCall: requestsVaultMutation(text),
-				executionMode: this.executionMode,
+				executionMode,
+				sessionId,
 			})) {
 				this.appendAgentEvent(assistantTurn, ev);
 				if (Date.now() - lastEventPersistAt >= 1000) {
@@ -1002,13 +1414,13 @@ export class ChatView extends ItemView {
 					if (lastSegment?.kind === "thinking") {
 						lastSegment.text += ev.text;
 						} else {
-						assistantTurn.segments.push({ kind: "thinking", text: ev.text });
+						assistantTurn.segments.push({ kind: "thinking", id: newStableId(), text: ev.text });
 						}
 					const now = Date.now();
-					const thinkingScrollKey = `${sessionId}:${assistantTurnIndex}:${assistantTurn.segments.length - 1}`;
-					if (this.turns[assistantTurnIndex] === assistantTurn && (now - lastThinkingUiUpdateAt >= 32 || !this.thinkingContentElements.has(thinkingScrollKey))) {
+					const thinkingScrollKey = streamSegmentKey(sessionId, assistantTurn.id, assistantTurn.segments.at(-1)?.id ?? "");
+					if (sessionId === this.deps.sessionStore.getActiveId() && this.turns[assistantTurnIndex] === assistantTurn && (now - lastThinkingUiUpdateAt >= 32 || !this.thinkingContentElements.has(thinkingScrollKey))) {
 						lastThinkingUiUpdateAt = now;
-						if (!this.updateStreamingThinking(assistantTurn, sessionId, assistantTurnIndex)) this.scheduleRender();
+						if (!this.updateStreamingThinking(assistantTurn, sessionId, assistantTurnIndex)) this.scheduleRender(assistantTurn.id);
 					}
 					if (now - lastThinkingYieldAt >= 32) {
 						lastThinkingYieldAt = now;
@@ -1022,15 +1434,15 @@ export class ChatView extends ItemView {
 					if (lastSeg?.kind === "text") {
 						lastSeg.text += ev.text;
 					} else {
-						assistantTurn.segments.push({ kind: "text", text: ev.text });
+						assistantTurn.segments.push({ kind: "text", id: newStableId(), text: ev.text });
 					}
 					const now = Date.now();
 					// Update only the active text node while streaming. Re-rendering the
 					// entire transcript for every token becomes quadratic as history grows.
-					const textScrollKey = `${sessionId}:${assistantTurnIndex}:${assistantTurn.segments.length - 1}`;
+					const textScrollKey = streamSegmentKey(sessionId, assistantTurn.id, assistantTurn.segments.at(-1)?.id ?? "");
 					if (this.turns[assistantTurnIndex] === assistantTurn && (now - lastTextUiUpdateAt >= 32 || !this.streamingTextElements.has(textScrollKey))) {
 						lastTextUiUpdateAt = now;
-						if (!this.updateStreamingText(assistantTurn, sessionId, assistantTurnIndex)) this.scheduleRender();
+						if (!this.updateStreamingText(assistantTurn, sessionId, assistantTurnIndex)) this.scheduleRender(assistantTurn.id);
 					}
 					if (now - lastTextYieldAt >= 32) {
 						lastTextYieldAt = now;
@@ -1041,6 +1453,7 @@ export class ChatView extends ItemView {
 					this.finishThinking(assistantTurn);
 					const record: ToolCallRecord = {
 						id: ev.id,
+						sessionId,
 						name: ev.name,
 						args: ev.args,
 						mutates: ev.mutates,
@@ -1077,6 +1490,7 @@ export class ChatView extends ItemView {
 						command.status = "error";
 					}
 				} else if (ev.kind === "change_set_approval_required") {
+					void this.deps.sessionStore.updateRunState(sessionId, "awaiting-approval");
 					const tc = assistantTurn.toolCallMap[ev.planId];
 					const command = tc?.commandPlan?.commands.find((entry) => entry.id === ev.commandId);
 					if (command) {
@@ -1084,6 +1498,7 @@ export class ChatView extends ItemView {
 						command.status = "awaiting-consent";
 					}
 					if (tc) tc.status = "awaiting-consent";
+					this.refreshBusyState();
 				} else if (ev.kind === "change_set_started") {
 					const tc = assistantTurn.toolCallMap[ev.planId];
 					const command = tc?.commandPlan?.commands.find((entry) => entry.id === ev.commandId);
@@ -1093,6 +1508,14 @@ export class ChatView extends ItemView {
 					const command = tc?.commandPlan?.commands.find((entry) => entry.id === ev.commandId);
 					if (command) command.changeSetResult = ev.result;
 				} else if (ev.kind === "command_consent_requested") {
+					void this.deps.sessionStore.updateRunState(sessionId, "awaiting-approval");
+					if (sessionId === this.deps.sessionStore.getActiveId()) {
+						const language = resolveUiLanguage(this.deps.getSettings().language);
+						const description = `${commandDisplayNameFor(ev.command.domain, ev.command.action, language)} ${summarizeCommandArgs(ev.command.args, language)}`.trim();
+						this.announce(language === "zh-CN"
+							? `等待批准：${description}，${commandRiskLabel(ev.risk, language)}。请先查看操作计划，再选择批准或拒绝。`
+							: `Approval required: ${description}, ${commandRiskLabel(ev.risk, language)}. Review the plan before approving or rejecting.`);
+					}
 					const tc = assistantTurn.toolCallMap[ev.planId];
 					const command = tc?.commandPlan?.commands.find((entry) => entry.id === ev.command.id);
 					if (command) {
@@ -1101,6 +1524,7 @@ export class ChatView extends ItemView {
 						command.warning = ev.warning;
 					}
 					if (tc) tc.status = "awaiting-consent";
+					this.refreshBusyState();
 				} else if (ev.kind === "command_finished") {
 					const tc = assistantTurn.toolCallMap[ev.planId];
 					const command = tc?.commandPlan?.commands.find((entry) => entry.id === ev.result.id);
@@ -1120,8 +1544,17 @@ export class ChatView extends ItemView {
 						tc.planPreview = true;
 					}
 				} else if (ev.kind === "consent_requested") {
+					void this.deps.sessionStore.updateRunState(sessionId, "awaiting-approval");
+					if (sessionId === this.deps.sessionStore.getActiveId()) {
+						const language = resolveUiLanguage(this.deps.getSettings().language);
+						const description = `${toolDisplayName(ev.name, language)} ${summarizeArgs(assistantTurn.toolCallMap[ev.id]?.args)}`.trim();
+						this.announce(language === "zh-CN"
+							? `等待批准：${description}。请查看操作卡片后再决定。`
+							: `Approval required: ${description}. Review its card before deciding.`);
+					}
 					const tc = assistantTurn.toolCallMap[ev.id];
 					if (tc) tc.status = "awaiting-consent";
+					this.refreshBusyState();
 				} else if (ev.kind === "tool_call_required") {
 					this.finishThinking(assistantTurn);
 					assistantTurn.error = ev.message;
@@ -1136,13 +1569,24 @@ export class ChatView extends ItemView {
 					}
 					// Show thinking indicator while the model processes tool results.
 					assistantTurn.thinking = true;
-					assistantTurn.thinkingLabel = tc ? `Processing ${tc.name}…` : undefined;
+					assistantTurn.thinkingLabel = tc
+						? (resolveUiLanguage(this.deps.getSettings().language) === "zh-CN" ? `正在处理 ${tc.name}…` : `Processing ${tc.name}…`)
+						: undefined;
 					assistantTurn.thinkingPhaseStartedAt = Date.now();
 				} else if (ev.kind === "cap_hit") {
 					this.finishThinking(assistantTurn);
 					assistantTurn.capHit = true;
 				}
-				if (this.turns[assistantTurnIndex] === assistantTurn) this.scheduleRender();
+				if (sessionId === this.deps.sessionStore.getActiveId() && this.turns[assistantTurnIndex] === assistantTurn) {
+					if (ev.kind === "tool_call_required" || ev.kind === "cap_hit") {
+						this.scheduleRender(assistantTurn.id);
+					} else {
+						const ownerId = "planId" in ev ? ev.planId : "id" in ev ? ev.id : undefined;
+						const owner = ownerId ? assistantTurn.toolCallMap[ownerId] : undefined;
+						if (owner) this.renderToolCallInPlace(owner);
+						if (ev.kind === "tool_call_finished") this.syncThinkingStatus(assistantTurn);
+					}
+				}
 			}
 		} catch (err) {
 			this.applyErrorToTurn(assistantTurn, err);
@@ -1156,55 +1600,74 @@ export class ChatView extends ItemView {
 			}
 			if (ctrl.signal.aborted) {
 				assistantTurn.interrupted = true;
-				this.deps.consent.cancelPendingConsent();
+				consent.cancelAllPending();
 			}
 			this.inFlights.delete(sessionId);
 			this.liveTurns.delete(sessionId);
+			const failed = Boolean(assistantTurn.error || assistantTurn.interrupted || turnHasFailedOperation(assistantTurn));
+			await this.deps.sessionStore.updateRunState(sessionId, assistantTurn.interrupted ? "interrupted" : failed ? "failed" : "idle");
+			if (failed && (this.deps.sessionStore.getMeta(sessionId)?.queuedMessages?.length ?? 0) > 0) {
+				await this.deps.sessionStore.setQueuePaused(sessionId, true);
+			}
 			this.refreshBusyState();
 			// Only re-render if the user is still viewing this session; otherwise leave the
 			// active session's transcript undisturbed.
-			if (this.turns[assistantTurnIndex] === assistantTurn) this.renderTranscript();
+			if (sessionId === this.deps.sessionStore.getActiveId() && this.turns[assistantTurnIndex] === assistantTurn) this.renderTranscript();
 			// Always persist — uses turnSnapshot so session switches don't corrupt the wrong session.
 			this.appendAgentEvent(assistantTurn, { kind: "checkpoint", id: checkpoint.id, state: "completed" });
-			this.deps.undo.endCheckpoint();
+				this.deps.undo.endCheckpoint(sessionId);
 			this.queueTurnPersistence(sessionId, this.uiToStoredTurns(turnSnapshot));
 			await this.waitForTurnPersistence(sessionId);
-			this.drainQueuedMessage(sessionId);
+			if (!this.closed) void this.drainAnyQueuedMessages();
 		}
 	}
 
 	private async forkSession(): Promise<void> {
-		if (this.inFlights.size > 0) {
-			new Notice("Stop the active Agent run before forking this session.");
+		const activeId = this.deps.sessionStore.getActive().id;
+		const zh = resolveUiLanguage(this.deps.getSettings().language) === "zh-CN";
+		if (this.inFlights.has(activeId)) {
+			new Notice(zh ? "请先停止此会话中的 Agent 任务，再分叉会话。" : "Stop this session's Agent run before forking it.");
 			return;
 		}
 		const forked = await this.deps.sessionStore.fork(this.deps.sessionStore.getActive().id);
 		if (!forked) return;
-		this.turns = this.storedToUiTurns(forked.turns);
-		this.deps.undo.clear();
+		this.turns = this.storedToUiTurns(forked.turns, forked.id);
+		this.rebuildTurnIndex();
+		this.resetTranscriptWindowToLatest();
+		this.executionMode = forked.access ?? "ask";
 		this.refreshHeader();
 		this.renderTranscript();
-		new Notice("Session forked");
+		new Notice(zh ? "会话已分叉" : "Session forked");
 	}
 
-	private drainQueuedMessage(sessionId: string): void {
-		if (this.deps.sessionStore.getActive().id !== sessionId || this.inFlights.has(sessionId)) return;
-		const sessionQueue = this.queuedMessages.get(sessionId);
-		const next = sessionQueue?.shift();
-		if (!next) return;
-		if (sessionQueue && sessionQueue.length > 0) this.queuedMessages.set(sessionId, sessionQueue);
-		else this.queuedMessages.delete(sessionId);
-		window.setTimeout(() => {
-			// Do not lose the message if the view changed before the callback ran.
-			if (this.deps.sessionStore.getActive().id !== sessionId) {
-				const pending = this.queuedMessages.get(sessionId) ?? [];
-				pending.unshift(next);
-				this.queuedMessages.set(sessionId, pending);
-				return;
-			}
-			this.inputEl.value = next;
-			void this.handleSend();
-		}, 0);
+	private async drainQueuedMessage(sessionId: string): Promise<void> {
+		if (!isConfigured(this.deps.getSettings()) || this.inFlights.has(sessionId) || this.startingSessions.has(sessionId) || this.inFlights.size + this.startingSessions.size >= 2) return;
+		const meta = this.deps.sessionStore.getMeta(sessionId);
+		if (!meta || meta.queuePaused) return;
+		this.startingSessions.add(sessionId);
+		const queue = [...(meta.queuedMessages ?? [])];
+		const next = queue.shift();
+		if (!next) { this.startingSessions.delete(sessionId); return; }
+		try {
+			await this.deps.sessionStore.updateQueuedMessages(sessionId, queue);
+			if (sessionId === this.deps.sessionStore.getActiveId()) this.refreshQueuePanel();
+			this.startingSessions.delete(sessionId);
+			void this.handleAgentSend(next.text, sessionId);
+		} catch {
+			this.startingSessions.delete(sessionId);
+			await this.deps.sessionStore.setQueuePaused(sessionId, true).catch(() => undefined);
+		}
+	}
+
+	private async drainAnyQueuedMessages(): Promise<void> {
+		if (this.inFlights.size + this.startingSessions.size >= 2) return;
+		const candidates = this.deps.sessionStore.getSessions()
+			.filter((session) => !session.queuePaused && (session.queuedMessages?.length ?? 0) > 0 && !this.inFlights.has(session.id) && !this.startingSessions.has(session.id))
+			.sort((a, b) => a.updatedAt - b.updatedAt);
+		for (const session of candidates) {
+			if (this.inFlights.size + this.startingSessions.size >= 2) break;
+			await this.drainQueuedMessage(session.id);
+		}
 	}
 
 	private handleStop(): void {
@@ -1214,17 +1677,17 @@ export class ChatView extends ItemView {
 		if (this.stoppingSessions.has(activeId)) return;
 		const nextMessage = this.inputEl.value.trim();
 		if (nextMessage) {
-			const sessionQueue = this.queuedMessages.get(activeId) ?? [];
-			sessionQueue.push(nextMessage);
-			this.queuedMessages.set(activeId, sessionQueue);
+			const sessionQueue = [...(this.deps.sessionStore.getMeta(activeId)?.queuedMessages ?? []), { id: newStableId(), text: nextMessage, createdAt: Date.now() }];
+			void this.deps.sessionStore.updateQueuedMessages(activeId, sessionQueue);
 			this.inputEl.value = "";
 		}
+		void this.deps.sessionStore.setQueuePaused(activeId, true);
 		this.stoppingSessions.add(activeId);
 		this.refreshBusyState();
-		this.renderTranscript();
+		if (activeId === this.deps.sessionStore.getActiveId()) this.renderTranscript();
 		ctrl.abort();
-		this.deps.consent.cancelPendingConsent();
-		new Notice("Stopping...");
+		this.getConsentManager(activeId).cancelAllPending();
+		new Notice(resolveUiLanguage(this.deps.getSettings().language) === "zh-CN" ? "正在停止…" : "Stopping...");
 	}
 
 	private accumulateThinkingElapsed(turn: UiTurn): number {
@@ -1247,28 +1710,44 @@ export class ChatView extends ItemView {
 		turn.thinking = false;
 		turn.thinkingPhaseStartedAt = undefined;
 		turn.thinkingLabel = undefined;
+		this.syncThinkingStatus(turn);
+	}
+
+	private syncThinkingStatus(turn: UiTurn): void {
+		const turnIndex = this.turns.findIndex((candidate) => candidate === turn);
+		if (turnIndex < 0 || !this.transcriptEl) return;
+		const row = this.transcriptEl.querySelector<HTMLElement>(`[data-open-agent-turn-index="${turnIndex}"]`);
+		if (!row) return;
+		const status = row.querySelector<HTMLElement>(".open-agent-thinking-status-line");
+		const lastSegment = turn.segments.at(-1);
+		if (turn.thinking && lastSegment?.kind !== "thinking") {
+			if (!status) this.renderThinkingStatus(row, turn);
+		} else {
+			status?.remove();
+		}
 	}
 
 	private applyErrorToTurn(turn: UiTurn, err: unknown): void {
 		this.finishThinking(turn);
+		const zh = resolveUiLanguage(this.deps.getSettings().language) === "zh-CN";
 		if (err instanceof AuthError) {
-			turn.error = "Authentication failed — check your API key.";
+			turn.error = zh ? "身份验证失败，请检查 API Key。" : "Authentication failed — check your API key.";
 			turn.authError = true;
 			return;
 		}
 		if (err instanceof RateLimitError) {
-			turn.error = "Rate-limited by the provider. Try again shortly.";
+			turn.error = zh ? "服务提供方请求频率受限，请稍后重试。" : "Rate-limited by the provider. Try again shortly.";
 			return;
 		}
 		if (err instanceof NetworkError) {
-			turn.error = "Network error. Check your connection or endpoint and retry.";
+			turn.error = zh ? "网络错误，请检查网络连接或服务地址后重试。" : "Network error. Check your connection or endpoint and retry.";
 			return;
 		}
 		if (err instanceof ProviderError) {
-			turn.error = `Provider error: ${err.message}`;
+			turn.error = zh ? `模型服务错误：${err.message}` : `Provider error: ${err.message}`;
 			return;
 		}
-		turn.error = err instanceof Error ? err.message : "Unknown error.";
+		turn.error = err instanceof Error ? err.message : (zh ? "未知错误。" : "Unknown error.");
 	}
 
 	private queueTurnPersistence(sessionId: string, turns: StoredTurn[]): void {
@@ -1307,9 +1786,27 @@ export class ChatView extends ItemView {
 	}
 
 	private renderTranscript(): void {
+		const renderGeneration = ++this.transcriptRenderGeneration;
+		const forceFollow = this.forceTranscriptFollowOnNextRender;
+		this.forceTranscriptFollowOnNextRender = false;
+		const markdownRenders: Promise<void>[] = [];
 		const activeId = this.deps.sessionStore.getActive().id;
 		const busy = this.inFlights.has(activeId);
+		if (this.transcriptFollowBottom && this.transcriptWindowEnd >= this.turns.length - 2) this.resetTranscriptWindowToLatest();
+		else {
+			const normalizedWindow = normalizeTranscriptWindow(this.turns.length, TRANSCRIPT_WINDOW_SIZE, {
+				start: this.transcriptWindowStart,
+				end: this.transcriptWindowEnd,
+			});
+			this.transcriptWindowStart = normalizedWindow.start;
+			this.transcriptWindowEnd = normalizedWindow.end;
+		}
 		this.captureDisclosureStates();
+		const activeElement = document.activeElement instanceof HTMLElement && this.transcriptEl.contains(document.activeElement)
+			? document.activeElement
+			: null;
+		const focusedTurnId = activeElement?.closest<HTMLElement>("[data-open-agent-turn-id]")?.dataset.openAgentTurnId;
+		const focusKey = activeElement?.dataset.openAgentFocusKey;
 		const previousScrollTop = this.transcriptEl.scrollTop || 0;
 		const previousScrollHeight = this.transcriptEl.scrollHeight || 0;
 		const viewportHeight = this.transcriptEl.clientHeight || 0;
@@ -1337,30 +1834,112 @@ export class ChatView extends ItemView {
 		if (this.turns.length === 0 && isConfigured(this.deps.getSettings())) {
 			this.transcriptEl.createDiv({
 				cls: "open-agent-empty-hint",
-				text: "Ask the agent to inspect, edit, or explain your vault.",
+				text: resolveUiLanguage(this.deps.getSettings().language) === "zh-CN"
+					? "可以让 Agent 检查、编辑或解释你的知识库。"
+					: "Ask the agent to inspect, edit, or explain your vault.",
 			});
 		}
-		for (let i = 0; i < this.turns.length; i++) {
+		if (this.transcriptWindowStart > 0) this.renderTranscriptSpacer("top", this.transcriptWindowStart);
+		const windowEnd = Math.min(this.turns.length, Math.max(this.transcriptWindowStart, this.transcriptWindowEnd));
+		for (let i = this.transcriptWindowStart; i < windowEnd; i++) {
 			const turn = this.turns[i];
 			const row = this.transcriptEl.createDiv({ cls: `open-agent-turn open-agent-turn-${turn.role}` });
+			row.setAttribute("data-open-agent-turn-id", turn.id);
+			row.setAttribute("data-open-agent-turn-index", String(i));
+			row.tabIndex = -1;
+			this.renderTurnRow(row, turn, i, busy, activeId, markdownRenders);
+		}
+		if (windowEnd < this.turns.length) this.renderTranscriptSpacer("bottom", this.turns.length - windowEnd);
+		const restoreScrollPosition = (): void => {
+			if (renderGeneration !== this.transcriptRenderGeneration) return;
+			const anchor = this.pendingTranscriptAnchor;
+			this.pendingTranscriptAnchor = undefined;
+			if (anchor) {
+				const element = [...this.transcriptEl.querySelectorAll<HTMLElement>("[data-open-agent-turn-id]")]
+					.find((candidate) => candidate.dataset.openAgentTurnId === anchor.id);
+				if (element) this.transcriptEl.scrollTop += element.getBoundingClientRect().top - anchor.top;
+				this.transcriptFollowBottom = false;
+			} else if (wasNearBottom || forceFollow) {
+				this.transcriptEl.scrollTop = this.transcriptEl.scrollHeight;
+				this.transcriptFollowBottom = true;
+			} else {
+				this.transcriptEl.scrollTop = previousScrollTop;
+				this.transcriptFollowBottom = false;
+				if (this.newContentPending || busy) this.showNewContent();
+			}
+			this.adjustingTranscriptWindow = false;
+			this.lastTranscriptScrollTop = this.transcriptEl.scrollTop;
+			if (activeElement && focusedTurnId) {
+				const row = [...this.transcriptEl.querySelectorAll<HTMLElement>("[data-open-agent-turn-id]")]
+					.find((element) => element.dataset.openAgentTurnId === focusedTurnId);
+				const target = focusKey
+					? [...(row?.querySelectorAll<HTMLElement>("[data-open-agent-focus-key]") ?? [])]
+						.find((element) => element.dataset.openAgentFocusKey === focusKey)
+					: undefined;
+				(target ?? row)?.focus({ preventScroll: true });
+			}
+			for (const element of this.transcriptEl.querySelectorAll<HTMLElement>("[data-open-agent-turn-id]")) {
+				const turnId = element.dataset.openAgentTurnId;
+				if (turnId) this.estimatedTurnHeights.set(turnId, Math.max(40, element.getBoundingClientRect().height));
+			}
+		};
+
+		// MarkdownRenderer resolves before the browser has necessarily committed
+		// the resulting layout. Restore after rendering and two frames so the
+		// scrollHeight is valid.
+		const restoreAfterLayout = (): void => {
+			if (renderGeneration !== this.transcriptRenderGeneration) return;
+			window.requestAnimationFrame(() => {
+				window.requestAnimationFrame(restoreScrollPosition);
+			});
+		};
+		if (markdownRenders.length === 0) {
+			restoreAfterLayout();
+		} else {
+			void Promise.allSettled(markdownRenders).then(restoreAfterLayout);
+		}
+	}
+
+	private renderTranscriptSpacer(position: "top" | "bottom", count: number): void {
+		const spacer = this.transcriptEl.createDiv({ cls: `open-agent-transcript-spacer open-agent-transcript-spacer-${position}` });
+		const from = position === "top" ? 0 : this.transcriptWindowEnd;
+		const to = position === "top" ? this.transcriptWindowStart : this.turns.length;
+		let height = 0;
+		for (let index = from; index < to; index++) {
+			height += this.estimatedTurnHeights.get(this.turns[index]?.id ?? "") ?? ESTIMATED_TURN_HEIGHT;
+		}
+		const viewportCap = Math.max(ESTIMATED_TURN_HEIGHT, this.transcriptEl.clientHeight * 1.5);
+		spacer.style.height = `${Math.max(ESTIMATED_TURN_HEIGHT, Math.min(height || count * ESTIMATED_TURN_HEIGHT, viewportCap))}px`;
+		spacer.setAttribute("aria-hidden", "true");
+	}
+
+	private renderTurnRow(
+		row: HTMLElement,
+		turn: UiTurn,
+		turnIndex: number,
+		busy: boolean,
+		activeId: string,
+		markdownRenders: Promise<void>[],
+	): void {
+		const zh = resolveUiLanguage(this.deps.getSettings().language) === "zh-CN";
 
 			if (turn.role === "user") {
 				// No persistent role label — the right-aligned bubble communicates "you".
 				// The pencil edit button is hidden by default and revealed on hover (CSS).
-				if (i === this.editingTurnIndex) {
+				if (turnIndex === this.editingTurnIndex) {
 					// Inline edit mode
 					row.addClass("open-agent-turn-editing");
 					const editSurface = row.createDiv({ cls: "open-agent-turn-edit-surface" });
 					const editArea = editSurface.createEl("textarea", {
 						cls: "open-agent-turn-edit-area",
-						attr: { rows: "1" },
+						attr: { rows: "1", "aria-label": resolveUiLanguage(this.deps.getSettings().language) === "zh-CN" ? "编辑已发送的消息" : "Edit sent message" },
 					});
 					editArea.value = this.editingText;
 					editArea.addEventListener("input", () => { this.editingText = editArea.value; });
 					editArea.addEventListener("keydown", (e) => {
 						if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
 							e.preventDefault();
-							void this.submitEdit(i);
+							void this.submitEdit(turnIndex);
 						}
 						if (e.key === "Escape") {
 							this.editingTurnIndex = null;
@@ -1368,22 +1947,25 @@ export class ChatView extends ItemView {
 						}
 					});
 					const editBtns = editSurface.createDiv({ cls: "open-agent-edit-buttons" });
-					editBtns.createEl("button", { text: "Cancel" }).addEventListener("click", () => {
+					const cancelEdit = editBtns.createEl("button", { text: "Cancel" });
+					cancelEdit.dataset.openAgentI18n = "edit-cancel";
+					cancelEdit.addEventListener("click", () => {
 						this.editingTurnIndex = null;
 						this.renderTranscript();
 					});
-					editBtns.createEl("button", { text: "Send", cls: "mod-cta" })
-						.addEventListener("click", () => void this.submitEdit(i));
+					const submitEdit = editBtns.createEl("button", { text: "Send", cls: "mod-cta" });
+					submitEdit.dataset.openAgentI18n = "edit-send";
+					submitEdit.addEventListener("click", () => void this.submitEdit(turnIndex));
 					window.requestAnimationFrame(() => {
 						editArea.focus();
 						editArea.setSelectionRange(editArea.value.length, editArea.value.length);
 					});
 				} else {
-					if (!busy && i !== this.editingTurnIndex) {
+					if (!busy && turnIndex !== this.editingTurnIndex) {
 						const pencilBtn = row.createEl("button", { text: "✎", cls: "open-agent-turn-edit-btn" });
-						pencilBtn.setAttribute("aria-label", "Edit message");
+						pencilBtn.setAttribute("aria-label", resolveUiLanguage(this.deps.getSettings().language) === "zh-CN" ? "编辑消息" : "Edit message");
 						pencilBtn.addEventListener("click", () => {
-							this.editingTurnIndex = i;
+							this.editingTurnIndex = turnIndex;
 							this.editingText = turn.content;
 							this.renderTranscript();
 						});
@@ -1396,17 +1978,21 @@ export class ChatView extends ItemView {
 			} else {
 				// Find preceding user turn index (needed for retry button)
 				let userTurnIdx = -1;
-				for (let j = i - 1; j >= 0; j--) {
+				for (let j = turnIndex - 1; j >= 0; j--) {
 					if (this.turns[j].role === "user") { userTurnIdx = j; break; }
 				}
 
 				// Retry icon on the right when this turn errored
 				if (!busy && turn.error && userTurnIdx >= 0) {
 					const retryBtn = row.createEl("button", { text: "↺", cls: "open-agent-turn-edit-btn open-agent-turn-retry-btn" });
+					retryBtn.dataset.openAgentI18n = "retry-message";
+					retryBtn.dataset.openAgentI18nTarget = "aria-label";
 					retryBtn.setAttribute("aria-label", "Retry");
 					retryBtn.addEventListener("click", () => {
 						const retryText = this.turns[userTurnIdx].content;
 						this.turns = this.turns.slice(0, userTurnIdx);
+						this.rebuildTurnIndex();
+						this.resetTranscriptWindowToLatest();
 						this.inputEl.value = retryText;
 						void this.handleSend();
 					});
@@ -1416,7 +2002,7 @@ export class ChatView extends ItemView {
 				for (let segmentIndex = 0; segmentIndex < turn.segments.length; segmentIndex += 1) {
 						const seg = turn.segments[segmentIndex];
 						if (seg.kind === "thinking" && seg.text.length > 0) {
-							this.renderThinkingSegment(row, seg.text, turn, `${activeId}:${i}:${segmentIndex}`);
+							this.renderThinkingSegment(row, seg.text, turn, streamSegmentKey(activeId, turn.id, seg.id));
 						} else if (seg.kind === "tool") {
 							const toolCall = turn.toolCallMap[seg.id];
 							if (toolCall) this.renderToolCard(row, toolCall);
@@ -1424,13 +2010,17 @@ export class ChatView extends ItemView {
 							const body = row.createDiv({ cls: "open-agent-turn-body" });
 							const isLiveText = isLiveAssistantTurn && segmentIndex === turn.segments.length - 1;
 							if (isLiveText) {
-								const scrollKey = `${activeId}:${i}:${segmentIndex}`;
+								const scrollKey = streamSegmentKey(activeId, turn.id, seg.id);
 								body.setText(seg.text);
 								body.setAttribute("data-open-agent-streaming-text-key", scrollKey);
 								this.streamingTextElements.set(scrollKey, body);
 								this.streamingTextLengths.set(scrollKey, seg.text.length);
 							} else {
-								void MarkdownRenderer.render(this.app, seg.text, body, "", this);
+								const cachedHtml = completedMarkdownCache.get(seg.text);
+								if (cachedHtml !== undefined) body.innerHTML = cachedHtml;
+								else markdownRenders.push(MarkdownRenderer.render(this.app, seg.text, body, "", this).then(() => {
+									completedMarkdownCache.set(seg.text, body.innerHTML);
+								}));
 							}
 						}
 				}
@@ -1441,41 +2031,129 @@ export class ChatView extends ItemView {
 			if (turn.degraded) {
 				row.createEl("div", {
 					cls: "open-agent-turn-meta",
-					text: "Non-streaming response — your endpoint does not support streaming.",
+					text: zh ? "非流式回复：当前服务地址不支持流式输出。" : "Non-streaming response — your endpoint does not support streaming.",
 				});
 			}
 			if (turn.capHit) {
-				row.createEl("div", { cls: "open-agent-turn-meta", text: "(stopped: hit max-steps cap)" });
+				row.createEl("div", { cls: "open-agent-turn-meta", text: resolveUiLanguage(this.deps.getSettings().language) === "zh-CN" ? "（已停止：达到最大步骤数）" : "(stopped: hit max-steps cap)" });
 			}
 			if (turn.interrupted) {
-				row.createEl("div", { cls: "open-agent-turn-meta", text: "(interrupted)" });
+				row.createEl("div", { cls: "open-agent-turn-meta", text: resolveUiLanguage(this.deps.getSettings().language) === "zh-CN" ? "（已中断）" : "(interrupted)" });
 			}
 			if (turn.error) {
 				const errEl = row.createEl("div", { cls: "open-agent-turn-error" });
 				errEl.createEl("span", { cls: "open-agent-turn-error-icon", text: "ⓧ" });
 				const errText = errEl.createEl("span", { cls: "open-agent-turn-error-text" });
-				errText.setText(turn.error);
+				errText.setText(localizeTurnError(turn.error, resolveUiLanguage(this.deps.getSettings().language)));
 				if (turn.authError) {
 					errText.appendText(" ");
-					const link = errText.createEl("a", { text: "Open settings", href: "#" });
+					const link = errText.createEl("a", { text: resolveUiLanguage(this.deps.getSettings().language) === "zh-CN" ? "打开设置" : "Open settings", href: "#" });
+					link.dataset.openAgentI18n = "open-settings";
 					link.addEventListener("click", (e) => { e.preventDefault(); this.deps.openSettings(); });
 				}
 				const errActions = errEl.createDiv({ cls: "open-agent-turn-error-actions" });
-				const copyBtn = errActions.createEl("button", { text: "Copy", cls: "open-agent-icon-btn" });
+				const copyBtn = errActions.createEl("button", { text: resolveUiLanguage(this.deps.getSettings().language) === "zh-CN" ? "复制" : "Copy", cls: "open-agent-icon-btn" });
+				copyBtn.dataset.openAgentI18n = "copy-error";
+				copyBtn.dataset.openAgentI18nTarget = "aria-label";
 				copyBtn.setAttribute("aria-label", "Copy error message");
 				copyBtn.addEventListener("click", () => {
 					void navigator.clipboard.writeText(turn.error ?? "").then(() => {
-						new Notice("Copied");
+						new Notice(resolveUiLanguage(this.deps.getSettings().language) === "zh-CN" ? "已复制" : "Copied");
 					}).catch(() => undefined);
 				});
 			}
+	}
+
+	private renderTurnInPlace(turnIndex: number): void {
+		const turn = this.turns[turnIndex];
+		if (!turn || !this.transcriptEl) return;
+		const row = [...this.transcriptEl.querySelectorAll<HTMLElement>("[data-open-agent-turn-id]")]
+			.find((element) => element.dataset.openAgentTurnId === turn.id);
+		// A turn outside the mounted render window has no DOM to patch. It remains
+		// updated in the session model and will render when the user scrolls to it.
+		if (!row) return;
+
+		const renderGeneration = ++this.transcriptRenderGeneration;
+		const markdownRenders: Promise<void>[] = [];
+		const activeId = this.deps.sessionStore.getActive().id;
+		const busy = this.inFlights.has(activeId);
+		this.captureDisclosureStates();
+		const previousScrollTop = this.transcriptEl.scrollTop || 0;
+		const previousScrollHeight = this.transcriptEl.scrollHeight || 0;
+		const viewportHeight = this.transcriptEl.clientHeight || 0;
+		const activeElement = document.activeElement instanceof HTMLElement && row.contains(document.activeElement)
+			? document.activeElement
+			: null;
+		const focusKey = activeElement?.dataset.openAgentFocusKey;
+		const visibleAnchor = [...this.transcriptEl.querySelectorAll<HTMLElement>("[data-open-agent-turn-id]")]
+			.find((element) => {
+				const rect = element.getBoundingClientRect();
+				const viewport = this.transcriptEl.getBoundingClientRect();
+				return rect.bottom > viewport.top && rect.top < viewport.bottom;
+			});
+		const visibleAnchorId = visibleAnchor?.dataset.openAgentTurnId;
+		const visibleAnchorTop = visibleAnchor?.getBoundingClientRect().top;
+		const wasNearBottom = this.transcriptFollowBottom ||
+			viewportHeight <= 0 ||
+			previousScrollHeight <= 0 ||
+			previousScrollHeight - previousScrollTop - viewportHeight < 80;
+		if (this.transcriptScrollFrame !== null) {
+			window.cancelAnimationFrame(this.transcriptScrollFrame);
+			this.transcriptScrollFrame = null;
 		}
-		if (wasNearBottom) {
-			this.transcriptEl.scrollTop = this.transcriptEl.scrollHeight;
-			this.transcriptFollowBottom = true;
-		} else {
-			this.transcriptEl.scrollTop = previousScrollTop;
-			this.transcriptFollowBottom = false;
+		this.clearTurnStreamingElements(activeId, turn.id);
+		row.empty();
+		this.renderTurnRow(row, turn, turnIndex, busy, activeId, markdownRenders);
+
+		const restore = (): void => {
+			if (renderGeneration !== this.transcriptRenderGeneration) return;
+			if (wasNearBottom) {
+				this.transcriptEl.scrollTop = this.transcriptEl.scrollHeight;
+				this.transcriptFollowBottom = true;
+			} else {
+				const anchor = visibleAnchorId
+					? [...this.transcriptEl.querySelectorAll<HTMLElement>("[data-open-agent-turn-id]")]
+						.find((element) => element.dataset.openAgentTurnId === visibleAnchorId)
+					: undefined;
+				const nextTop = anchor?.getBoundingClientRect().top;
+				this.transcriptEl.scrollTop = typeof nextTop === "number" && typeof visibleAnchorTop === "number"
+					? previousScrollTop + nextTop - visibleAnchorTop
+					: previousScrollTop;
+				this.transcriptFollowBottom = false;
+				if (this.newContentPending || busy) this.showNewContent();
+			}
+			if (activeElement) {
+				const focusTarget = focusKey
+					? [...row.querySelectorAll<HTMLElement>("[data-open-agent-focus-key]")]
+						.find((element) => element.dataset.openAgentFocusKey === focusKey)
+					: undefined;
+				(focusTarget ?? row).focus({ preventScroll: true });
+			}
+		};
+		const restoreAfterLayout = (): void => {
+			if (renderGeneration !== this.transcriptRenderGeneration) return;
+			window.requestAnimationFrame(() => window.requestAnimationFrame(restore));
+		};
+		if (markdownRenders.length === 0) restoreAfterLayout();
+		else void Promise.allSettled(markdownRenders).then(restoreAfterLayout);
+	}
+
+	private clearTurnStreamingElements(sessionId: string, turnId: string): void {
+		const prefix = `${sessionId}:${turnId}:`;
+		for (const key of this.thinkingContentElements.keys()) {
+			if (key.startsWith(prefix)) this.thinkingContentElements.delete(key);
+		}
+		for (const key of this.thinkingTextLengths.keys()) {
+			if (key.startsWith(prefix)) this.thinkingTextLengths.delete(key);
+		}
+		for (const key of this.streamingTextElements.keys()) {
+			if (key.startsWith(prefix)) this.streamingTextElements.delete(key);
+		}
+		for (const key of this.streamingTextLengths.keys()) {
+			if (key.startsWith(prefix)) this.streamingTextLengths.delete(key);
+		}
+		for (const key of this.pendingThinkingScrollKeys) {
+			if (key.startsWith(prefix)) this.pendingThinkingScrollKeys.delete(key);
 		}
 	}
 
@@ -1494,6 +2172,8 @@ export class ChatView extends ItemView {
 		if (!text) return;
 		this.editingTurnIndex = null;
 		this.turns = this.turns.slice(0, turnIndex);
+		this.rebuildTurnIndex();
+		this.resetTranscriptWindowToLatest();
 		this.inputEl.value = text;
 		await this.handleSend();
 	}
@@ -1502,16 +2182,17 @@ export class ChatView extends ItemView {
 
 	private renderThinkingStatus(parent: HTMLElement, turn: UiTurn): void {
 		const elapsed = this.currentThinkingElapsed(turn);
+		const zh = resolveUiLanguage(this.deps.getSettings().language) === "zh-CN";
 		const card = parent.createEl("button", {
 			cls: "open-agent-thinking-status-line open-agent-thinking-surface-active",
 			attr: {
 				type: "button",
-				"aria-label": "Open the current operation details",
+				"aria-label": zh ? "打开当前操作详情" : "Open the current operation details",
 			},
 		});
 		card.addEventListener("click", () => this.openLatestToolCard(parent));
 		card.createDiv({ cls: "open-agent-thinking-spinner" });
-		card.createEl("span", { cls: "open-agent-thinking-label", text: turn.thinkingLabel ?? "Thinking" });
+		card.createEl("span", { cls: "open-agent-thinking-label", text: turn.thinkingLabel ?? (zh ? "思考中" : "Thinking") });
 		const timer = card.createEl("span", { cls: "open-agent-thinking-meta", text: formatDuration(elapsed) });
 		this.thinkingTimerElements.set(turn, timer);
 	}
@@ -1539,13 +2220,15 @@ export class ChatView extends ItemView {
 			this.disclosureStates.set(disclosureKey, card.open);
 		});
 		const summary = card.createEl("summary", { cls: "open-agent-thinking-segment-summary" });
+		summary.dataset.openAgentFocusKey = `thought-summary:${scrollKey}`;
 		if (active) summary.createDiv({ cls: "open-agent-thinking-spinner" });
 		else summary.createEl("span", { cls: "open-agent-thinking-card-icon", text: "✓" });
 		summary.createEl("span", {
 			cls: "open-agent-thinking-label",
-			text: active ? (turn.thinkingLabel ?? "Thinking") : "Thought process",
+			text: active ? (turn.thinkingLabel ?? (resolveUiLanguage(this.deps.getSettings().language) === "zh-CN" ? "思考中" : "Thinking"))
+				: (resolveUiLanguage(this.deps.getSettings().language) === "zh-CN" ? "思考过程" : "Thought process"),
 		});
-		if (active) summary.createEl("span", { cls: "open-agent-thinking-meta", text: "live" });
+		if (active) summary.createEl("span", { cls: "open-agent-thinking-meta", text: resolveUiLanguage(this.deps.getSettings().language) === "zh-CN" ? "实时" : "live" });
 		const content = card.createDiv({ cls: "open-agent-thinking-segment-content" });
 		content.setText(text || "Thinking…");
 		content.setAttribute("data-open-agent-thinking-key", scrollKey);
@@ -1580,7 +2263,7 @@ export class ChatView extends ItemView {
 		const segmentIndex = turn.segments.length - 1;
 		const segment = turn.segments[segmentIndex];
 		if (this.turns[turnIndex] !== turn || !segment || segment.kind !== "thinking") return false;
-		const scrollKey = `${sessionId}:${turnIndex}:${segmentIndex}`;
+		const scrollKey = streamSegmentKey(sessionId, turn.id, segment.id);
 		const content = this.thinkingContentElements.get(scrollKey);
 		if (!content) return false;
 
@@ -1601,6 +2284,7 @@ export class ChatView extends ItemView {
 		this.thinkingTextLengths.set(scrollKey, expectedText.length);
 		if (scrollState.followBottom) this.pendingThinkingScrollKeys.add(scrollKey);
 		this.scheduleThinkingScroll();
+		if (!this.transcriptFollowBottom) this.showNewContent();
 		this.scheduleTranscriptFollowBottom();
 		return true;
 	}
@@ -1609,7 +2293,7 @@ export class ChatView extends ItemView {
 		const segmentIndex = turn.segments.length - 1;
 		const segment = turn.segments[segmentIndex];
 		if (this.turns[turnIndex] !== turn || !segment || segment.kind !== "text") return false;
-		const scrollKey = `${sessionId}:${turnIndex}:${segmentIndex}`;
+		const scrollKey = streamSegmentKey(sessionId, turn.id, segment.id);
 		const content = this.streamingTextElements.get(scrollKey);
 		if (!content) return false;
 
@@ -1622,6 +2306,7 @@ export class ChatView extends ItemView {
 			content.setText(expectedText);
 		}
 		this.streamingTextLengths.set(scrollKey, expectedText.length);
+		if (!this.transcriptFollowBottom) this.showNewContent();
 		this.scheduleTranscriptFollowBottom();
 		return true;
 	}
@@ -1656,7 +2341,8 @@ export class ChatView extends ItemView {
 
 		const card = parent.createEl("details", { cls: cls.join(" ") });
 		card.setAttribute("data-open-agent-tool-name", tc.name);
-		const disclosureKey = `tool:${this.deps.sessionStore.getActive().id}:${tc.id}`;
+		card.setAttribute("data-open-agent-tool-id", tc.id);
+		const disclosureKey = `tool:${tc.sessionId ?? this.deps.sessionStore.getActive().id}:${tc.id}`;
 		card.setAttribute("data-open-agent-disclosure-key", disclosureKey);
 		const shouldOpen = this.disclosureStates.get(disclosureKey) ?? tc.status === "awaiting-consent";
 		if (shouldOpen) card.setAttribute("open", "");
@@ -1665,6 +2351,7 @@ export class ChatView extends ItemView {
 		});
 
 		const summary = card.createEl("summary", { cls: "open-agent-tool-summary" });
+		summary.dataset.openAgentFocusKey = `tool-summary:${tc.id}`;
 		summary.createEl("span", { cls: "open-agent-tool-status-icon", text: toolStatusIcon(tc.status) });
 		const toolName = summary.createEl("span", { cls: "open-agent-tool-name", text: toolDisplayName(tc.name, language) });
 		toolName.setAttribute("title", tc.name);
@@ -1703,10 +2390,27 @@ export class ChatView extends ItemView {
 				});
 			} else {
 				const btns = card.createDiv({ cls: "open-agent-consent-inline-buttons" });
-				btns.createEl("button", { text: language === "zh-CN" ? "拒绝" : "Reject" })
-					.addEventListener("click", () => this.resolveInlineConsent(tc, "reject"));
-				btns.createEl("button", { text: language === "zh-CN" ? "批准执行" : "Approve", cls: "mod-cta" })
-					.addEventListener("click", () => this.resolveInlineConsent(tc, "approve"));
+				const rejectBtn = btns.createEl("button", {
+					text: language === "zh-CN" ? "拒绝" : "Reject",
+					attr: { type: "button" },
+				});
+				rejectBtn.dataset.openAgentFocusKey = `tool-reject:${tc.id}`;
+				rejectBtn.addEventListener("click", (event) => {
+					event.preventDefault();
+					event.stopPropagation();
+					this.resolveInlineConsent(tc, "reject");
+				});
+				const approveBtn = btns.createEl("button", {
+					text: language === "zh-CN" ? "批准执行" : "Approve",
+					cls: "mod-cta",
+					attr: { type: "button" },
+				});
+				approveBtn.dataset.openAgentFocusKey = `tool-approve:${tc.id}`;
+				approveBtn.addEventListener("click", (event) => {
+					event.preventDefault();
+					event.stopPropagation();
+					this.resolveInlineConsent(tc, "approve");
+				});
 			}
 			return;
 		}
@@ -1840,8 +2544,75 @@ export class ChatView extends ItemView {
 		tc.status = choice === "reject" ? "denied" : "running";
 		// Update the visible state before the network or vault operation starts.
 		// This prevents a slow web provider from looking like an ignored click.
-		this.deps.consent.resolveConsent(choice);
-		if (this.turns.length > 0) this.renderTranscript();
+		const sessionId = tc.sessionId ?? this.deps.sessionStore.getActiveId();
+		const pendingCommandId = tc.commandPlan?.commands.find((command) => command.status === "awaiting-consent")?.id ?? tc.id;
+		const pendingCommand = tc.commandPlan?.commands.find((command) => command.id === pendingCommandId);
+		if (pendingCommand) pendingCommand.status = choice === "reject" ? "denied" : "running";
+		this.getConsentManager(sessionId).resolveConsentFor(pendingCommandId, choice);
+		const zh = resolveUiLanguage(this.deps.getSettings().language) === "zh-CN";
+		this.announce(choice === "reject" ? (zh ? "已拒绝本次操作。" : "This operation was rejected.") : (zh ? "已批准本次操作，正在执行。" : "This operation was approved and is running."));
+		this.renderOwnerTurn(tc);
+	}
+
+	private renderOwnerTurn(tc: ToolCallRecord): void {
+		this.renderToolCallInPlace(tc);
+	}
+
+	private renderPlanOwnerTurn(plan: StoredCommandPlan): void {
+		const owner = this.turns
+			.filter((turn): turn is UiTurn & { role: "assistant" } => turn.role === "assistant")
+			.flatMap((turn) => Object.values(turn.toolCallMap))
+			.find((candidate) => candidate.commandPlan === plan);
+		if (owner) this.renderToolCallInPlace(owner);
+	}
+
+	private renderToolCallInPlace(tc: ToolCallRecord): void {
+		const ownerTurn = this.turns.find((turn) => turn.role === "assistant" && turn.toolCallMap[tc.id] === tc);
+		if (!ownerTurn || !this.transcriptEl) return;
+		const sessionId = tc.sessionId ?? this.deps.sessionStore.getActiveId();
+		if (sessionId !== this.deps.sessionStore.getActiveId()) return;
+		const oldCard = [...this.transcriptEl.querySelectorAll<HTMLDetailsElement>("details[data-open-agent-tool-id]")]
+			.find((card) => card.dataset.openAgentToolId === tc.id);
+		if (!oldCard) {
+			const row = this.transcriptEl.querySelector<HTMLElement>(`[data-open-agent-turn-id="${CSS.escape(ownerTurn.id)}"]`);
+			if (!row) return;
+			const holder = document.createElement("div");
+			this.renderToolCard(holder, tc);
+			if (holder.firstElementChild) row.append(holder.firstElementChild);
+			return;
+		}
+		this.captureDisclosureStates();
+		const activeElement = document.activeElement instanceof HTMLElement && oldCard.contains(document.activeElement)
+			? document.activeElement
+			: null;
+		const focusKey = activeElement?.dataset.openAgentFocusKey;
+		const scrollTop = this.transcriptEl.scrollTop;
+		const followBottom = this.transcriptFollowBottom;
+		const anchor = this.captureVisibleAnchor();
+		const holder = document.createElement("div");
+		this.renderToolCard(holder, tc);
+		const nextCard = holder.firstElementChild;
+		if (!(nextCard instanceof HTMLDetailsElement)) return;
+		oldCard.replaceWith(nextCard);
+		const anchorRow = anchor
+			? [...this.transcriptEl.querySelectorAll<HTMLElement>("[data-open-agent-turn-id]")]
+				.find((element) => element.dataset.openAgentTurnId === anchor.id)
+			: undefined;
+		this.transcriptEl.scrollTop = anchorRow && anchor
+			? scrollTop + anchorRow.getBoundingClientRect().top - anchor.top
+			: scrollTop;
+		this.transcriptFollowBottom = followBottom;
+		if (activeElement) {
+			const fallbackKey = focusKey?.startsWith("tool-approve:") || focusKey?.startsWith("tool-reject:")
+				? `tool-summary:${tc.id}`
+				: focusKey;
+			const focusTarget = fallbackKey
+				? [...nextCard.querySelectorAll<HTMLElement>("[data-open-agent-focus-key]")]
+					.find((element) => element.dataset.openAgentFocusKey === fallbackKey)
+				: undefined;
+			(focusTarget ?? nextCard.querySelector<HTMLElement>("summary") ?? nextCard).focus({ preventScroll: true });
+		}
+		if (followBottom) this.scheduleTranscriptFollowBottom();
 	}
 
 	private scheduleCommandDiff(plan: StoredCommandPlan, command: StoredCommand): void {
@@ -1857,7 +2628,7 @@ export class ChatView extends ItemView {
 		};
 		void this.buildDiffRows(pseudo).then((rows) => {
 			command.diffRows = rows;
-			this.renderTranscript();
+			this.renderPlanOwnerTurn(plan);
 		});
 	}
 
@@ -1869,7 +2640,7 @@ export class ChatView extends ItemView {
 
 	private async computeAndStoreDiff(tc: ToolCallRecord): Promise<void> {
 		tc.diffRows = await this.buildDiffRows(tc);
-		this.renderTranscript();
+		this.renderOwnerTurn(tc);
 	}
 
 	private async buildDiffRows(tc: ToolCallRecord): Promise<DiffRow[]> {
@@ -1907,7 +2678,7 @@ export class ChatView extends ItemView {
 			}
 			if (tc.name === "vault_restore") {
 				const restorePath = typeof args.path === "string" ? args.path : "";
-				const snapshot = restorePath ? this.deps.undo.findLatest(restorePath, "delete") : undefined;
+				const snapshot = restorePath ? this.deps.undo.findLatest(restorePath, "delete", this.deps.sessionStore.getActiveId()) : undefined;
 				return snapshot ? diffLines("", snapshot.before ?? "") : [];
 			}
 		} catch {
@@ -1915,6 +2686,23 @@ export class ChatView extends ItemView {
 		}
 		return [];
 	}
+}
+
+function streamSegmentKey(sessionId: string, turnId: string, segmentId: string): string {
+	return `${sessionId}:${turnId}:${segmentId}`;
+}
+
+function newStableId(): string {
+	return typeof crypto !== "undefined" && "randomUUID" in crypto
+		? crypto.randomUUID()
+		: `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
+}
+
+function turnHasFailedOperation(turn: UiTurn): boolean {
+	return Object.values(turn.toolCallMap).some((toolCall) =>
+		toolCall.status === "error" || toolCall.status === "denied" ||
+		toolCall.commandPlan?.commands.some((command) => command.status === "error" || command.status === "denied") === true,
+	);
 }
 
 function summarizeArgs(args: unknown): string {
@@ -2120,6 +2908,23 @@ function safeStringify(value: unknown): string {
 	} catch {
 		return String(value);
 	}
+}
+
+function localizeTurnError(error: string, language: "zh-CN" | "en"): string {
+	const messages: Record<string, { zh: string; en: string }> = {
+		"Authentication failed — check your API key.": { zh: "身份验证失败，请检查 API Key。", en: "Authentication failed — check your API key." },
+		"身份验证失败，请检查 API Key。": { zh: "身份验证失败，请检查 API Key。", en: "Authentication failed — check your API key." },
+		"Rate-limited by the provider. Try again shortly.": { zh: "服务提供方请求频率受限，请稍后重试。", en: "Rate-limited by the provider. Try again shortly." },
+		"服务提供方请求频率受限，请稍后重试。": { zh: "服务提供方请求频率受限，请稍后重试。", en: "Rate-limited by the provider. Try again shortly." },
+		"Network error. Check your connection or endpoint and retry.": { zh: "网络错误，请检查网络连接或服务地址后重试。", en: "Network error. Check your connection or endpoint and retry." },
+		"网络错误，请检查网络连接或服务地址后重试。": { zh: "网络错误，请检查网络连接或服务地址后重试。", en: "Network error. Check your connection or endpoint and retry." },
+		"未知错误。": { zh: "未知错误。", en: "Unknown error." },
+		"Unknown error.": { zh: "未知错误。", en: "Unknown error." },
+	};
+	if (messages[error]) return messages[error][language === "zh-CN" ? "zh" : "en"];
+	if (error.startsWith("Provider error: ")) return language === "zh-CN" ? `模型服务错误：${error.slice("Provider error: ".length)}` : error;
+	if (error.startsWith("模型服务错误：")) return language === "en" ? `Provider error: ${error.slice("模型服务错误：".length)}` : error;
+	return error;
 }
 
 function redactEventData(value: unknown): unknown {

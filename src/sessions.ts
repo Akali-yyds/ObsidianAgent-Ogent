@@ -1,5 +1,5 @@
 import type { DiffRow } from "./consent/diff";
-import type { AgentCommand, ChangeSet, ChangeSetResult, CommandResult, CommandRisk, ToolResult } from "./types";
+import type { AgentCommand, AgentExecutionMode, ChangeSet, ChangeSetResult, CommandResult, CommandRisk, ToolResult } from "./types";
 
 export interface SessionMeta {
 	id: string;
@@ -8,11 +8,22 @@ export interface SessionMeta {
 	createdAt: number;
 	updatedAt: number;
 	attachedContextPaths?: string[];
+	access?: AgentExecutionMode;
+	queuedMessages?: QueuedMessage[];
+	interrupted?: boolean;
+	runState?: "idle" | "running" | "awaiting-approval" | "failed" | "interrupted";
+	queuePaused?: boolean;
+}
+
+export interface QueuedMessage {
+	id: string;
+	text: string;
+	createdAt: number;
 }
 
 export type StoredAssistantSegment =
-	| { kind: "thinking"; text: string }
-	| { kind: "text"; text: string }
+	| { kind: "thinking"; id: string; text: string }
+	| { kind: "text"; id: string; text: string }
 	| { kind: "tool"; id: string };
 
 export interface StoredAgentEvent {
@@ -57,6 +68,7 @@ export interface StoredCommandPlan {
 }
 
 export interface StoredTurn {
+	id: string;
 	role: "user" | "assistant";
 	content: string;
 	segments?: StoredAssistantSegment[];
@@ -140,7 +152,13 @@ export async function loadStoredTurnsFile({
 		return recoverCorruptTurnsFile(adapter, path, now());
 	}
 	if (!isRecord(parsed) || !Array.isArray(parsed.turns)) return recoverCorruptTurnsFile(adapter, path, now());
-	return { turns: sanitizeStoredTurns(parsed.turns) };
+	const turns = sanitizeStoredTurns(parsed.turns);
+	// Persist deterministic IDs for legacy conversations once, preserving the
+	// original turn order, content, and tool references.
+	if (JSON.stringify(parsed.turns) !== JSON.stringify(turns)) {
+		await adapter.write(path, JSON.stringify({ turns }));
+	}
+	return { turns };
 }
 
 export class SessionStore {
@@ -153,15 +171,23 @@ export class SessionStore {
 
 	async init(rawSessions: (SessionMeta & { turns?: StoredTurn[] })[], activeId: string): Promise<void> {
 		for (const session of rawSessions) {
-			if (Array.isArray(session.turns) && session.turns.length > 0) await this.cb.writeTurns(session.id, session.turns).catch(() => {});
+			if (Array.isArray(session.turns) && session.turns.length > 0) await this.cb.writeTurns(session.id, sanitizeStoredTurns(session.turns)).catch(() => {});
 		}
-		this.meta = rawSessions.map(({ id, title, model, createdAt, updatedAt, attachedContextPaths }) => ({
+		let recoveredActiveRun = false;
+	this.meta = rawSessions.map(({ id, title, model, createdAt, updatedAt, attachedContextPaths, access, queuedMessages, interrupted, runState, queuePaused }) => ({
 			id,
 			title,
 			model,
 			createdAt,
 			updatedAt,
 			...(Array.isArray(attachedContextPaths) && attachedContextPaths.length > 0 ? { attachedContextPaths: [...attachedContextPaths] } : {}),
+			access: access === "read" || access === "full" ? access : "ask",
+			...(Array.isArray(queuedMessages) ? { queuedMessages: sanitizeQueuedMessages(queuedMessages) } : {}),
+			...(interrupted ? { interrupted: true } : {}),
+			...(queuePaused || (Array.isArray(queuedMessages) && queuedMessages.length > 0) ? { queuePaused: true } : {}),
+			runState: runState === "running" || runState === "awaiting-approval"
+				? (recoveredActiveRun = true, "interrupted")
+				: runState === "failed" || runState === "interrupted" ? runState : "idle",
 		}));
 		if (this.meta.length === 0) {
 			const session = this.makeMeta();
@@ -172,10 +198,23 @@ export class SessionStore {
 		}
 		this.activeId = this.meta.some((session) => session.id === activeId) ? activeId : this.meta[0].id;
 		this.activeTurns = await this.loadTurns(this.activeId);
+		// Persist migration defaults (notably Ask before action) and recovered run
+		// states so a restart does not repeat migration or imply active work.
+		if (recoveredActiveRun || rawSessions.some((session) => session.access !== "read" && session.access !== "ask" && session.access !== "full")) {
+			await this.cb.persistIndex(this.meta, this.activeId);
+		}
 	}
 
 	getSessions(): SessionMeta[] { return this.meta; }
 	getActiveId(): string { return this.activeId; }
+	getMeta(id: string): SessionMeta | undefined { return this.meta.find((session) => session.id === id); }
+
+	async getSession(id: string): Promise<StoredSession | null> {
+		const meta = this.getMeta(id);
+		if (!meta) return null;
+		const turns = id === this.activeId ? this.activeTurns : await this.loadTurns(id);
+		return { ...meta, turns, recovery: this.recoveryById.get(id) ?? null };
+	}
 
 	getActive(): StoredSession {
 		const meta = this.meta.find((session) => session.id === this.activeId) ?? this.meta[0] ?? this.makeMeta();
@@ -222,6 +261,7 @@ export class SessionStore {
 			createdAt: now,
 			updatedAt: now,
 			...(source.attachedContextPaths ? { attachedContextPaths: [...source.attachedContextPaths] } : {}),
+			access: source.access ?? "ask",
 		};
 		const turns = JSON.parse(JSON.stringify(sourceTurns)) as StoredTurn[];
 		this.meta.push(forked);
@@ -252,6 +292,11 @@ export class SessionStore {
 			session.title = "New chat";
 			session.model = "";
 			session.updatedAt = Date.now();
+			session.access = "ask";
+			session.runState = "idle";
+			delete session.queuedMessages;
+			delete session.queuePaused;
+			delete session.interrupted;
 			delete session.attachedContextPaths;
 			this.activeId = session.id;
 			this.activeTurns = [];
@@ -274,9 +319,10 @@ export class SessionStore {
 	async updateTurns(id: string, turns: StoredTurn[]): Promise<void> {
 		const session = this.meta.find((entry) => entry.id === id);
 		if (!session) return;
+		const normalizedTurns = sanitizeStoredTurns(turns);
 		session.updatedAt = Date.now();
-		if (id === this.activeId) this.activeTurns = turns;
-		await Promise.all([this.cb.writeTurns(id, turns), this.cb.persistIndex(this.meta, this.activeId)]);
+		if (id === this.activeId) this.activeTurns = normalizedTurns;
+		await Promise.all([this.cb.writeTurns(id, normalizedTurns), this.cb.persistIndex(this.meta, this.activeId)]);
 	}
 
 	async updateModel(id: string, model: string): Promise<void> {
@@ -297,6 +343,47 @@ export class SessionStore {
 		await this.cb.persistIndex(this.meta, this.activeId);
 	}
 
+	async updateAccess(id: string, access: AgentExecutionMode): Promise<void> {
+		const session = this.meta.find((entry) => entry.id === id);
+		if (!session) return;
+		session.access = access;
+		session.updatedAt = Date.now();
+		await this.cb.persistIndex(this.meta, this.activeId);
+	}
+
+	async updateQueuedMessages(id: string, messages: QueuedMessage[]): Promise<void> {
+		const session = this.meta.find((entry) => entry.id === id);
+		if (!session) return;
+		const safe = sanitizeQueuedMessages(messages);
+		if (safe.length > 0) session.queuedMessages = safe;
+		else delete session.queuedMessages;
+		await this.cb.persistIndex(this.meta, this.activeId);
+	}
+
+	async setQueuePaused(id: string, paused: boolean): Promise<void> {
+		const session = this.meta.find((entry) => entry.id === id);
+		if (!session) return;
+		if (paused) session.queuePaused = true;
+		else delete session.queuePaused;
+		await this.cb.persistIndex(this.meta, this.activeId);
+	}
+
+	async setInterrupted(id: string, interrupted: boolean): Promise<void> {
+		const session = this.meta.find((entry) => entry.id === id);
+		if (!session) return;
+		if (interrupted) session.interrupted = true;
+		else delete session.interrupted;
+		await this.cb.persistIndex(this.meta, this.activeId);
+	}
+
+	async updateRunState(id: string, runState: NonNullable<SessionMeta["runState"]>): Promise<void> {
+		const session = this.meta.find((entry) => entry.id === id);
+		if (!session) return;
+		session.runState = runState;
+		session.interrupted = runState === "interrupted";
+		await this.cb.persistIndex(this.meta, this.activeId);
+	}
+
 	toJSON(): { sessions: SessionMeta[]; activeSessionId: string } {
 		return { sessions: this.meta, activeSessionId: this.activeId };
 	}
@@ -310,20 +397,31 @@ export class SessionStore {
 
 	private makeMeta(model = ""): SessionMeta {
 		const now = Date.now();
-		return { id: makeId(), title: "New chat", model, createdAt: now, updatedAt: now };
+		return { id: makeId(), title: "New chat", model, createdAt: now, updatedAt: now, access: "ask" };
 	}
 }
 
 function sanitizeStoredTurns(turns: unknown[]): StoredTurn[] {
-	return turns.map((turn) => sanitizeStoredTurn(turn));
+	const usedIds = new Set<string>();
+	return turns.map((value, index) => {
+		const turn = sanitizeStoredTurn(value, index);
+		if (!usedIds.has(turn.id)) {
+			usedIds.add(turn.id);
+			return turn;
+		}
+		let id = `${turn.id}-duplicate-${index}`;
+		while (usedIds.has(id)) id += "-next";
+		usedIds.add(id);
+		return { ...turn, id };
+	});
 }
 
-function sanitizeStoredTurn(value: unknown): StoredTurn {
-	if (!isRecord(value)) return { role: "assistant", content: "" };
+function sanitizeStoredTurn(value: unknown, index: number): StoredTurn {
+	if (!isRecord(value)) return { id: `legacy-turn-${index}`, role: "assistant", content: "" };
 	const role = value.role === "user" || value.role === "assistant" ? value.role : "assistant";
 	const content = typeof value.content === "string" ? value.content : "";
-	const turn: StoredTurn = { role, content };
-	const segments = sanitizeSegments(value.segments);
+	const turn: StoredTurn = { id: typeof value.id === "string" && value.id ? value.id : `legacy-turn-${index}`, role, content };
+	const segments = sanitizeSegments(value.segments, turn.id);
 	if (segments) turn.segments = segments;
 	const toolCalls = sanitizeToolCalls(value.toolCalls);
 	if (toolCalls) turn.toolCalls = toolCalls;
@@ -394,16 +492,32 @@ function sanitizeCommandResult(value: unknown): CommandResult | undefined {
 	};
 }
 
-function sanitizeSegments(value: unknown): StoredAssistantSegment[] | undefined {
+function sanitizeSegments(value: unknown, turnId: string): StoredAssistantSegment[] | undefined {
 	if (value === undefined) return undefined;
 	if (!Array.isArray(value)) return undefined;
-	const segments = value.map((segment) => {
+	const segments = value.map((segment, index) => {
 		if (!isRecord(segment)) return null;
-		if ((segment.kind === "thinking" || segment.kind === "text") && typeof segment.text === "string") return { kind: segment.kind, text: segment.text } as StoredAssistantSegment;
-		if (segment.kind === "tool" && typeof segment.id === "string") return { kind: "tool", id: segment.id } as StoredAssistantSegment;
+		if ((segment.kind === "thinking" || segment.kind === "text") && typeof segment.text === "string") {
+			const id = typeof segment.id === "string" && segment.id ? segment.id : `${turnId}-segment-${index}`;
+			return { kind: segment.kind, id, text: segment.text } as StoredAssistantSegment;
+		}
+		if (segment.kind === "tool" && typeof segment.id === "string") {
+			return { kind: "tool", id: segment.id } as StoredAssistantSegment;
+		}
 		return null;
 	});
 	return segments.every((segment): segment is StoredAssistantSegment => segment !== null) ? segments : undefined;
+}
+
+function sanitizeQueuedMessages(value: unknown[]): QueuedMessage[] {
+	return value.flatMap((entry, index) => {
+		if (!isRecord(entry) || typeof entry.text !== "string" || !entry.text.trim()) return [];
+		return [{
+			id: typeof entry.id === "string" && entry.id ? entry.id : `queued-${Date.now()}-${index}`,
+			text: entry.text,
+			createdAt: typeof entry.createdAt === "number" && Number.isFinite(entry.createdAt) ? entry.createdAt : Date.now(),
+		}];
+	});
 }
 
 function sanitizeEvents(value: unknown): StoredAgentEvent[] | undefined {

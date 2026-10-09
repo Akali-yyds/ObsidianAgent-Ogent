@@ -9,6 +9,7 @@ describe("vault path operations", () => {
 		const app = {
 			vault: {
 				getAbstractFileByPath: vi.fn((path: string) => path === currentPath ? new MockTFile(path) : null),
+				read: vi.fn(async () => "note body"),
 				createFolder: vi.fn(async () => undefined),
 				rename: vi.fn(async (_file: MockTFile, nextPath: string) => { currentPath = nextPath; }),
 			},

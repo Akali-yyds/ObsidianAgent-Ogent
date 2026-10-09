@@ -81,6 +81,17 @@ export class AgentDropdown {
 		this.renderTrigger();
 	}
 
+	updateOptionText(value: string, text: string): void {
+		const option = this.optionsList.find((entry) => entry.value === value);
+		if (!option) return;
+		option.text = text;
+		this.renderTrigger();
+	}
+
+	setAriaLabel(label: string): void {
+		this.trigger.setAttribute("aria-label", label);
+	}
+
 	remove(index: number): void {
 		if (index < 0 || index >= this.optionsList.length) return;
 		const removed = this.optionsList.splice(index, 1)[0];

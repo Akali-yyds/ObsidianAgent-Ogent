@@ -3,6 +3,7 @@ import { type UndoBuffer } from "../../consent/undo";
 import { defineTool, fail, ok } from "../define";
 import { PathError, safeVaultPath } from "./path-safe";
 import { mergeFrontmatter, splitFrontmatter, stitchFrontmatter } from "./frontmatter";
+import { captureVaultApproval, validateVaultApproval } from "./approval";
 
 interface Args {
 	path: string;
@@ -26,7 +27,9 @@ export function writeTool(app: App, undo: UndoBuffer) {
 			},
 			required: ["path", "body"],
 		},
-		async run(args) {
+		prepareApproval: (args) => captureVaultApproval(app, [args.path]),
+		validateApproval: (_args, snapshot) => validateVaultApproval(app, snapshot),
+		async run(args, ctx) {
 			let p: string;
 			try {
 				p = safeVaultPath(args.path);
@@ -56,7 +59,7 @@ export function writeTool(app: App, undo: UndoBuffer) {
 				await app.vault.create(p, after);
 			}
 
-			undo.record({ path: p, before, after });
+			undo.record({ path: p, before, after }, ctx.sessionId);
 
 			return ok({
 				path: p,

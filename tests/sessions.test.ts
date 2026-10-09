@@ -33,19 +33,52 @@ describe("SessionStore", () => {
 			{ role: "assistant", content: "Hi", segments: [{ kind: "text", text: "Hi" }] },
 		];
 		await store.updateTurns("a", turns);
-		expect(store.getActive().turns).toEqual(turns);
-		expect(JSON.parse(adapter.files.get("a.json") ?? "{}").turns).toEqual(turns);
+		const migratedTurns = store.getActive().turns;
+		expect(migratedTurns.map((turn) => turn.content)).toEqual(["Hello", "Hi"]);
+		expect(migratedTurns.map((turn) => turn.id)).toEqual(["legacy-turn-0", "legacy-turn-1"]);
+		expect(migratedTurns[1].segments?.[0]).toMatchObject({ id: "legacy-turn-1-segment-0", kind: "text", text: "Hi" });
+		expect(JSON.parse(adapter.files.get("a.json") ?? "{}").turns).toEqual(migratedTurns);
 
 		const created = await store.create("model-b");
 		expect(created.model).toBe("model-b");
 		expect(store.getActive().model).toBe("model-b");
 
 		const forked = await store.fork("a");
-		expect(forked?.turns).toEqual(turns);
+		expect(forked?.turns).toEqual(migratedTurns);
 		expect(store.getSessions()).toHaveLength(3);
 
 		await store.resetModels();
 		expect(store.getSessions().every((session) => session.model === "")).toBe(true);
+		expect(persistIndex).toHaveBeenCalled();
+	});
+
+	it("defaults old Access to Ask, restores queued drafts paused, and marks an interrupted run", async () => {
+		const adapter = memoryAdapter();
+		const persistIndex = vi.fn(async () => undefined);
+		const store = new SessionStore({
+			persistIndex,
+			readTurns: async (id) => loadStoredTurnsFile({ adapter, path: `${id}.json` }),
+			writeTurns: async (id, turns) => adapter.write(`${id}.json`, JSON.stringify({ turns })),
+			deleteTurns: async () => undefined,
+		});
+
+		await store.init([{
+			id: "legacy",
+			title: "Legacy",
+			model: "m",
+			createdAt: 1,
+			updatedAt: 2,
+			runState: "awaiting-approval",
+			queuedMessages: [{ id: "q1", text: "Next prompt", createdAt: 3 }],
+			queuePaused: false,
+		}], "legacy");
+
+		expect(store.getActive()).toMatchObject({
+			access: "ask",
+			runState: "interrupted",
+			queuePaused: true,
+			queuedMessages: [{ id: "q1", text: "Next prompt", createdAt: 3 }],
+		});
 		expect(persistIndex).toHaveBeenCalled();
 	});
 
@@ -61,7 +94,7 @@ describe("SessionStore", () => {
 		});
 		await store.init([{ id: "a", title: "A", model: "m", createdAt: 1, updatedAt: 1, attachedContextPaths: ["notes/a.md"] }], "a");
 		expect(store.getActive().attachedContextPaths).toEqual(["notes/a.md"]);
-		expect(store.getActive().turns).toEqual([{ role: "assistant", content: "Answer", events: [{ sequence: 1, timestamp: 2, kind: "text" }] }]);
+		expect(store.getActive().turns).toMatchObject([{ id: "legacy-turn-0", role: "assistant", content: "Answer", events: [{ sequence: 1, timestamp: 2, kind: "text" }] }]);
 	});
 });
 
