@@ -1750,11 +1750,9 @@
 
 .open-agent-turn {
 	gap: 0.28rem;
-	/* Long conversations can contain many rendered Markdown descendants. Let
-	   Chromium skip layout/paint work for turns outside the viewport while
-	   retaining a stable estimate for the scroll bar. */
-	content-visibility: auto;
-	contain-intrinsic-size: auto 96px;
+	/* The transcript already mounts a bounded window of turns. Chromium's
+	   offscreen height estimate makes scrollHeight change while jumping to the
+	   latest message, leaving the viewport above the actual bottom. */
 }
 
 .open-agent-composer {

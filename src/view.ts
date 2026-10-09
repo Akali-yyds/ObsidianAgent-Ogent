@@ -5,7 +5,7 @@ import { diffLines, type DiffRow } from "./consent/diff";
 import { renderRows } from "./consent/render-diff";
 import { runTurn } from "./loop";
 import { CompletedMarkdownCache } from "./markdown-cache";
-import { normalizeTranscriptWindow, shiftTranscriptWindowAtRenderedEdge } from "./transcript-window";
+import { normalizeTranscriptWindow, shiftTranscriptWindowAtRenderedEdge, shouldFollowTranscriptAfterRender } from "./transcript-window";
 import { compactMessages } from "./compaction";
 import { buildVaultContextPrompt, requestsVaultMutation, type VaultContext } from "./context";
 import { OpenAICompatibleProvider } from "./provider";
@@ -799,6 +799,7 @@ export class ChatView extends ItemView {
 		const session = this.deps.sessionStore.getActive();
 		this.turns = this.storedToUiTurns(session.turns, session.id);
 		this.rebuildTurnIndex();
+		this.resetTranscriptWindowToLatest();
 		this.executionMode = session.access ?? "ask";
 		this.refreshHeader();
 		this.renderTranscript();
@@ -983,6 +984,8 @@ export class ChatView extends ItemView {
 	}
 
 	private resetTranscriptWindowToLatest(): void {
+		this.transcriptFollowBottom = true;
+		this.pendingTranscriptAnchor = undefined;
 		this.transcriptWindowEnd = this.turns.length;
 		this.transcriptWindowStart = Math.max(0, this.transcriptWindowEnd - TRANSCRIPT_WINDOW_SIZE);
 	}
@@ -1030,7 +1033,6 @@ export class ChatView extends ItemView {
 
 	private scrollToLatestContent(): void {
 		if (!this.transcriptEl) return;
-		this.transcriptFollowBottom = true;
 		this.forceTranscriptFollowOnNextRender = true;
 		this.newContentPending = false;
 		this.newContentBtn?.classList.add("is-hidden");
@@ -1328,7 +1330,7 @@ export class ChatView extends ItemView {
 		this.liveTurns.set(sessionId, turnSnapshot);
 		void this.deps.sessionStore.updateRunState(sessionId, "running");
 		this.refreshBusyState();
-		if (sessionId === this.deps.sessionStore.getActiveId()) this.renderTranscript();
+		if (sessionId === this.deps.sessionStore.getActiveId()) this.scrollToLatestContent();
 
 		// Read model directly from input element to catch values not yet flushed via change event.
 		const inputModel = sessionId === this.deps.sessionStore.getActiveId() ? this.modelInputEl.value.trim() : "";
@@ -1788,11 +1790,10 @@ export class ChatView extends ItemView {
 	private renderTranscript(): void {
 		const renderGeneration = ++this.transcriptRenderGeneration;
 		const forceFollow = this.forceTranscriptFollowOnNextRender;
-		this.forceTranscriptFollowOnNextRender = false;
 		const markdownRenders: Promise<void>[] = [];
 		const activeId = this.deps.sessionStore.getActive().id;
 		const busy = this.inFlights.has(activeId);
-		if (this.transcriptFollowBottom && this.transcriptWindowEnd >= this.turns.length - 2) this.resetTranscriptWindowToLatest();
+		if (forceFollow || (this.transcriptFollowBottom && this.transcriptWindowEnd >= this.turns.length - 2)) this.resetTranscriptWindowToLatest();
 		else {
 			const normalizedWindow = normalizeTranscriptWindow(this.turns.length, TRANSCRIPT_WINDOW_SIZE, {
 				start: this.transcriptWindowStart,
@@ -1808,13 +1809,8 @@ export class ChatView extends ItemView {
 		const focusedTurnId = activeElement?.closest<HTMLElement>("[data-open-agent-turn-id]")?.dataset.openAgentTurnId;
 		const focusKey = activeElement?.dataset.openAgentFocusKey;
 		const previousScrollTop = this.transcriptEl.scrollTop || 0;
-		const previousScrollHeight = this.transcriptEl.scrollHeight || 0;
-		const viewportHeight = this.transcriptEl.clientHeight || 0;
-		const wasNearBottom =
-			viewportHeight <= 0 ||
-			previousScrollHeight <= 0 ||
-			previousScrollHeight - previousScrollTop - viewportHeight < 80;
-		this.transcriptFollowBottom = wasNearBottom;
+		const followAfterRender = shouldFollowTranscriptAfterRender(this.transcriptFollowBottom, forceFollow);
+		this.transcriptFollowBottom = followAfterRender;
 		if (this.transcriptScrollFrame !== null) {
 			window.cancelAnimationFrame(this.transcriptScrollFrame);
 			this.transcriptScrollFrame = null;
@@ -1850,19 +1846,24 @@ export class ChatView extends ItemView {
 			this.renderTurnRow(row, turn, i, busy, activeId, markdownRenders);
 		}
 		if (windowEnd < this.turns.length) this.renderTranscriptSpacer("bottom", this.turns.length - windowEnd);
+		// Give the jump an immediate position. Waiting for all historical Markdown
+		// renders can take long enough for a streaming patch to invalidate the
+		// delayed restore callback entirely.
+		if (followAfterRender) this.transcriptEl.scrollTop = this.transcriptEl.scrollHeight;
+		this.forceTranscriptFollowOnNextRender = false;
 		const restoreScrollPosition = (): void => {
 			if (renderGeneration !== this.transcriptRenderGeneration) return;
 			const anchor = this.pendingTranscriptAnchor;
 			this.pendingTranscriptAnchor = undefined;
-			if (anchor) {
+			if (anchor && !followAfterRender && !this.transcriptFollowBottom) {
 				const element = [...this.transcriptEl.querySelectorAll<HTMLElement>("[data-open-agent-turn-id]")]
 					.find((candidate) => candidate.dataset.openAgentTurnId === anchor.id);
 				if (element) this.transcriptEl.scrollTop += element.getBoundingClientRect().top - anchor.top;
 				this.transcriptFollowBottom = false;
-			} else if (wasNearBottom || forceFollow) {
+			} else if (followAfterRender && this.transcriptFollowBottom) {
 				this.transcriptEl.scrollTop = this.transcriptEl.scrollHeight;
 				this.transcriptFollowBottom = true;
-			} else {
+			} else if (!this.transcriptFollowBottom) {
 				this.transcriptEl.scrollTop = previousScrollTop;
 				this.transcriptFollowBottom = false;
 				if (this.newContentPending || busy) this.showNewContent();
@@ -1893,6 +1894,15 @@ export class ChatView extends ItemView {
 				window.requestAnimationFrame(restoreScrollPosition);
 			});
 		};
+		// Individual historical Markdown renders may settle at different times.
+		// Keep the bottom in view as their heights become real, not only after the
+		// slowest render has completed.
+		if (followAfterRender) {
+			for (const render of markdownRenders) void render.then(
+				() => this.scheduleTranscriptFollowBottom(),
+				() => this.scheduleTranscriptFollowBottom(),
+			);
+		}
 		if (markdownRenders.length === 0) {
 			restoreAfterLayout();
 		} else {
@@ -2079,8 +2089,6 @@ export class ChatView extends ItemView {
 		const busy = this.inFlights.has(activeId);
 		this.captureDisclosureStates();
 		const previousScrollTop = this.transcriptEl.scrollTop || 0;
-		const previousScrollHeight = this.transcriptEl.scrollHeight || 0;
-		const viewportHeight = this.transcriptEl.clientHeight || 0;
 		const activeElement = document.activeElement instanceof HTMLElement && row.contains(document.activeElement)
 			? document.activeElement
 			: null;
@@ -2093,10 +2101,7 @@ export class ChatView extends ItemView {
 			});
 		const visibleAnchorId = visibleAnchor?.dataset.openAgentTurnId;
 		const visibleAnchorTop = visibleAnchor?.getBoundingClientRect().top;
-		const wasNearBottom = this.transcriptFollowBottom ||
-			viewportHeight <= 0 ||
-			previousScrollHeight <= 0 ||
-			previousScrollHeight - previousScrollTop - viewportHeight < 80;
+		const followAfterRender = this.transcriptFollowBottom;
 		if (this.transcriptScrollFrame !== null) {
 			window.cancelAnimationFrame(this.transcriptScrollFrame);
 			this.transcriptScrollFrame = null;
@@ -2104,10 +2109,11 @@ export class ChatView extends ItemView {
 		this.clearTurnStreamingElements(activeId, turn.id);
 		row.empty();
 		this.renderTurnRow(row, turn, turnIndex, busy, activeId, markdownRenders);
+		if (followAfterRender) this.transcriptEl.scrollTop = this.transcriptEl.scrollHeight;
 
 		const restore = (): void => {
 			if (renderGeneration !== this.transcriptRenderGeneration) return;
-			if (wasNearBottom) {
+			if (followAfterRender && this.transcriptFollowBottom) {
 				this.transcriptEl.scrollTop = this.transcriptEl.scrollHeight;
 				this.transcriptFollowBottom = true;
 			} else {
@@ -2134,6 +2140,12 @@ export class ChatView extends ItemView {
 			if (renderGeneration !== this.transcriptRenderGeneration) return;
 			window.requestAnimationFrame(() => window.requestAnimationFrame(restore));
 		};
+		if (followAfterRender) {
+			for (const render of markdownRenders) void render.then(
+				() => this.scheduleTranscriptFollowBottom(),
+				() => this.scheduleTranscriptFollowBottom(),
+			);
+		}
 		if (markdownRenders.length === 0) restoreAfterLayout();
 		else void Promise.allSettled(markdownRenders).then(restoreAfterLayout);
 	}

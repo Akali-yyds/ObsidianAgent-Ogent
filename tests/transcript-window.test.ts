@@ -1,8 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { normalizeTranscriptWindow, shiftTranscriptWindowAtRenderedEdge, shiftTranscriptWindowOnScroll } from "../src/transcript-window";
+import { normalizeTranscriptWindow, shiftTranscriptWindowAtRenderedEdge, shiftTranscriptWindowOnScroll, shouldFollowTranscriptAfterRender } from "../src/transcript-window";
 import { createTranscript500Fixture } from "./fixtures/transcript-500";
 
 describe("transcript window", () => {
+	it("keeps explicit latest/send intent when new content makes the old position look far from the bottom", () => {
+		expect(shouldFollowTranscriptAfterRender(true, true)).toBe(true);
+		expect(shouldFollowTranscriptAfterRender(false, true)).toBe(true);
+		expect(shouldFollowTranscriptAfterRender(true, false)).toBe(true);
+		expect(shouldFollowTranscriptAfterRender(false, false)).toBe(false);
+	});
 	it("normalizes empty, short, and oversized windows", () => {
 		expect(normalizeTranscriptWindow(0, 80, { start: 0, end: 0 })).toEqual({ start: 0, end: 0 });
 		expect(normalizeTranscriptWindow(12, 80, { start: 5, end: 10 })).toEqual({ start: 0, end: 12 });

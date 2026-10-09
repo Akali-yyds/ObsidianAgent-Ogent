@@ -3,6 +3,11 @@ export interface TranscriptWindow {
 	end: number;
 }
 
+/** Scroll intent is explicit state; adding a turn can invalidate old geometry. */
+export function shouldFollowTranscriptAfterRender(following: boolean, requestedLatest: boolean): boolean {
+	return requestedLatest || following;
+}
+
 export function normalizeTranscriptWindow(total: number, size: number, current: TranscriptWindow): TranscriptWindow {
 	if (total <= size) return { start: 0, end: total };
 	const end = Math.max(0, Math.min(total, current.end));
